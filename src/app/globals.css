@@ -1,0 +1,170 @@
+@import "tailwindcss";
+
+@font-face {
+  font-family: "General Sans";
+  src: url("/fonts/general-sans/GeneralSans-Variable.woff2") format("woff2-variations"),
+    url("/fonts/general-sans/GeneralSans-Variable.woff2") format("woff2");
+  font-weight: 200 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Brand tokens: nothing outside this palette. */
+@theme {
+  --color-ink: #0e0d0b;
+  --color-paper: #f2ece0;
+  --color-brass: #c8a048;
+  --color-signal: #ff4a1c;
+  --color-answered: #d4ff3a;
+  --color-smoke: #8a847a;
+
+  --font-display: "Bricolage Grotesque Variable", "Bricolage Grotesque", ui-sans-serif, sans-serif;
+  --font-serif: "Instrument Serif", ui-serif, Georgia, serif;
+  --font-sans: "General Sans", "Bricolage Grotesque Variable", ui-sans-serif, sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace;
+
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Semantic surface tokens. Dashboard ships light (paper) and dark (ink). */
+:root,
+[data-theme="light"] {
+  --bg: #f2ece0;
+  --panel: #f7f2e8;
+  --raised: #fbf8f2;
+  --fg: #0e0d0b;
+  --fg-2: #3d3a34;
+  --muted: #6f6a61;
+  --line: #d9d1c2;
+  --line-strong: #b9b0a0;
+  --brass-ink: #8a6618;
+  --brass-mark: #9a7524;
+  --signal-ink: #c8350f;
+  --signal-mark: #d9380f;
+  --neutral-mark: #cfc8bb;
+  --answered-ink: #4f6200;
+  --focus: #c8a048;
+  color-scheme: light;
+}
+[data-theme="dark"] {
+  --bg: #0e0d0b;
+  --panel: #151411;
+  --raised: #1b1a16;
+  --fg: #f2ece0;
+  --fg-2: #cfc8bb;
+  --muted: #8a847a;
+  --line: #2a2823;
+  --line-strong: #3d3a33;
+  --brass-ink: #d7b25e;
+  --brass-mark: #c29b45;
+  --signal-ink: #ff6a42;
+  --signal-mark: #ff4a1c;
+  --neutral-mark: #4a463f;
+  --answered-ink: #d4ff3a;
+  --focus: #c8a048;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-raised: var(--raised);
+  --color-fg: var(--fg);
+  --color-fg-2: var(--fg-2);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-brass-ink: var(--brass-ink);
+  --color-signal-ink: var(--signal-ink);
+  --color-answered-ink: var(--answered-ink);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-rendering: optimizeLegibility;
+}
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.5;
+  font-feature-settings: "ss01", "cv11";
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+::selection {
+  background: color-mix(in oklab, var(--color-brass) 45%, transparent);
+}
+
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.03em;
+  font-variation-settings: "opsz" 96, "wdth" 100;
+}
+.accent-word {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* Realtime rows: a brief brass flash when they arrive. */
+@keyframes brass-flash {
+  0% {
+    background-color: color-mix(in oklab, var(--color-brass) 32%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+@keyframes slide-in {
+  from {
+    transform: translateY(-6px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+.row-new {
+  animation: slide-in 320ms var(--ease-out-quint), brass-flash 1400ms ease-out;
+}
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.live-dot {
+  animation: pulse-dot 2.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .row-new,
+  .live-dot {
+    animation: none;
+  }
+}
+
+/* Hatched fill for busy calendar time (texture, not color, carries "busy"). */
+.hatch {
+  background-image: repeating-linear-gradient(135deg, var(--line-strong) 0 1px, transparent 1px 7px);
+}
+
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}

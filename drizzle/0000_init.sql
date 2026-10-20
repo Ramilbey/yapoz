@@ -1,0 +1,438 @@
+CREATE TYPE "public"."author" AS ENUM('customer', 'ai', 'staff', 'system');--> statement-breakpoint
+CREATE TYPE "public"."booking_status" AS ENUM('confirmed', 'cancelled', 'seated', 'no_show');--> statement-breakpoint
+CREATE TYPE "public"."candidate_source" AS ENUM('telegram_channel', 'bot_apply', 'upload');--> statement-breakpoint
+CREATE TYPE "public"."channel_mode" AS ENUM('autopilot', 'copilot');--> statement-breakpoint
+CREATE TYPE "public"."channel_type" AS ENUM('telegram', 'whatsapp', 'instagram', 'simulator');--> statement-breakpoint
+CREATE TYPE "public"."direction" AS ENUM('in', 'out');--> statement-breakpoint
+CREATE TYPE "public"."escalation_status" AS ENUM('open', 'resolved');--> statement-breakpoint
+CREATE TYPE "public"."interview_status" AS ENUM('offered', 'scheduled', 'done', 'cancelled');--> statement-breakpoint
+CREATE TYPE "public"."job_status" AS ENUM('queued', 'running', 'done', 'failed');--> statement-breakpoint
+CREATE TYPE "public"."kb_kind" AS ENUM('product', 'service', 'policy', 'faq', 'hours', 'info');--> statement-breakpoint
+CREATE TYPE "public"."message_status" AS ENUM('received', 'pending_approval', 'sent', 'failed', 'discarded');--> statement-breakpoint
+CREATE TYPE "public"."run_outcome" AS ENUM('auto_resolved', 'booked', 'escalated', 'drafted', 'declined', 'error');--> statement-breakpoint
+CREATE TYPE "public"."outreach_kind" AS ENUM('invite', 'rejection');--> statement-breakpoint
+CREATE TYPE "public"."outreach_status" AS ENUM('draft', 'approved', 'sent', 'failed', 'cancelled');--> statement-breakpoint
+CREATE TYPE "public"."priority" AS ENUM('low', 'normal', 'high', 'urgent');--> statement-breakpoint
+CREATE TYPE "public"."role" AS ENUM('owner', 'service', 'hr');--> statement-breakpoint
+CREATE TYPE "public"."stage" AS ENUM('sourced', 'shortlisted', 'invited', 'scheduled', 'interviewed', 'hired', 'rejected');--> statement-breakpoint
+CREATE TYPE "public"."thread_status" AS ENUM('open', 'needs_human', 'resolved');--> statement-breakpoint
+CREATE TABLE "agent_runs" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" text NOT NULL,
+	"thread_id" uuid NOT NULL,
+	"inbound_message_id" uuid,
+	"channel" "channel_type" NOT NULL,
+	"model" text NOT NULL,
+	"intent" text,
+	"topic" text,
+	"language" text,
+	"sentiment" text,
+	"confidence" numeric,
+	"tool_calls" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"latency_ms" integer,
+	"first_response_ms" integer,
+	"input_tokens" integer DEFAULT 0 NOT NULL,
+	"output_tokens" integer DEFAULT 0 NOT NULL,
+	"cache_read_tokens" integer DEFAULT 0 NOT NULL,
+	"cache_write_tokens" integer DEFAULT 0 NOT NULL,
+	"outcome" "run_outcome" NOT NULL,
+	"error" text,
+	"is_demo" boolean DEFAULT false NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "bookings" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" text NOT NULL,
+	"thread_id" uuid,
+	"customer_id" uuid,
+	"customer_name" text NOT NULL,
+	"phone" text,
+	"kind" text DEFAULT 'table' NOT NULL,
+	"party_size" integer NOT NULL,
+	"starts_at" timestamp with time zone NOT NULL,
+	"ends_at" timestamp with time zone NOT NULL,
+	"notes" text,
+	"ref_code" text NOT NULL,
+	"status" "booking_status" DEFAULT 'confirmed' NOT NULL,
+	"channel" "channel_type",
+	"is_demo" boolean DEFAULT false NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "bot_sessions" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" text NOT NULL,
+	"channel" "channel_type" NOT NULL,
+	"chat_id" text NOT NULL,
+	"flow" text NOT NULL,
+	"step" text NOT NULL,
+	"data" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "calendar_events" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" text NOT NULL,
+	"user_id" uuid,
+	"title" text NOT NULL,
+	"kind" text DEFAULT 'busy' NOT NULL,
+	"interview_id" uuid,
+	"starts_at" timestamp with time zone NOT NULL,
+	"ends_at" timestamp with time zone NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "candidate_documents" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" text NOT NULL,
+	"candidate_id" uuid NOT NULL,
+	"filename" text NOT NULL,
+	"mime" text NOT NULL,
+	"bytes" "bytea" NOT NULL,
+	"text" text DEFAULT '' NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "candidates" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" text NOT NULL,
+	"full_name" text NOT NULL,
+	"source" "candidate_source" NOT NULL,
+	"source_ref" text,
+	"role_interest" text,
+	"telegram_chat_id" text,
+	"telegram_username" text,
+	"phone" text,
+	"email" text,
+	"language" text DEFAULT 'en' NOT NULL,
+	"district" text,
+	"total_years" numeric,
+	"availability" text[] DEFAULT '{}' NOT NULL,
+	"profile" jsonb,
+	"raw_text" text NOT NULL,
+	"consent" boolean DEFAULT false NOT NULL,
+	"consent_at" timestamp with time zone,
+	"parsed_by" text,
+	"parsed_at" timestamp with time zone,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "channels" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" text NOT NULL,
+	"type" "channel_type" NOT NULL,
+	"mode" "channel_mode" DEFAULT 'autopilot' NOT NULL,
+	"config" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"credentials_enc" text,
+	"enabled" boolean DEFAULT true NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "customers" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" text NOT NULL,
+	"channel" "channel_type" NOT NULL,
+	"external_id" text NOT NULL,
+	"display_name" text,
+	"username" text,
+	"phone" text,
+	"language" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"last_seen_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "escalations" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" text NOT NULL,
+	"thread_id" uuid NOT NULL,
+	"agent_run_id" uuid,
+	"reason" text NOT NULL,
+	"category" text NOT NULL,
+	"priority" "priority" DEFAULT 'normal' NOT NULL,
+	"summary" text NOT NULL,
+	"status" "escalation_status" DEFAULT 'open' NOT NULL,
+	"resolved_by" uuid,
+	"resolved_at" timestamp with time zone,
+	"is_demo" boolean DEFAULT false NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "events" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"workspace_id" text NOT NULL,
+	"type" text NOT NULL,
+	"props" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"is_demo" boolean DEFAULT false NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "integrations" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" text NOT NULL,
+	"user_id" uuid,
+	"provider" text NOT NULL,
+	"data_enc" text NOT NULL,
+	"meta" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "interviews" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" text NOT NULL,
+	"match_id" uuid NOT NULL,
+	"candidate_id" uuid NOT NULL,
+	"requisition_id" uuid NOT NULL,
+	"outreach_id" uuid,
+	"starts_at" timestamp with time zone NOT NULL,
+	"ends_at" timestamp with time zone NOT NULL,
+	"mode" text DEFAULT 'onsite' NOT NULL,
+	"location" text,
+	"meet_url" text,
+	"provider" text DEFAULT 'builtin' NOT NULL,
+	"external_event_id" text,
+	"status" "interview_status" DEFAULT 'scheduled' NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "jobs" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" text,
+	"type" text NOT NULL,
+	"dedupe_key" text,
+	"payload" jsonb NOT NULL,
+	"status" "job_status" DEFAULT 'queued' NOT NULL,
+	"attempts" integer DEFAULT 0 NOT NULL,
+	"run_after" timestamp with time zone DEFAULT now() NOT NULL,
+	"last_error" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "kb_items" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" text NOT NULL,
+	"kind" "kb_kind" NOT NULL,
+	"category" text NOT NULL,
+	"slug" text NOT NULL,
+	"title" text NOT NULL,
+	"body" text DEFAULT '' NOT NULL,
+	"data" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"tags" text[] DEFAULT '{}' NOT NULL,
+	"available" boolean DEFAULT true NOT NULL,
+	"availability_note" text,
+	"sort" integer DEFAULT 0 NOT NULL,
+	"active" boolean DEFAULT true NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "kb_variants" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" text NOT NULL,
+	"item_id" uuid NOT NULL,
+	"size" text,
+	"color" text,
+	"price_minor" integer NOT NULL,
+	"stock" integer,
+	"sku" text
+);
+--> statement-breakpoint
+CREATE TABLE "knowledge_gaps" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" text NOT NULL,
+	"key" text NOT NULL,
+	"question" text NOT NULL,
+	"count" integer DEFAULT 1 NOT NULL,
+	"status" text DEFAULT 'open' NOT NULL,
+	"kb_item_id" uuid,
+	"is_demo" boolean DEFAULT false NOT NULL,
+	"first_asked_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"last_asked_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "matches" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" text NOT NULL,
+	"requisition_id" uuid NOT NULL,
+	"candidate_id" uuid NOT NULL,
+	"score" integer,
+	"evidence" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"summary" text,
+	"distance_km" numeric,
+	"stage" "stage" DEFAULT 'sourced' NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "messages" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" text NOT NULL,
+	"thread_id" uuid NOT NULL,
+	"direction" "direction" NOT NULL,
+	"author" "author" NOT NULL,
+	"author_user_id" uuid,
+	"text" text NOT NULL,
+	"attachments" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"status" "message_status" NOT NULL,
+	"external_message_id" text,
+	"agent_run_id" uuid,
+	"error" text,
+	"is_demo" boolean DEFAULT false NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "outreach" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" text NOT NULL,
+	"match_id" uuid NOT NULL,
+	"candidate_id" uuid NOT NULL,
+	"kind" "outreach_kind" NOT NULL,
+	"channel" text NOT NULL,
+	"language" text DEFAULT 'en' NOT NULL,
+	"interview_mode" text,
+	"slots" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"draft" text NOT NULL,
+	"final_text" text,
+	"status" "outreach_status" DEFAULT 'draft' NOT NULL,
+	"approver_id" uuid,
+	"approved_at" timestamp with time zone,
+	"sent_at" timestamp with time zone,
+	"error" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "rate_limits" (
+	"key" text PRIMARY KEY NOT NULL,
+	"window_start" timestamp with time zone NOT NULL,
+	"count" integer DEFAULT 0 NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "requisitions" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" text NOT NULL,
+	"title" text NOT NULL,
+	"description" text DEFAULT '' NOT NULL,
+	"raw_request" text,
+	"criteria" jsonb,
+	"fairness_notice" boolean DEFAULT false NOT NULL,
+	"status" text DEFAULT 'open' NOT NULL,
+	"created_by" uuid,
+	"ranked_at" timestamp with time zone,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "telegram_business_connections" (
+	"id" text PRIMARY KEY NOT NULL,
+	"workspace_id" text NOT NULL,
+	"owner_user_id" text NOT NULL,
+	"owner_chat_id" text,
+	"can_reply" boolean DEFAULT false NOT NULL,
+	"rights" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"is_enabled" boolean DEFAULT true NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "threads" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" text NOT NULL,
+	"channel" "channel_type" NOT NULL,
+	"external_thread_id" text NOT NULL,
+	"customer_id" uuid NOT NULL,
+	"status" "thread_status" DEFAULT 'open' NOT NULL,
+	"ai_paused" boolean DEFAULT false NOT NULL,
+	"taken_over_by" uuid,
+	"routing" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"accent" text,
+	"is_demo" boolean DEFAULT false NOT NULL,
+	"last_message_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"last_inbound_at" timestamp with time zone,
+	"last_preview" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "users" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" text NOT NULL,
+	"email" text NOT NULL,
+	"name" text NOT NULL,
+	"password_hash" text NOT NULL,
+	"role" "role" NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "workspaces" (
+	"id" text PRIMARY KEY NOT NULL,
+	"name" text NOT NULL,
+	"city" text NOT NULL,
+	"timezone" text NOT NULL,
+	"currency" text NOT NULL,
+	"settings" jsonb NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+ALTER TABLE "agent_runs" ADD CONSTRAINT "agent_runs_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "agent_runs" ADD CONSTRAINT "agent_runs_thread_id_threads_id_fk" FOREIGN KEY ("thread_id") REFERENCES "public"."threads"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "bookings" ADD CONSTRAINT "bookings_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "bookings" ADD CONSTRAINT "bookings_thread_id_threads_id_fk" FOREIGN KEY ("thread_id") REFERENCES "public"."threads"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "bookings" ADD CONSTRAINT "bookings_customer_id_customers_id_fk" FOREIGN KEY ("customer_id") REFERENCES "public"."customers"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "bot_sessions" ADD CONSTRAINT "bot_sessions_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "calendar_events" ADD CONSTRAINT "calendar_events_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "calendar_events" ADD CONSTRAINT "calendar_events_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "candidate_documents" ADD CONSTRAINT "candidate_documents_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "candidate_documents" ADD CONSTRAINT "candidate_documents_candidate_id_candidates_id_fk" FOREIGN KEY ("candidate_id") REFERENCES "public"."candidates"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "candidates" ADD CONSTRAINT "candidates_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "channels" ADD CONSTRAINT "channels_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "customers" ADD CONSTRAINT "customers_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "escalations" ADD CONSTRAINT "escalations_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "escalations" ADD CONSTRAINT "escalations_thread_id_threads_id_fk" FOREIGN KEY ("thread_id") REFERENCES "public"."threads"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "escalations" ADD CONSTRAINT "escalations_resolved_by_users_id_fk" FOREIGN KEY ("resolved_by") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "events" ADD CONSTRAINT "events_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "integrations" ADD CONSTRAINT "integrations_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "integrations" ADD CONSTRAINT "integrations_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "interviews" ADD CONSTRAINT "interviews_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "interviews" ADD CONSTRAINT "interviews_match_id_matches_id_fk" FOREIGN KEY ("match_id") REFERENCES "public"."matches"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "interviews" ADD CONSTRAINT "interviews_candidate_id_candidates_id_fk" FOREIGN KEY ("candidate_id") REFERENCES "public"."candidates"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "interviews" ADD CONSTRAINT "interviews_requisition_id_requisitions_id_fk" FOREIGN KEY ("requisition_id") REFERENCES "public"."requisitions"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "kb_items" ADD CONSTRAINT "kb_items_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "kb_variants" ADD CONSTRAINT "kb_variants_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "kb_variants" ADD CONSTRAINT "kb_variants_item_id_kb_items_id_fk" FOREIGN KEY ("item_id") REFERENCES "public"."kb_items"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "knowledge_gaps" ADD CONSTRAINT "knowledge_gaps_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "matches" ADD CONSTRAINT "matches_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "matches" ADD CONSTRAINT "matches_requisition_id_requisitions_id_fk" FOREIGN KEY ("requisition_id") REFERENCES "public"."requisitions"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "matches" ADD CONSTRAINT "matches_candidate_id_candidates_id_fk" FOREIGN KEY ("candidate_id") REFERENCES "public"."candidates"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "messages" ADD CONSTRAINT "messages_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "messages" ADD CONSTRAINT "messages_thread_id_threads_id_fk" FOREIGN KEY ("thread_id") REFERENCES "public"."threads"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "messages" ADD CONSTRAINT "messages_author_user_id_users_id_fk" FOREIGN KEY ("author_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "outreach" ADD CONSTRAINT "outreach_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "outreach" ADD CONSTRAINT "outreach_match_id_matches_id_fk" FOREIGN KEY ("match_id") REFERENCES "public"."matches"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "outreach" ADD CONSTRAINT "outreach_candidate_id_candidates_id_fk" FOREIGN KEY ("candidate_id") REFERENCES "public"."candidates"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "outreach" ADD CONSTRAINT "outreach_approver_id_users_id_fk" FOREIGN KEY ("approver_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "requisitions" ADD CONSTRAINT "requisitions_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "requisitions" ADD CONSTRAINT "requisitions_created_by_users_id_fk" FOREIGN KEY ("created_by") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "telegram_business_connections" ADD CONSTRAINT "telegram_business_connections_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "threads" ADD CONSTRAINT "threads_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "threads" ADD CONSTRAINT "threads_customer_id_customers_id_fk" FOREIGN KEY ("customer_id") REFERENCES "public"."customers"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "threads" ADD CONSTRAINT "threads_taken_over_by_users_id_fk" FOREIGN KEY ("taken_over_by") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "users" ADD CONSTRAINT "users_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "runs_ws_created" ON "agent_runs" USING btree ("workspace_id","created_at");--> statement-breakpoint
+CREATE UNIQUE INDEX "bookings_ref" ON "bookings" USING btree ("ref_code");--> statement-breakpoint
+CREATE INDEX "bookings_ws_start" ON "bookings" USING btree ("workspace_id","starts_at");--> statement-breakpoint
+CREATE UNIQUE INDEX "bot_sessions_chat" ON "bot_sessions" USING btree ("workspace_id","channel","chat_id");--> statement-breakpoint
+CREATE INDEX "cal_ws_start" ON "calendar_events" USING btree ("workspace_id","starts_at");--> statement-breakpoint
+CREATE INDEX "cand_ws" ON "candidates" USING btree ("workspace_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "channels_ws_type" ON "channels" USING btree ("workspace_id","type");--> statement-breakpoint
+CREATE UNIQUE INDEX "customers_ws_ch_ext" ON "customers" USING btree ("workspace_id","channel","external_id");--> statement-breakpoint
+CREATE INDEX "esc_ws_status" ON "escalations" USING btree ("workspace_id","status");--> statement-breakpoint
+CREATE INDEX "events_ws_type_created" ON "events" USING btree ("workspace_id","type","created_at");--> statement-breakpoint
+CREATE UNIQUE INDEX "integrations_ws_provider" ON "integrations" USING btree ("workspace_id","provider");--> statement-breakpoint
+CREATE UNIQUE INDEX "jobs_dedupe" ON "jobs" USING btree ("dedupe_key");--> statement-breakpoint
+CREATE INDEX "jobs_status_run" ON "jobs" USING btree ("status","run_after");--> statement-breakpoint
+CREATE UNIQUE INDEX "kb_ws_slug" ON "kb_items" USING btree ("workspace_id","slug");--> statement-breakpoint
+CREATE INDEX "kb_ws_kind" ON "kb_items" USING btree ("workspace_id","kind");--> statement-breakpoint
+CREATE INDEX "variants_item" ON "kb_variants" USING btree ("item_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "gaps_ws_key" ON "knowledge_gaps" USING btree ("workspace_id","key");--> statement-breakpoint
+CREATE UNIQUE INDEX "matches_req_cand" ON "matches" USING btree ("requisition_id","candidate_id");--> statement-breakpoint
+CREATE INDEX "messages_thread_created" ON "messages" USING btree ("thread_id","created_at");--> statement-breakpoint
+CREATE INDEX "messages_ws_created" ON "messages" USING btree ("workspace_id","created_at");--> statement-breakpoint
+CREATE UNIQUE INDEX "threads_ws_ch_ext" ON "threads" USING btree ("workspace_id","channel","external_thread_id");--> statement-breakpoint
+CREATE INDEX "threads_ws_last" ON "threads" USING btree ("workspace_id","last_message_at");--> statement-breakpoint
+CREATE UNIQUE INDEX "users_ws_email" ON "users" USING btree ("workspace_id","email");
