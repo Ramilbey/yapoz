@@ -232,7 +232,7 @@ export function BarList({ items, total, format = (n: number) => String(n), empty
             <span className="truncate text-fg">{it.label}</span>
             <span className="num shrink-0 text-fg-2">
               {format(it.value)}
-              {total ? <span className="text-muted"> · {Math.round((it.value / total) * 100)}%</span> : null}
+              {total ? <span className="ml-2 text-muted">{Math.round((it.value / total) * 100)}%</span> : null}
               {it.note ? <span className="ml-2 text-muted">{it.note}</span> : null}
             </span>
           </div>

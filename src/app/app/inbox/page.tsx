@@ -374,7 +374,7 @@ function MessageRow({ m, busy, onApprove, onDiscard }: { m: Msg; busy: boolean; 
         ) : null}
         {m.run ? (
           <div className="mt-1 font-mono text-[11px] text-muted">
-            {[m.run.model.replace("claude-", ""), m.run.latencyMs != null ? `${(m.run.latencyMs / 1000).toFixed(1)}s` : null, m.run.tokens ? `${(m.run.tokens / 1000).toFixed(1)}k tokens${m.run.cacheRead ? `, ${(m.run.cacheRead / 1000).toFixed(1)}k cached` : ""}` : null, m.run.intent, m.run.tools.length ? null : "answered from knowledge"].filter(Boolean).join("  /  ")}
+            {m.run.model === "none" ? "AI offline: no API key on the server" : [m.run.model.replace("claude-", ""), m.run.latencyMs != null ? `${(m.run.latencyMs / 1000).toFixed(1)}s` : null, m.run.tokens ? `${(m.run.tokens / 1000).toFixed(1)}k tokens${m.run.cacheRead ? `, ${(m.run.cacheRead / 1000).toFixed(1)}k cached` : ""}` : null, m.run.intent, m.run.tools.length ? null : "answered from knowledge"].filter(Boolean).join("  /  ")}
           </div>
         ) : null}
         {draft ? (

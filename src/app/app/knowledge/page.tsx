@@ -105,7 +105,7 @@ function ProductRow({ item, save }: { item: Item; save: ReturnType<typeof useSav
   useEffect(() => setNote(item.availabilityNote ?? ""), [item.availabilityNote]);
   const d = item.data as { vegetarian?: boolean; vegan?: boolean; halal?: boolean; spicy?: boolean; allergens?: string[] };
   return (
-    <div className={cx("grid grid-cols-1 gap-4 py-4 md:grid-cols-[1.4fr_1fr_1.2fr] md:items-start", !item.available && "bg-signal/[0.04]")}>
+    <div className={cx("grid grid-cols-1 gap-4 py-4 md:grid-cols-[1.2fr_1.3fr_1fr] md:items-start", !item.available && "bg-signal/[0.04]")}>
       <div>
         <button onClick={() => setOpen((v) => !v)} className="text-left">
           <span className="text-[15px] font-medium">{item.title}</span>
@@ -152,7 +152,7 @@ function PriceInput({ v, save }: { v: Variant; save: ReturnType<typeof useSaver>
       <span className="text-[12px] text-muted">{v.size ?? "Price"}</span>
       <span className="text-[12px] text-muted">RM</span>
       <input
-        className="num w-12 bg-transparent text-[14px] focus:outline-none"
+        className="num w-10 bg-transparent text-[14px] focus:outline-none"
         value={val}
         inputMode="decimal"
         onChange={(e) => setVal(e.target.value)}
