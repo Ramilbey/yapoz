@@ -16,7 +16,15 @@ export const env = {
     return process.env.CLAUDE_SMART_MODEL ?? "claude-sonnet-5-5";
   },
   get hasAnthropic() {
-    return Boolean(process.env.ANTHROPIC_API_KEY);
+    return Boolean(
+      process.env.GROQ_API_KEY ||
+      process.env.GEMINI_API_KEY ||
+      process.env.OPENROUTER_API_KEY ||
+      process.env.OLLAMA_BASE_URL ||
+      process.env.USE_OLLAMA === "true" ||
+      process.env.OPENAI_API_KEY ||
+      process.env.ANTHROPIC_API_KEY
+    );
   },
   get authSecret() {
     const s = process.env.AUTH_SECRET;
