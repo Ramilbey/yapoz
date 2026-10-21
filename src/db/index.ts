@@ -30,7 +30,7 @@ export type DB = typeof db;
 /** Dedicated connection for LISTEN. Needs a session-mode connection (Supabase: port 5432 / session pooler). */
 export function listenClient() {
   if (!g.__listenSql) {
-    g.__listenSql = postgres(process.env.DATABASE_URL_LISTEN ?? url(), { max: 1, idle_timeout: 0, onnotice: () => {} });
+    g.__listenSql = postgres(process.env.DATABASE_URL_LISTEN || url(), { max: 1, idle_timeout: 0, onnotice: () => {} });
   }
   return g.__listenSql;
 }
