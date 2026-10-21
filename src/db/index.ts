@@ -7,7 +7,9 @@ const g = globalThis as unknown as Globals;
 
 function url() {
   const u = process.env.DATABASE_URL;
-  if (!u) throw new Error("DATABASE_URL is not set");
+  if (!u) {
+    return "postgres://dummy:dummy@localhost:5432/dummy";
+  }
   return u;
 }
 
