@@ -13,11 +13,14 @@ function url() {
   return u;
 }
 
+const u = url();
+const isPooler = /:6543\//.test(u) || /supabase\.(com|co)/.test(u) || process.env.VERCEL === "1";
+
 export const sql =
   g.__sql ??
-  postgres(url(), {
+  postgres(u, {
     max: Number(process.env.DB_POOL_MAX ?? 10),
-    prepare: !/:6543\//.test(url()),
+    prepare: !isPooler,
     idle_timeout: 20,
     onnotice: () => {},
   });
