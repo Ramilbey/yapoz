@@ -73,7 +73,13 @@ export function LoginForm({ demo, next, initialWorkspace }: { demo: Demo; next: 
                 key={r.email}
                 type="button"
                 disabled={busy}
-                onClick={() => void submit(undefined, { email: r.email, password: demo.password, workspaceId: demo.workspaceId })}
+                onClick={() => {
+                  setEmail(r.email);
+                  setPassword(demo.password);
+                  setWs(demo.workspaceId);
+                  setShowWs(true);
+                  void submit(undefined, { email: r.email, password: demo.password, workspaceId: demo.workspaceId });
+                }}
                 className="flex items-center justify-between rounded-xl border border-paper/10 px-4 py-3 text-left transition hover:border-brass/60 hover:bg-paper/[0.03]"
               >
                 <span>
