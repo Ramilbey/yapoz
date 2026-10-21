@@ -11,7 +11,7 @@ export async function POST(req: Request) {
   if (!env.telegramWebhookSecret || !safeEqual(secret, env.telegramWebhookSecret)) return new Response("unauthorized", { status: 401 });
   const update = (await req.json().catch(() => null)) as { update_id?: number } | null;
   if (!update?.update_id) return Response.json({ ok: true });
-  const workspaceId = env.demoWorkspaceId;
-  await enqueue("telegram.update", { workspaceId, update }, { dedupeKey: `tg:${workspaceId}:${update.update_id}`, workspaceId });
+  // The shared Jawab bot: the handler works out which business each chat belongs to.
+  await enqueue("telegram.update", { bot: "platform", update }, { dedupeKey: `tg:platform:${update.update_id}` });
   return Response.json({ ok: true });
 }

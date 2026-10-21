@@ -42,9 +42,9 @@ export const ROLE_HOME: Record<Role, string> = { owner: "/app/today", service: "
 
 /** Which app sections each role may open. */
 export const ROLE_SECTIONS: Record<Role, string[]> = {
-  owner: ["today", "inbox", "needs-you", "knowledge", "bookings", "hiring", "settings"],
-  service: ["inbox", "needs-you", "knowledge", "bookings"],
-  hr: ["hiring"],
+  owner: ["setup", "today", "inbox", "needs-you", "knowledge", "bookings", "hiring", "settings", "account"],
+  service: ["inbox", "needs-you", "knowledge", "bookings", "account"],
+  hr: ["hiring", "account"],
 };
 
 export function canOpen(role: Role, pathname: string): boolean {

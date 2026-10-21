@@ -3,7 +3,8 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { extractText, getDocumentProxy } from "unpdf";
 import { db, t } from "@/db";
 import { eq } from "drizzle-orm";
-import { WORKSPACE, PIZZAS, SIDES, MERCH, MERCH_COLORS, MERCH_SIZES, HOURS, DELIVERY, POLICIES, FAQS, EXTRAS, SIZES, DISTRICT } from "./forno";
+import { WORKSPACE, PIZZAS, SIDES, MERCH, MERCH_COLORS, MERCH_SIZES, HOURS, DELIVERY, POLICIES, FAQS, EXTRAS, SIZES, DISTRICT, BOOKING_TYPES } from "./forno";
+import { seedSalon } from "./kasih";
 import { CANDIDATES, resumeText, type SeedCandidate } from "./candidates";
 import { weightedLibrary, rng } from "@/demo/library";
 import { insertDemoTurn } from "@/demo/replay";
@@ -40,6 +41,8 @@ export async function seedWorkspace({ withHistory = true, log = (() => {}) as Lo
     { workspaceId: ws.id, type: "whatsapp", mode: "autopilot", config: { phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID ?? null } },
     { workspaceId: ws.id, type: "instagram", mode: "autopilot", config: { accountId: process.env.INSTAGRAM_ACCOUNT_ID ?? null } },
   ]);
+
+  const [tableType] = await db.insert(t.bookingTypes).values(BOOKING_TYPES.map((b, i) => ({ ...b, workspaceId: ws.id, sort: i }))).returning();
 
   // Knowledge: pizzas
   let sort = 0;
@@ -114,7 +117,7 @@ export async function seedWorkspace({ withHistory = true, log = (() => {}) as Lo
       if (overlaps.some((k) => occupied(k) + party > 20)) continue;
       bookingRows.push({
         workspaceId: ws.id, customerName: names[Math.floor(rand() * names.length)], partySize: party, startsAt,
-        endsAt: new Date(startsAt.getTime() + 90 * 60_000), refCode: shortCode("F7"), status: "confirmed", isDemo: true,
+        endsAt: new Date(startsAt.getTime() + 90 * 60_000), refCode: shortCode("F7"), status: "confirmed", isDemo: true, bookingTypeId: tableType.id, kind: "table",
         notes: rand() < 0.2 ? "Birthday, bringing cake" : null,
       });
     }
@@ -122,7 +125,7 @@ export async function seedWorkspace({ withHistory = true, log = (() => {}) as Lo
       // Fill 8pm Saturday so the agent has to offer alternatives.
       for (const party of [8, 8, 8, 8]) {
         const startsAt = zoned(day, "20:00", tz);
-        bookingRows.push({ workspaceId: ws.id, customerName: "Private group", partySize: party, startsAt, endsAt: new Date(startsAt.getTime() + 90 * 60_000), refCode: shortCode("F7"), status: "confirmed", isDemo: true });
+        bookingRows.push({ workspaceId: ws.id, customerName: "Private group", partySize: party, startsAt, endsAt: new Date(startsAt.getTime() + 90 * 60_000), refCode: shortCode("F7"), status: "confirmed", isDemo: true, bookingTypeId: tableType.id, kind: "table" });
       }
     }
   }
@@ -198,6 +201,7 @@ export async function seedWorkspace({ withHistory = true, log = (() => {}) as Lo
     log(`demo history: ${count} labeled conversations over the last 7 days`);
   }
   void owner; void service;
+  await seedSalon(log);
   return { workspaceId: ws.id };
 }
 

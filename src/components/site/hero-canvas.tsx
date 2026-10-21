@@ -12,15 +12,15 @@ const INK = "#0E0D0B";
 const ANSWERED = "#D4FF3A";
 
 const PAIRS: [string, string][] = [
-  ["Large Margherita?", "RM 52, ready today"],
-  ["table for 4 fri 8pm?", "Booked: Fri 8pm, 4 people"],
-  ["u guys halal ah?", "Pork-free, halal-sourced meat"],
-  ["apron in red, size M?", "Brick Red M: in stock"],
+  ["haircut tmr 3pm?", "Booked: Thu 3pm with Amanda"],
+  ["large margherita how much", "RM 52, ready in 15 min"],
+  ["got size M in red?", "Red M: 3 left"],
   ["open on monday?", "Closed Mondays, sorry"],
+  ["room for 2 this sat?", "1 Deluxe left, RM 260"],
   ["deliver to mont kiara?", "Yes: RM 9, about 45 min"],
-  ["truffle one today?", "Sold out today, back tomorrow"],
-  ["vegan option?", "Marinara is fully vegan"],
-  ["can bring own wine?", "Yes, RM 40 corkage"],
+  ["iphone 13 screen how much", "RM 380, done in 1 hour"],
+  ["table for 4 fri 8pm?", "Booked: Fri 8pm, 4 people"],
+  ["u guys halal ah?", "Halal-certified kitchen"],
 ];
 
 const BELL_X = 3.0;

@@ -41,17 +41,28 @@ export const interviewStatusEnum = pgEnum("interview_status", ["offered", "sched
 export const candidateSourceEnum = pgEnum("candidate_source", ["telegram_channel", "bot_apply", "upload"]);
 export const jobStatusEnum = pgEnum("job_status", ["queued", "running", "done", "failed"]);
 
+export const bookingUnitEnum = pgEnum("booking_unit", ["party", "appointment", "day"]);
+
+export type BusinessProfile = {
+  type: string;
+  description: string;
+  address: string;
+  phone?: string | null;
+  website?: string | null;
+  languages: string[];
+};
+
 export type WorkspaceSettings = {
   confidenceThreshold: number;
   demoTraffic: boolean;
   resumeRetentionDays: number;
-  booking: {
-    slotMinutes: number;
-    seatsPerSlot: number;
-    durationMinutes: number;
-    maxPartySize: number;
-    leadMinutes: number;
-  };
+  business: BusinessProfile;
+  modules: { hiring: boolean };
+  /** Channels only get AI replies once the owner presses Go live. */
+  live: boolean;
+  onboarding: { step: number; completedAt?: string | null };
+  /** Shown publicly as a "try a sample business" demo on the site. */
+  sample?: boolean;
   hr: { interviewMinutes: number; workdayStart: string; workdayEnd: string; location: string };
 };
 
@@ -235,6 +246,33 @@ export const kbItems = pgTable(
   (t) => [uniqueIndex("kb_ws_slug").on(t.workspaceId, t.slug), index("kb_ws_kind").on(t.workspaceId, t.kind)],
 );
 
+/**
+ * What can be booked, defined by the owner (or drafted by Claude from their description):
+ * party = tables/classes by headcount, appointment = one service at a time per staff/station,
+ * day = whole days (rooms, rentals, tours).
+ */
+export const bookingTypes = pgTable(
+  "booking_types",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    name: text("name").notNull(),
+    unit: bookingUnitEnum("unit").notNull(),
+    /** party: seats per slot; appointment: parallel staff/stations; day: units per day. */
+    capacity: integer("capacity").notNull(),
+    durationMinutes: integer("duration_minutes").notNull().default(60),
+    slotMinutes: integer("slot_minutes").notNull().default(30),
+    maxPerBooking: integer("max_per_booking").notNull().default(1),
+    leadMinutes: integer("lead_minutes").notNull().default(60),
+    notes: text("notes").notNull().default(""),
+    active: boolean("active").notNull().default(true),
+    sort: integer("sort").notNull().default(0),
+    updatedAt: ts("updated_at").defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("booking_types_ws_key").on(t.workspaceId, t.key)],
+);
+
 export const kbVariants = pgTable(
   "kb_variants",
   {
@@ -243,6 +281,8 @@ export const kbVariants = pgTable(
     itemId: uuid("item_id").notNull().references(() => kbItems.id, { onDelete: "cascade" }),
     size: text("size"),
     color: text("color"),
+    /** Any other option label: "Long hair", "1 hour", "Double room". */
+    option: text("option"),
     /** Price in minor units (sen for MYR). */
     priceMinor: integer("price_minor").notNull(),
     /** null = made to order (no stock count). */
@@ -278,7 +318,11 @@ export const bookings = pgTable(
     customerId: uuid("customer_id").references(() => customers.id, { onDelete: "set null" }),
     customerName: text("customer_name").notNull(),
     phone: text("phone"),
-    kind: text("kind").notNull().default("table"),
+    kind: text("kind").notNull().default("booking"),
+    bookingTypeId: uuid("booking_type_id").references(() => bookingTypes.id, { onDelete: "set null" }),
+    serviceItemId: uuid("service_item_id"),
+    serviceName: text("service_name"),
+    /** Headcount for party bookings, units for day bookings, 1 for appointments. */
     partySize: integer("party_size").notNull(),
     startsAt: ts("starts_at").notNull(),
     endsAt: ts("ends_at").notNull(),
@@ -338,6 +382,8 @@ export const candidates = pgTable(
     sourceRef: text("source_ref"),
     roleInterest: text("role_interest"),
     telegramChatId: text("telegram_chat_id"),
+    /** Which bot can message them: "platform" (shared Jawab bot) or the business's own bot channel id. */
+    telegramBot: text("telegram_bot"),
     telegramUsername: text("telegram_username"),
     phone: text("phone"),
     email: text("email"),
@@ -459,7 +505,9 @@ export const integrations = pgTable(
 
 export const telegramBusinessConnections = pgTable("telegram_business_connections", {
   id: text("id").primaryKey(),
-  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  /** Null until the owner proves which business it belongs to with a link code. */
+  workspaceId: text("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }),
+  botId: text("bot_id"),
   ownerUserId: text("owner_user_id").notNull(),
   ownerChatId: text("owner_chat_id"),
   canReply: boolean("can_reply").notNull().default(false),
@@ -519,4 +567,49 @@ export const rateLimits = pgTable("rate_limits", {
   key: text("key").primaryKey(),
   windowStart: ts("window_start").notNull(),
   count: integer("count").notNull().default(0),
+});
+
+export const invites = pgTable("invites", {
+  token: text("token").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  email: text("email").notNull(),
+  role: roleEnum("role").notNull(),
+  createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  expiresAt: ts("expires_at").notNull(),
+  acceptedAt: ts("accepted_at"),
+  createdAt: ts("created_at").defaultNow().notNull(),
+});
+
+/** One-time codes that tie a Telegram account (and its Business connection) to a workspace. */
+export const telegramLinks = pgTable("telegram_links", {
+  code: text("code").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  telegramUserId: text("telegram_user_id"),
+  createdAt: ts("created_at").defaultNow().notNull(),
+  expiresAt: ts("expires_at").notNull(),
+  usedAt: ts("used_at"),
+});
+
+/** Which business a private chat with a shared bot belongs to (set by t.me/<bot>?start=<code>). */
+export const telegramChatBindings = pgTable(
+  "telegram_chat_bindings",
+  {
+    botId: text("bot_id").notNull(),
+    chatId: text("chat_id").notNull(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    updatedAt: ts("updated_at").defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("tg_bind_bot_chat").on(t.botId, t.chatId)],
+);
+
+/** Files and links the owner gave during onboarding (menus, price lists, website text). */
+export const setupSources = pgTable("setup_sources", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull(),
+  filename: text("filename"),
+  mime: text("mime"),
+  bytes: bytea("bytes"),
+  text: text("text").notNull().default(""),
+  createdAt: ts("created_at").defaultNow().notNull(),
 });

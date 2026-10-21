@@ -105,7 +105,7 @@ export default function RequisitionPage({ params }: { params: Promise<{ id: stri
       <section className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_auto] lg:items-end">
         <div>
           <label htmlFor="req" className="mb-2 block text-[14px] text-fg-2">Describe who you need, in plain words</label>
-          <Textarea id="req" rows={2} value={request} onChange={(e) => setRequest(e.target.value)} placeholder="pizza cook, 3+ years wood-fired, evenings, near Bangsar" className="text-[16px]" />
+          <Textarea id="req" rows={2} value={request} onChange={(e) => setRequest(e.target.value)} placeholder="e.g. part-time barista, 1+ year experience, weekends, lives nearby" className="text-[16px]" />
         </div>
         <Button variant="primary" size="lg" loading={phase === "search"} disabled={request.trim().length < 3 || !data.aiConfigured} onClick={search}>
           Find candidates
@@ -281,7 +281,7 @@ function CandidateRow({ m, rank, onChange, botUsername }: { m: Match; rank: numb
         </div>
         <p className="text-[14px] text-fg-2">{m.profile?.headline ?? "Profile not parsed yet"}</p>
         <p className="mt-1 text-[13px] text-muted">
-          {[m.district, m.distanceKm != null ? `${m.distanceKm} km away` : null, m.totalYears != null ? `${m.totalYears} yrs in kitchens` : null].filter(Boolean).join(", ")}
+          {[m.district, m.distanceKm != null ? `${m.distanceKm} km away` : null, m.totalYears != null ? `${m.totalYears} yrs experience` : null].filter(Boolean).join(", ")}
         </p>
         <div className="mt-2 flex flex-wrap gap-1.5">
           {m.availability.map((a) => (

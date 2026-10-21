@@ -1,6 +1,7 @@
 // WhatsApp Business Platform (Cloud API). Graph API version is configurable (META_GRAPH_VERSION, default v26.0).
 import type { ChannelAdapter } from ".";
 import { env } from "@/lib/env";
+import { whatsappCreds } from "./connections";
 import { db, t } from "@/db";
 import { and, eq, desc } from "drizzle-orm";
 import { ingest, respond } from "@/agent/pipeline";
@@ -8,16 +9,12 @@ import type { Attachment } from "@/db/schema";
 
 const WINDOW_MS = 24 * 60 * 60 * 1000;
 
-function base() {
-  const w = env.whatsapp;
-  if (!w.token || !w.phoneNumberId) throw new Error("WhatsApp is not configured (WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID)");
-  return `https://graph.facebook.com/${w.graphVersion}/${w.phoneNumberId}/messages`;
-}
-
-async function post(body: Record<string, unknown>): Promise<string> {
-  const res = await fetch(base(), {
+async function post(workspaceId: string, body: Record<string, unknown>): Promise<string> {
+  const c = await whatsappCreds(workspaceId);
+  if (!c) throw new Error("WhatsApp isn't connected for this business yet (Settings → Channels → WhatsApp).");
+  const res = await fetch(`https://graph.facebook.com/${c.graphVersion}/${c.phoneNumberId}/messages`, {
     method: "POST",
-    headers: { authorization: `Bearer ${env.whatsapp.token}`, "content-type": "application/json" },
+    headers: { authorization: `Bearer ${c.token}`, "content-type": "application/json" },
     body: JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", ...body }),
   });
   const j = (await res.json().catch(() => ({}))) as { messages?: { id: string }[]; error?: { message?: string; code?: number } };
@@ -27,12 +24,12 @@ async function post(body: Record<string, unknown>): Promise<string> {
 
 export const digits = (s: string) => s.replace(/\D/g, "");
 
-export async function sendWhatsAppText(to: string, text: string) {
-  return post({ to: digits(to), type: "text", text: { body: text.slice(0, 4096), preview_url: false } });
+export async function sendWhatsAppText(workspaceId: string, to: string, text: string) {
+  return post(workspaceId, { to: digits(to), type: "text", text: { body: text.slice(0, 4096), preview_url: false } });
 }
 
-export async function sendWhatsAppButtons(to: string, body: string, buttons: { id: string; title: string }[]) {
-  return post({
+export async function sendWhatsAppButtons(workspaceId: string, to: string, body: string, buttons: { id: string; title: string }[]) {
+  return post(workspaceId, {
     to: digits(to),
     type: "interactive",
     interactive: {
@@ -44,12 +41,29 @@ export async function sendWhatsAppButtons(to: string, body: string, buttons: { i
 }
 
 /** Approved templates only (interview_invite, booking_reminder). Required outside the 24-hour window. */
-export async function sendWhatsAppTemplate(to: string, name: string, lang: string, params: string[]) {
-  return post({
+export async function sendWhatsAppTemplate(workspaceId: string, to: string, name: string, lang: string, params: string[]) {
+  return post(workspaceId, {
     to: digits(to),
     type: "template",
     template: { name, language: { code: lang }, components: params.length ? [{ type: "body", parameters: params.map((p) => ({ type: "text", text: p })) }] : [] },
   });
+}
+
+/** Checks a pasted phone number id + token against the Graph API before saving them. */
+export async function verifyWhatsAppNumber(phoneNumberId: string, token: string) {
+  const res = await fetch(`https://graph.facebook.com/${env.whatsapp.graphVersion}/${encodeURIComponent(phoneNumberId)}?fields=display_phone_number,verified_name`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  const j = (await res.json().catch(() => ({}))) as { display_phone_number?: string; verified_name?: string; error?: { message?: string } };
+  if (!res.ok) throw new Error(j.error?.message ?? `Meta rejected these details (${res.status})`);
+  return { displayPhone: j.display_phone_number ?? null, verifiedName: j.verified_name ?? null };
+}
+
+/** Subscribes the app to the business account's webhooks (needed for numbers outside the app's test setup). */
+export async function subscribeWaba(wabaId: string, token: string) {
+  const res = await fetch(`https://graph.facebook.com/${env.whatsapp.graphVersion}/${encodeURIComponent(wabaId)}/subscribed_apps`, { method: "POST", headers: { authorization: `Bearer ${token}` } });
+  const j = (await res.json().catch(() => ({}))) as { success?: boolean; error?: { message?: string } };
+  if (!res.ok || !j.success) throw new Error(j.error?.message ?? `Couldn't subscribe to the WhatsApp Business Account (${res.status})`);
 }
 
 export const whatsappAdapter: ChannelAdapter = {
@@ -62,9 +76,9 @@ export const whatsappAdapter: ChannelAdapter = {
     }
     if (extra?.buttons?.length) {
       const flat = extra.buttons.flat().slice(0, 3);
-      return { externalMessageId: await sendWhatsAppButtons(to, text, flat.map((b) => ({ id: b.data, title: b.text }))) };
+      return { externalMessageId: await sendWhatsAppButtons(thread.workspaceId, to, text, flat.map((b) => ({ id: b.data, title: b.text }))) };
     }
-    return { externalMessageId: await sendWhatsAppText(to, text) };
+    return { externalMessageId: await sendWhatsAppText(thread.workspaceId, to, text) };
   },
 };
 
@@ -122,7 +136,7 @@ export async function handleWhatsAppJob(payload: Record<string, unknown>) {
       const [, outreachId, idx] = buttonId.split(":");
       const { pickSlot } = await import("@/hiring/schedule");
       const r = await pickSlot(workspaceId, outreachId, Number(idx), event.customer.externalId);
-      if (!r.ok) await sendWhatsAppText(event.customer.externalId, r.toast).catch(() => {});
+      if (!r.ok) await sendWhatsAppText(workspaceId, event.customer.externalId, r.toast).catch(() => {});
       continue;
     }
     // A candidate replying to the interview_invite template: their reply opens the window, so offer the times.
@@ -138,7 +152,7 @@ export async function handleWhatsAppJob(payload: Record<string, unknown>) {
       if (o && !booked) {
         const [ws] = await db.select().from(t.workspaces).where(eq(t.workspaces.id, workspaceId));
         const { slotLabel } = await import("@/hiring/schedule");
-        await sendWhatsAppButtons(event.customer.externalId, "Thanks! Please pick an interview time:", o.slots.slice(0, 3).map((s, i) => ({ id: `slot:${o.id}:${i}`, title: slotLabel(ws, s).slice(0, 20) })));
+        await sendWhatsAppButtons(workspaceId, event.customer.externalId, "Thanks! Please pick an interview time:", o.slots.slice(0, 3).map((s, i) => ({ id: `slot:${o.id}:${i}`, title: slotLabel(ws, s).slice(0, 20) })));
         continue;
       }
     }

@@ -27,8 +27,8 @@ const TOOL: Anthropic.Messages.Tool = {
       language: { type: "string", description: "BCP-47 code of the customer's language, e.g. en, ms, zh, ta, ru, uz-Latn" },
       sentiment: { type: "string", enum: ["positive", "neutral", "negative"] },
       confidence: { type: "number", description: "0-1: how clearly the request can be understood and handled as a normal customer question" },
-      must_escalate: { type: "boolean", description: "True only for: partnership/franchise/wholesale/supplier pitch, complaint, refund, legal, allergy or medical safety question, abuse, price negotiation/discount request." },
-      escalate_category: { type: ["string", "null"], enum: ["partnership", "wholesale", "complaint", "refund", "legal", "allergy", "abuse", "negotiation", null] },
+      must_escalate: { type: "boolean", description: "True only for: partnership/franchise/wholesale/supplier pitch, complaint, refund, legal, allergy/medical/safety question about the customer's own health, abuse, price negotiation/discount request." },
+      escalate_category: { type: ["string", "null"], enum: ["partnership", "wholesale", "complaint", "refund", "legal", "allergy", "medical", "abuse", "negotiation", null] },
       summary: { type: "string", description: "One line for staff: who wants what" },
       holding_reply: { type: "string", description: "A one-sentence holding reply in the customer's language saying the team will follow up in this chat" },
     },
@@ -36,12 +36,12 @@ const TOOL: Anthropic.Messages.Tool = {
   },
 };
 
-export async function classify(businessName: string, recent: string, latest: string, usage: Usage): Promise<Classification | null> {
+export async function classify(businessName: string, businessType: string, recent: string, latest: string, usage: Usage): Promise<Classification | null> {
   try {
     const res = await claude().messages.create({
       model: env.fastModel,
       max_tokens: 300,
-      system: `You classify customer messages sent to ${businessName}, a restaurant. Be literal; don't infer intent the customer didn't express.`,
+      system: `You classify customer messages sent to ${businessName}${businessType ? `, a ${businessType}` : ""}. Be literal; don't infer intent the customer didn't express.`,
       tools: [TOOL],
       tool_choice: { type: "tool", name: "classify" },
       messages: [{ role: "user", content: `${recent ? `Earlier in the chat:\n${recent}\n\n` : ""}Latest customer message:\n${latest}` }],

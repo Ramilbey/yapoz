@@ -1,26 +1,41 @@
-// WhatsApp Cloud API + Instagram adapters: signature checks, payload normalization and the send rules
-// (24-hour windows, one private reply per comment), against a stubbed fetch.
+// WhatsApp Cloud API + Instagram: signature checks, payload normalization, per-business credentials and
+// routing (each business connects its own number / account), and the send rules (24-hour windows, one
+// private reply per comment), against a stubbed fetch.
 import "../scripts/env";
-import { test, after } from "node:test";
+import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
-import { sql } from "../src/db";
-import { verifyMetaSignature } from "../src/lib/crypto";
+import { db, t, sql } from "../src/db";
+import { and, eq } from "drizzle-orm";
+import { verifyMetaSignature, encryptJson } from "../src/lib/crypto";
 import { normalizeWhatsApp, whatsappAdapter } from "../src/channels/whatsapp";
 import { normalizeInstagram, instagramAdapter } from "../src/channels/instagram";
+import { workspaceForWhatsAppNumber, workspaceForInstagramAccount, whatsappCreds, channelStatus } from "../src/channels/connections";
 
+// The demo workspace (FORNO7) falls back to env credentials; any other business uses its own.
 process.env.WHATSAPP_TOKEN = "wa-token";
 process.env.WHATSAPP_PHONE_NUMBER_ID = "1065";
 process.env.INSTAGRAM_ACCESS_TOKEN = "ig-token";
 process.env.INSTAGRAM_ACCOUNT_ID = "1784";
 
-const requests: { url: string; body: Record<string, unknown> }[] = [];
+const requests: { url: string; auth: string; body: Record<string, unknown> }[] = [];
 globalThis.fetch = (async (url: string, init?: RequestInit) => {
-  requests.push({ url: String(url), body: JSON.parse(String(init?.body ?? "{}")) });
+  const h = new Headers(init?.headers);
+  requests.push({ url: String(url), auth: h.get("authorization") ?? "", body: JSON.parse(String(init?.body ?? "{}")) });
   return new Response(JSON.stringify({ messages: [{ id: "wamid.X" }], message_id: "mid.Y", recipient_id: "r" }), { status: 200, headers: { "content-type": "application/json" } });
 }) as typeof fetch;
 
+let salonWaChannel = "";
+before(async () => {
+  const [wa] = await db.select().from(t.channels).where(and(eq(t.channels.workspaceId, "KASIH1"), eq(t.channels.type, "whatsapp")));
+  await db.update(t.channels).set({ credentialsEnc: encryptJson({ token: "salon-wa-token", appSecret: "a".repeat(32), verifyToken: "salon-verify" }), config: { phoneNumberId: "2077", displayPhone: "+60 3-1234 5678" } }).where(eq(t.channels.id, wa.id));
+  salonWaChannel = wa.id;
+  const [ig] = await db.select().from(t.channels).where(and(eq(t.channels.workspaceId, "KASIH1"), eq(t.channels.type, "instagram")));
+  await db.update(t.channels).set({ credentialsEnc: encryptJson({ token: "salon-ig-token", expiresAt: Date.now() + 50 * 86400_000, refreshedAt: Date.now() }), config: { accountId: "1799", username: "kasih.hair" } }).where(eq(t.channels.id, ig.id));
+});
 after(async () => {
+  await db.update(t.channels).set({ credentialsEnc: null, config: {} }).where(and(eq(t.channels.workspaceId, "KASIH1"), eq(t.channels.type, "whatsapp")));
+  await db.update(t.channels).set({ credentialsEnc: null, config: {} }).where(and(eq(t.channels.workspaceId, "KASIH1"), eq(t.channels.type, "instagram")));
   await sql.end();
 });
 
@@ -48,34 +63,78 @@ test("WhatsApp text and button replies normalize into one event shape", () => {
   assert.equal(evs[1].buttonId, "slot:abc:1");
 });
 
-test("WhatsApp: free-form inside the 24h window, refused outside it", async () => {
-  const thread = { routing: { waId: "60123456789" }, lastInboundAt: new Date() } as never;
-  await whatsappAdapter.send(thread, "RM 52 for a Large.");
-  const r = requests.at(-1)!;
-  assert.match(r.url, /graph\.facebook\.com\/v\d+\.\d+\/1065\/messages$/);
+test("WhatsApp: each number routes to the business that connected it", async () => {
+  assert.equal(await workspaceForWhatsAppNumber("2077"), "KASIH1");
+  assert.equal(await workspaceForWhatsAppNumber("1065"), "FORNO7"); // env number = demo workspace
+  assert.equal(await workspaceForWhatsAppNumber("9999"), null);
+  const c = await whatsappCreds("KASIH1");
+  assert.equal(c?.source, "workspace");
+  assert.equal(c?.phoneNumberId, "2077");
+});
+
+test("WhatsApp: free-form inside the 24h window with the business's own token, refused outside it", async () => {
+  await whatsappAdapter.send({ workspaceId: "KASIH1", routing: { waId: "60123456789" }, lastInboundAt: new Date() } as never, "RM 110 for long hair.");
+  let r = requests.at(-1)!;
+  assert.match(r.url, /graph\.facebook\.com\/v\d+\.\d+\/2077\/messages$/);
+  assert.equal(r.auth, "Bearer salon-wa-token");
+  await whatsappAdapter.send({ workspaceId: "FORNO7", routing: { waId: "60123456789" }, lastInboundAt: new Date() } as never, "RM 52 for a Large.");
+  r = requests.at(-1)!;
+  assert.match(r.url, /\/1065\/messages$/);
   assert.deepEqual(r.body.text, { body: "RM 52 for a Large.", preview_url: false });
-  const old = { routing: { waId: "60123456789" }, lastInboundAt: new Date(Date.now() - 25 * 3600_000) } as never;
+  const old = { workspaceId: "FORNO7", routing: { waId: "60123456789" }, lastInboundAt: new Date(Date.now() - 25 * 3600_000) } as never;
   await assert.rejects(whatsappAdapter.send(old, "hello"), /24-hour/);
 });
 
-test("Instagram: echoes are dropped, comments become private-reply threads", () => {
+test("WhatsApp: a business's own webhook URL checks its verify token and app secret", async () => {
+  const { GET, POST } = await import("../src/app/api/webhooks/whatsapp/[channelId]/route");
+  const params = { params: Promise.resolve({ channelId: salonWaChannel }) };
+  const ok = await GET(new Request(`http://x/api/webhooks/whatsapp/${salonWaChannel}?hub.mode=subscribe&hub.verify_token=salon-verify&hub.challenge=42`), params);
+  assert.equal(await ok.text(), "42");
+  const bad = await GET(new Request(`http://x/api/webhooks/whatsapp/${salonWaChannel}?hub.mode=subscribe&hub.verify_token=nope&hub.challenge=42`), params);
+  assert.equal(bad.status, 403);
+  const raw = JSON.stringify({ entry: [{ changes: [{ value: { statuses: [{ id: "s" }] } }] }] });
+  const unsigned = await POST(new Request("http://x", { method: "POST", body: raw }), params);
+  assert.equal(unsigned.status, 401);
+  const sig = "sha256=" + createHmac("sha256", "a".repeat(32)).update(raw).digest("hex");
+  const signed = await POST(new Request("http://x", { method: "POST", body: raw, headers: { "x-hub-signature-256": sig } }), params);
+  assert.equal(signed.status, 200);
+});
+
+test("Instagram: echoes are dropped, comments become private-reply threads (id or comment_id)", () => {
   const evs = normalizeInstagram("FORNO7", {
     object: "instagram",
     entry: [{ id: "1784", time: 1760950000, messaging: [
       { sender: { id: "555" }, recipient: { id: "1784" }, timestamp: 1760950000000, message: { mid: "m1", text: "open on monday?" } },
       { sender: { id: "1784" }, recipient: { id: "555" }, timestamp: 1760950001000, message: { mid: "m2", text: "We're closed", is_echo: true } },
-    ], changes: [{ field: "comments", value: { id: "c77", text: "price?", from: { id: "777", username: "foodie.kl" }, media: { id: "p1" } } }] }],
+    ], changes: [
+      { field: "comments", value: { id: "c77", text: "price?", from: { id: "777", username: "foodie.kl" }, media: { id: "p1" } } },
+      { field: "comments", value: { comment_id: "c78", text: "open sunday?", from: { id: "778" }, media: { id: "p1" } } },
+      { field: "comments", value: { id: "c79", text: "thanks!", from: { id: "1784", username: "fornosette" } } },
+    ] }],
   });
-  assert.equal(evs.length, 2);
+  assert.equal(evs.length, 3);
   assert.equal(evs[0].externalThreadId, "ig:555");
   assert.equal(evs[1].externalThreadId, "igc:c77");
   assert.equal(evs[1].routing?.commentId, "c77");
+  assert.equal(evs[2].routing?.commentId, "c78");
 });
 
-test("Instagram: first answer to a comment is the single private reply", async () => {
-  const thread = { id: "00000000-0000-4000-8000-00000000ffff", routing: { commentId: "c77", commentAt: Date.now() }, lastInboundAt: new Date() } as never;
-  await instagramAdapter.send(thread, "Margherita starts at RM 28.");
+test("Instagram: each account routes to its business; the first answer to a comment is the single private reply", async () => {
+  assert.equal(await workspaceForInstagramAccount("1799"), "KASIH1");
+  assert.equal(await workspaceForInstagramAccount("1784"), "FORNO7");
+  const thread = { id: "00000000-0000-4000-8000-00000000ffff", workspaceId: "KASIH1", routing: { commentId: "c77", commentAt: Date.now() }, lastInboundAt: new Date() } as never;
+  await instagramAdapter.send(thread, "Balayage starts at RM 380.");
   const r = requests.at(-1)!;
-  assert.match(r.url, /graph\.instagram\.com\/v\d+\.\d+\/1784\/messages$/);
+  assert.match(r.url, /graph\.instagram\.com\/v\d+\.\d+\/1799\/messages$/);
+  assert.equal(r.auth, "Bearer salon-ig-token");
   assert.deepEqual(r.body.recipient, { comment_id: "c77" });
+});
+
+test("channel status never exposes tokens or app secrets", async () => {
+  const st = await channelStatus("KASIH1");
+  assert.equal(st.whatsapp.connected, true);
+  assert.equal(st.whatsapp.displayPhone, "+60 3-1234 5678");
+  assert.equal(st.instagram.username, "kasih.hair");
+  const json = JSON.stringify(st);
+  for (const secret of ["salon-wa-token", "salon-ig-token", "a".repeat(32)]) assert.ok(!json.includes(secret), `leaked ${secret}`);
 });

@@ -31,11 +31,41 @@ type Today = {
   includeDemo: boolean;
   demoMode: boolean;
   demoTraffic: boolean;
+  hiringModule: boolean;
+  live: boolean;
+  setupDone: boolean;
   workspace: { name: string; timezone: string };
 };
 
 const LANG: Record<string, string> = { en: "English", ms: "Malay", zh: "Chinese", ta: "Tamil", ru: "Russian", uz: "Uzbek", ar: "Arabic", id: "Indonesian", unknown: "Not detected" };
 const CH: Record<string, string> = { telegram: "Telegram", whatsapp: "WhatsApp", instagram: "Instagram", simulator: "Simulator" };
+
+function GettingStarted({ live, setupDone }: { live: boolean; setupDone: boolean }) {
+  const steps = [
+    { done: setupDone, title: "Teach it your business", body: "Describe what you sell, upload your menu or price list, and check the draft.", href: "/app/setup", cta: setupDone ? "Edit in Knowledge" : "Continue setup", alt: "/app/knowledge" },
+    { done: false, title: "Connect your chats", body: "Telegram, WhatsApp and Instagram, from Settings → Channels.", href: "/app/settings#channels", cta: "Connect" },
+    { done: live, title: "Go live", body: live ? "Customers on connected channels get answers right away." : "Until then it only answers in the simulator.", href: "/app/settings#assistant", cta: live ? "Live" : "Go live" },
+    { done: false, title: "Bring in your team", body: "Give service staff the inbox, and HR the hiring desk.", href: "/app/settings#team", cta: "Invite" },
+  ];
+  return (
+    <section className="mb-10 rounded-2xl border border-line p-6">
+      <h2 className="font-display text-[22px] font-bold">No customer messages yet</h2>
+      <p className="mt-1 text-[14px] text-muted">Numbers fill in as customers message you on your channels (simulator tests count too). Meanwhile:</p>
+      <ol className="mt-5 grid gap-5 md:grid-cols-4">
+        {steps.map((s, i) => (
+          <li key={s.title} className="border-t-2 pt-3" style={{ borderColor: s.done ? "var(--fg)" : "var(--line)" }}>
+            <span className="num text-[12px] text-muted">{String(i + 1).padStart(2, "0")}</span>
+            <p className="mt-0.5 text-[15px] font-medium">{s.title}</p>
+            <p className="mt-1 text-[13px] text-fg-2">{s.body}</p>
+            <Link href={s.done && s.alt ? s.alt : s.href} className="mt-2 inline-block text-[13px] font-medium text-brass-ink underline-offset-4 hover:underline">
+              {s.done && s.alt ? s.cta : s.cta}
+            </Link>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
 
 function secs(ms: number | null) {
   if (ms === null || ms === undefined) return "–";
@@ -100,6 +130,8 @@ export default function TodayPage() {
           </span>
         </div>
       ) : null}
+
+      {data && !data.demoMode && data.channels.every((c) => c.channel === "simulator") ? <GettingStarted live={data.live} setupDone={data.setupDone} /> : null}
 
       <section aria-label="Key numbers" className="grid grid-cols-2 border-y border-line md:grid-cols-3 xl:grid-cols-5">
         <Kpi label="Messages handled" value={k ? String(k.handled) : "–"} delta={k ? diff(k.handled, k.yesterday.handled, "") : null} />
@@ -174,8 +206,8 @@ export default function TodayPage() {
           )}
         </section>
 
-        <section className="lg:col-span-4">
-          <SectionTitle title="Hiring" sub="Pizza cook and other open roles" />
+        {data && !data.hiringModule ? null : <section className="lg:col-span-4">
+          <SectionTitle title="Hiring" sub="Open roles and candidates" />
           {data ? (
             <dl className="grid grid-cols-2 border-t border-line">
               <Stat label="Open roles" value={data.hiring.open_roles} />
@@ -191,7 +223,7 @@ export default function TodayPage() {
           <Link href="/app/hiring" className="mt-4 inline-block text-[14px] text-brass-ink underline-offset-4 hover:underline">
             Open hiring
           </Link>
-        </section>
+        </section>}
       </div>
 
       <GapDialog gap={gap} onClose={() => setGap(null)} onSaved={() => (setGap(null), mutate(), toast("Answer added. The agent uses it from the next message."))} />
@@ -252,7 +284,7 @@ function GapDialog({ gap, onClose, onSaved }: { gap: Today["gaps"][number] | nul
     if (!gap) return;
     setBusy(true);
     try {
-      await send(`/api/knowledge/gaps/${gap.id}`, "POST", { question, answer, category: "menu" });
+      await send(`/api/knowledge/gaps/${gap.id}`, "POST", { question, answer, category: "general" });
       onSaved();
     } catch (e) {
       toast((e as Error).message, "error");
@@ -269,7 +301,7 @@ function GapDialog({ gap, onClose, onSaved }: { gap: Today["gaps"][number] | nul
         </div>
         <div>
           <Label htmlFor="ga" hint="Facts only: prices, sizes, days">Answer</Label>
-          <Textarea id="ga" rows={4} value={answer} onChange={(e) => setA(e.target.value)} placeholder="e.g. Yes, a gluten-free base is available on Medium pizzas for RM 6 extra. It's made in the same kitchen, so it isn't suitable for coeliacs." />
+          <Textarea id="ga" rows={4} value={answer} onChange={(e) => setA(e.target.value)} placeholder="The answer you'd give at the counter, in your own words." />
         </div>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>Cancel</Button>

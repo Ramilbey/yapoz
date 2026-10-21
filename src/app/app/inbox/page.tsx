@@ -65,7 +65,7 @@ function Inbox() {
   const [channel, setChannel] = useState<string | null>(null);
   const [demo, setDemo] = useState(false);
   const key = `/api/inbox/threads?filter=${filter}${channel ? `&channel=${channel}` : ""}&demo=${demo ? 1 : 0}`;
-  const { data, mutate } = useSWR<{ threads: ThreadRow[]; counts: Record<string, number> }>(key, getJson);
+  const { data, mutate } = useSWR<{ threads: ThreadRow[]; counts: Record<string, number>; sample?: boolean }>(key, getJson);
   useLive(["threads", "messages", "escalations"], () => mutate(), 200);
 
   const seen = useRef<Set<string> | null>(null);
@@ -107,10 +107,12 @@ function Inbox() {
               <option value="instagram">Instagram</option>
               <option value="simulator">Simulator</option>
             </select>
-            <label className="flex items-center gap-2 text-[12px] text-muted">
-              <Switch checked={demo} onCheckedChange={setDemo} label="Show demo replays" />
-              Demo replays
-            </label>
+            {data?.sample ? (
+              <label className="flex items-center gap-2 text-[12px] text-muted">
+                <Switch checked={demo} onCheckedChange={setDemo} label="Show demo replays" />
+                Demo replays
+              </label>
+            ) : null}
           </div>
         </div>
         <ul className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">

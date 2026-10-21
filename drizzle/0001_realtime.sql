@@ -21,7 +21,7 @@ $$ LANGUAGE plpgsql;
 DO $$
 DECLARE tbl text;
 BEGIN
-  FOREACH tbl IN ARRAY ARRAY['threads','messages','escalations','bookings','agent_runs','kb_items','kb_variants','knowledge_gaps','requisitions','candidates','matches','outreach','interviews','calendar_events']
+  FOREACH tbl IN ARRAY ARRAY['threads','messages','escalations','bookings','booking_types','agent_runs','kb_items','kb_variants','knowledge_gaps','requisitions','candidates','matches','outreach','interviews','calendar_events','channels','users','invites']
   LOOP
     EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', tbl || '_notify', tbl);
     EXECUTE format('CREATE TRIGGER %I AFTER INSERT OR UPDATE OR DELETE ON %I FOR EACH ROW EXECUTE FUNCTION jawab_notify()', tbl || '_notify', tbl);
@@ -34,7 +34,7 @@ END $$;
 DO $$
 DECLARE tbl text;
 BEGIN
-  FOREACH tbl IN ARRAY ARRAY['users','channels','customers','threads','messages','agent_runs','escalations','kb_items','kb_variants','knowledge_gaps','bookings','requisitions','candidates','candidate_documents','matches','outreach','interviews','calendar_events','integrations','telegram_business_connections','bot_sessions','events']
+  FOREACH tbl IN ARRAY ARRAY['users','channels','customers','threads','messages','agent_runs','escalations','kb_items','kb_variants','booking_types','knowledge_gaps','bookings','requisitions','candidates','candidate_documents','matches','outreach','interviews','calendar_events','integrations','telegram_business_connections','bot_sessions','events','invites','telegram_links','telegram_chat_bindings','setup_sources']
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', tbl);
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', tbl || '_ws', tbl);

@@ -9,7 +9,8 @@ import { getJson } from "./fetcher";
 import { cx } from "../ui/cx";
 import type { Session } from "@/lib/session";
 
-type Item = { href: string; label: string; badge?: "needs" | "drafts" | "approvals"; sub?: boolean };
+type Item = { href: string; label: string; badge?: "needs" | "drafts" | "approvals"; sub?: boolean; hiring?: boolean };
+export type ShellWorkspace = { id: string; name: string; city: string; hiring: boolean; live: boolean; setupDone: boolean; sample: boolean };
 
 const NAV: Record<Session["role"], Item[]> = {
   owner: [
@@ -18,10 +19,10 @@ const NAV: Record<Session["role"], Item[]> = {
     { href: "/app/needs-you", label: "Needs you", badge: "needs" },
     { href: "/app/knowledge", label: "Knowledge" },
     { href: "/app/bookings", label: "Bookings" },
-    { href: "/app/hiring", label: "Hiring" },
-    { href: "/app/hiring/approvals", label: "Approvals", badge: "approvals", sub: true },
-    { href: "/app/hiring/calendar", label: "Interviews", sub: true },
-    { href: "/app/hiring/pipeline", label: "Pipeline", sub: true },
+    { href: "/app/hiring", label: "Hiring", hiring: true },
+    { href: "/app/hiring/approvals", label: "Approvals", badge: "approvals", sub: true, hiring: true },
+    { href: "/app/hiring/calendar", label: "Interviews", sub: true, hiring: true },
+    { href: "/app/hiring/pipeline", label: "Pipeline", sub: true, hiring: true },
     { href: "/app/settings", label: "Settings" },
   ],
   service: [
@@ -40,7 +41,7 @@ const NAV: Record<Session["role"], Item[]> = {
 
 const ROLE_NAME = { owner: "Owner", service: "Service", hr: "HR" } as const;
 
-export function Shell(props: { session: Session; workspace: { id: string; name: string; city: string }; demoMode: boolean; children: React.ReactNode }) {
+export function Shell(props: { session: Session; workspace: ShellWorkspace; demoMode: boolean; children: React.ReactNode }) {
   return (
     <ToastProvider>
       <LiveProvider>
@@ -50,7 +51,7 @@ export function Shell(props: { session: Session; workspace: { id: string; name: 
   );
 }
 
-function ShellInner({ session, workspace, children }: { session: Session; workspace: { id: string; name: string; city: string }; demoMode: boolean; children: React.ReactNode }) {
+function ShellInner({ session, workspace, children }: { session: Session; workspace: ShellWorkspace; demoMode: boolean; children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -82,7 +83,10 @@ function ShellInner({ session, workspace, children }: { session: Session; worksp
     router.replace("/login");
   }
 
-  const items = NAV[session.role];
+  const items = [
+    ...(session.role === "owner" && !workspace.setupDone ? [{ href: "/app/setup", label: "Set up" } as Item] : []),
+    ...NAV[session.role].filter((it) => !it.hiring || workspace.hiring),
+  ];
   const active = (href: string) => pathname === href || (href !== "/app/hiring" && pathname.startsWith(href + "/")) || (href === "/app/hiring" && /^\/app\/hiring(\/[0-9a-f-]{36})?$/.test(pathname));
 
   const rail = (
@@ -131,10 +135,10 @@ function ShellInner({ session, workspace, children }: { session: Session; worksp
       </ul>
       <div className="border-t border-line px-5 py-4">
         <div className="flex items-center justify-between">
-          <div>
-            <div className="text-[14px] font-medium">{session.name}</div>
+          <Link href="/app/account" className="group" title="Your account">
+            <div className="text-[14px] font-medium group-hover:underline">{session.name}</div>
             <div className="text-[12px] text-muted">{ROLE_NAME[session.role]} desk</div>
-          </div>
+          </Link>
           <span className="flex items-center gap-1.5 text-[12px] text-muted" title={connected ? "Live updates connected" : "Reconnecting; refreshing every few seconds"}>
             <span className={cx("h-2 w-2 rounded-full", connected ? "live-dot bg-brass" : "bg-line-strong")} />
             {connected ? "Live" : "Polling"}
@@ -163,6 +167,15 @@ function ShellInner({ session, workspace, children }: { session: Session; worksp
       </header>
       {open ? <div className="fixed inset-0 top-14 z-20 bg-panel lg:hidden">{rail}</div> : null}
       <main className="lg:pl-[248px]">
+        {session.role === "owner" && !workspace.live && pathname !== "/app/setup" ? (
+          <div className="border-b border-line bg-brass/10 px-4 py-2.5 text-[13px] sm:px-8">
+            <span className="font-medium">Your assistant isn&apos;t answering customers yet.</span>{" "}
+            <span className="text-fg-2">It only replies in the simulator until you go live.</span>{" "}
+            <Link href={workspace.setupDone ? "/app/settings#assistant" : "/app/setup"} className="font-medium underline decoration-brass underline-offset-4">
+              {workspace.setupDone ? "Go live" : "Finish setup"}
+            </Link>
+          </div>
+        ) : null}
         <div className="mx-auto w-full max-w-[1360px] px-4 py-6 sm:px-8 sm:py-8">{children}</div>
       </main>
     </div>

@@ -46,6 +46,8 @@ export const env = {
   },
   get instagram() {
     return {
+      /** Jawab's own Meta app with the "Instagram API with Instagram Login" product: businesses connect through it. */
+      appId: process.env.INSTAGRAM_APP_ID ?? "",
       token: process.env.INSTAGRAM_ACCESS_TOKEN ?? "",
       accountId: process.env.INSTAGRAM_ACCOUNT_ID ?? "",
       appSecret: process.env.INSTAGRAM_APP_SECRET ?? process.env.META_APP_SECRET ?? "",

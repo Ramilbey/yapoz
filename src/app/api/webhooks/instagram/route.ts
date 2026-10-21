@@ -1,11 +1,13 @@
 import { enqueue } from "@/lib/jobs";
 import { env } from "@/lib/env";
 import { verifyMetaSignature, safeEqual } from "@/lib/crypto";
+import { workspaceForInstagramAccount } from "@/channels/connections";
 import { createHash } from "node:crypto";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+// One Jawab app serves every business that connected Instagram; entry.id is the business's Instagram account.
 export async function GET(req: Request) {
   const u = new URL(req.url);
   const token = u.searchParams.get("hub.verify_token") ?? "";
@@ -18,8 +20,15 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const raw = await req.text();
   if (!verifyMetaSignature(raw, req.headers.get("x-hub-signature-256"), env.instagram.appSecret)) return new Response("bad signature", { status: 401 });
-  const body = JSON.parse(raw);
-  const workspaceId = env.demoWorkspaceId;
-  await enqueue("instagram.webhook", { workspaceId, body }, { dedupeKey: `ig:${createHash("sha256").update(raw).digest("hex")}`, workspaceId });
+  const body = JSON.parse(raw) as { object?: string; entry?: { id: string }[] };
+  const byWorkspace = new Map<string, { id: string }[]>();
+  for (const e of body.entry ?? []) {
+    const ws = await workspaceForInstagramAccount(String(e.id));
+    if (ws) byWorkspace.set(ws, [...(byWorkspace.get(ws) ?? []), e]);
+  }
+  const hash = createHash("sha256").update(raw).digest("hex");
+  for (const [workspaceId, entry] of byWorkspace) {
+    await enqueue("instagram.webhook", { workspaceId, body: { object: body.object, entry } }, { dedupeKey: `ig:${workspaceId}:${hash}`, workspaceId });
+  }
   return Response.json({ ok: true });
 }

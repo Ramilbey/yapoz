@@ -8,6 +8,7 @@ export type NewCandidate = {
   source: "telegram_channel" | "bot_apply" | "upload";
   sourceRef?: string | null;
   telegramChatId?: string | null;
+  telegramBot?: string | null;
   telegramUsername?: string | null;
   email?: string | null;
   phone?: string | null;
@@ -29,7 +30,7 @@ export async function addCandidate(c: NewCandidate) {
     .insert(t.candidates)
     .values({
       workspaceId: c.workspaceId, fullName: c.fullName, source: c.source, sourceRef: c.sourceRef ?? null,
-      telegramChatId: c.telegramChatId ?? null, telegramUsername: c.telegramUsername ?? null, email: c.email ?? null, phone: c.phone ?? null,
+      telegramChatId: c.telegramChatId ?? null, telegramBot: c.telegramBot ?? null, telegramUsername: c.telegramUsername ?? null, email: c.email ?? null, phone: c.phone ?? null,
       rawText: c.rawText, consent: c.consent, consentAt: c.consent ? new Date() : null, roleInterest: c.roleInterest ?? null, district: c.district ?? null,
     })
     .returning();

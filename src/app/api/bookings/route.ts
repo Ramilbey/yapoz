@@ -17,5 +17,6 @@ export const GET = handle(async (req: Request) => {
     .from(t.bookings)
     .where(and(eq(t.bookings.workspaceId, s.workspaceId), ne(t.bookings.kind, "demo_replay"), gte(t.bookings.startsAt, zoned(from, "00:00", ws.timezone)), lt(t.bookings.startsAt, zoned(addLocalDays(from, days), "04:00", ws.timezone))))
     .orderBy(asc(t.bookings.startsAt));
-  return ok({ bookings: rows, from, days, timezone: ws.timezone, seatsPerSlot: ws.settings.booking.seatsPerSlot });
+  const types = await db.select().from(t.bookingTypes).where(eq(t.bookingTypes.workspaceId, s.workspaceId));
+  return ok({ bookings: rows, from, days, timezone: ws.timezone, types: types.map((x) => ({ id: x.id, key: x.key, name: x.name, unit: x.unit, capacity: x.capacity, durationMinutes: x.durationMinutes })) });
 });

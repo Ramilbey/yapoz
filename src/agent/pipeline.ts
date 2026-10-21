@@ -79,7 +79,7 @@ export async function ingest(e: InboundEvent) {
 }
 
 export type RespondResult = {
-  skipped?: "takeover" | "superseded" | "duplicate";
+  skipped?: "takeover" | "superseded" | "duplicate" | "not_live";
   reply?: string;
   status?: "sent" | "pending_approval" | "failed" | "discarded";
   outcome?: string;
@@ -116,6 +116,8 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
   if (!thread) throw new Error("thread not found");
   if (thread.aiPaused) return { skipped: "takeover" };
   const [ws] = await db.select().from(t.workspaces).where(eq(t.workspaces.id, thread.workspaceId));
+  // Until the owner presses Go live, real channels only collect messages; the dashboard simulator always answers.
+  if (!ws.settings.live && thread.channel !== "simulator") return { skipped: "not_live" };
   const [customer] = await db.select().from(t.customers).where(eq(t.customers.id, thread.customerId));
   const [channelRow] = await db.select().from(t.channels).where(and(eq(t.channels.workspaceId, ws.id), eq(t.channels.type, thread.channel)));
   const mode = channelRow?.mode ?? "autopilot";
@@ -178,7 +180,7 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
         },
       ];
       const [c, agentText] = await Promise.all([
-        classify(ws.name, recent, latest, usage),
+        classify(ws.name, ws.settings.business?.type ?? "", recent, latest, usage),
         (async () => {
           const messages = [...convo];
           for (let step = 0; step < 6; step++) {
@@ -203,7 +205,7 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
       // Safety net: rule 4 categories and low confidence always land with a human, never with an invented answer.
       const threshold = ws.settings.confidenceThreshold ?? 0.55;
       if (cls && !ctx.escalations.length && cls.must_escalate && cls.escalate_category) {
-        toolLog.push(await runTool(ctx, "escalate", { category: cls.escalate_category, priority: ["complaint", "refund", "legal", "allergy", "abuse"].includes(cls.escalate_category) ? "high" : "normal", reason: `Auto: ${cls.escalate_category}`, summary: cls.summary }, latest));
+        toolLog.push(await runTool(ctx, "escalate", { category: cls.escalate_category, priority: ["complaint", "refund", "legal", "allergy", "medical", "abuse"].includes(cls.escalate_category) ? "high" : "normal", reason: `Auto: ${cls.escalate_category}`, summary: cls.summary }, latest));
         reply = cls.holding_reply || DEFAULT_HOLD;
       } else if (cls && !ctx.escalations.length && cls.confidence < threshold && cls.intent !== "greeting" && cls.intent !== "off_topic") {
         toolLog.push(await runTool(ctx, "escalate", { category: "low_confidence", priority: "normal", reason: `Low confidence (${cls.confidence.toFixed(2)})`, summary: cls.summary }, latest));

@@ -91,7 +91,7 @@ export async function pickSlot(workspaceId: string, outreachId: string, idx: num
     const g = await googleCreateEvent(workspaceId, {
       summary: `Interview: ${cand.fullName} (${req.title})`,
       description: `Interview booked by Jawab.\nCandidate: ${cand.fullName}\nRole: ${req.title}\nSource: ${cand.sourceRef ?? cand.source}`,
-      start, end, timeZone: ws.timezone, video, location: video ? null : ws.settings.hr.location, attendeeEmail: cand.email,
+      start, end, timeZone: ws.timezone, video, location: video ? null : ws.settings.hr.location || ws.settings.business?.address || null, attendeeEmail: cand.email,
     });
     if (g) {
       provider = "google";
@@ -101,13 +101,13 @@ export async function pickSlot(workspaceId: string, outreachId: string, idx: num
   } catch (e) {
     console.error("[calendar] Google event failed, falling back to built-in", e);
   }
-  if (video && !meetUrl) meetUrl = `https://meet.jit.si/forno7-${randomBytes(6).toString("hex")}`;
+  if (video && !meetUrl) meetUrl = `https://meet.jit.si/jawab-${workspaceId.toLowerCase()}-${randomBytes(6).toString("hex")}`;
 
   const [iv] = await db
     .insert(t.interviews)
     .values({
       workspaceId, matchId: match.id, candidateId: cand.id, requisitionId: req.id, outreachId: o.id, startsAt: start, endsAt: end,
-      mode: video ? "video" : "onsite", location: video ? null : ws.settings.hr.location, meetUrl, provider, externalEventId, status: "scheduled",
+      mode: video ? "video" : "onsite", location: video ? null : ws.settings.hr.location || ws.settings.business?.address || null, meetUrl, provider, externalEventId, status: "scheduled",
     })
     .returning();
   await db.insert(t.calendarEvents).values({ workspaceId, title: `Interview: ${cand.fullName}`, kind: "interview", interviewId: iv.id, startsAt: start, endsAt: end });
@@ -117,7 +117,7 @@ export async function pickSlot(workspaceId: string, outreachId: string, idx: num
   const when = human(start, ws.timezone);
   const confirm = video
     ? `Confirmed: ${when} (${ws.settings.hr.interviewMinutes} min video call).\nJoin here: ${meetUrl}`
-    : `Confirmed: ${when}, ${ws.settings.hr.interviewMinutes} min at ${ws.settings.hr.location}. Ask for Mei at the counter.`;
+    : `Confirmed: ${when}, ${ws.settings.hr.interviewMinutes} min at ${ws.settings.hr.location || ws.settings.business?.address || ws.name}. See you there!`;
   try {
     await sendToCandidate(cand, o.channel, confirm);
   } catch (e) {
@@ -125,8 +125,8 @@ export async function pickSlot(workspaceId: string, outreachId: string, idx: num
   }
   const hrChat = process.env.HR_TELEGRAM_CHAT_ID;
   if (hrChat) {
-    const { tg } = await import("@/channels/telegram/api");
-    await tg().sendMessage(Number(hrChat), `${cand.fullName} booked an interview for ${req.title}: ${when}${meetUrl ? `\n${meetUrl}` : ""}`).catch(() => {});
+    const { bot } = await import("@/channels/telegram/api");
+    await (await bot()).sendMessage(Number(hrChat), `${cand.fullName} booked an interview for ${req.title}: ${when}${meetUrl ? `\n${meetUrl}` : ""}`).catch(() => {});
   }
   return { ok: true, toast: `Booked: ${when}` };
 }

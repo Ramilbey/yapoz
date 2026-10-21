@@ -33,5 +33,6 @@ export const GET = handle(async (req: Request) => {
       (select count(distinct thread_id)::int from messages where workspace_id = ${s.workspaceId} and status = 'pending_approval') as drafts,
       count(*)::int as all
     from threads where workspace_id = ${s.workspaceId} ${includeDemo ? sql`` : sql`and is_demo = false`}`)) as unknown as Record<string, number>[];
-  return ok({ threads: rows, counts });
+  const [ws] = (await db.execute(sql`select (settings->>'sample')::boolean as sample from workspaces where id = ${s.workspaceId}`)) as unknown as { sample: boolean | null }[];
+  return ok({ threads: rows, counts, sample: Boolean(ws?.sample) });
 });

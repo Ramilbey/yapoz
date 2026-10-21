@@ -16,12 +16,12 @@ const TOOL: Anthropic.Messages.Tool = {
     properties: {
       full_name: { type: "string" },
       headline: { type: "string", description: "Current or most recent role and place" },
-      skills: { type: "array", items: { type: "object", properties: { name: { type: "string", description: "lowercase skill, e.g. 'wood-fired oven', 'neapolitan dough', 'deck oven', 'pastry'" }, years: { type: "number" } }, required: ["name", "years"] } },
+      skills: { type: "array", items: { type: "object", properties: { name: { type: "string", description: "lowercase skill, e.g. 'wood-fired oven', 'hair colouring', 'barista', 'customer service'" }, years: { type: "number" } }, required: ["name", "years"] } },
       past_roles: { type: "array", items: { type: "object", properties: { title: { type: "string" }, place: { type: "string" }, years: { type: "number" } }, required: ["title", "place", "years"] } },
       availability: { type: "array", items: { type: "string", enum: AVAIL } },
       district: { type: ["string", "null"], description: "Area where they live, as written" },
       languages: { type: "array", items: { type: "string" } },
-      total_years: { type: "number", description: "Total years of professional kitchen experience" },
+      total_years: { type: "number", description: "Total years of relevant work experience" },
       contact_channel: { type: "string", enum: ["telegram", "whatsapp", "email", "phone", "unknown"] },
       contact_value: { type: ["string", "null"] },
       summary: { type: "string", description: "One factual sentence about their relevant experience" },
@@ -37,7 +37,7 @@ export async function parseCandidate(candidateId: string) {
     model: env.fastModel,
     max_tokens: 1200,
     system:
-      "You extract job-relevant facts from resumes and job-seeker posts for a restaurant. Only record skills, experience, availability, location, languages and contact. Never record age, date of birth, gender, religion, ethnicity, nationality, marital status, family, health or appearance. Don't guess numbers that aren't stated; use 0 when unknown.",
+      "You extract job-relevant facts from resumes and job-seeker posts for a local business. Only record skills, experience, availability, location, languages and contact. Never record age, date of birth, gender, religion, ethnicity, nationality, marital status, family, health or appearance. Don't guess numbers that aren't stated; use 0 when unknown.",
     tools: [TOOL],
     tool_choice: { type: "tool", name: "record_profile" },
     messages: [{ role: "user", content: c.rawText.slice(0, 20_000) }],

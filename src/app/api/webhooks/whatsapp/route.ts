@@ -1,12 +1,13 @@
 import { enqueue } from "@/lib/jobs";
 import { env } from "@/lib/env";
 import { verifyMetaSignature, safeEqual } from "@/lib/crypto";
+import { workspaceForWhatsAppNumber } from "@/channels/connections";
 import { createHash } from "node:crypto";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-// Webhook verification handshake.
+// Jawab's own Meta app (env). Businesses that paste their own app's credentials use /api/webhooks/whatsapp/<channelId>.
 export async function GET(req: Request) {
   const u = new URL(req.url);
   const mode = u.searchParams.get("hub.mode");
@@ -16,15 +17,25 @@ export async function GET(req: Request) {
   return new Response("forbidden", { status: 403 });
 }
 
+type Entry = { changes?: { value?: { metadata?: { phone_number_id?: string }; messages?: unknown[] } }[] };
+
 export async function POST(req: Request) {
   const raw = await req.text();
   if (!verifyMetaSignature(raw, req.headers.get("x-hub-signature-256"), env.whatsapp.appSecret)) return new Response("bad signature", { status: 401 });
-  const body = JSON.parse(raw);
-  const workspaceId = env.demoWorkspaceId;
-  // Status callbacks (sent/delivered/read) carry no messages; skip them.
-  const hasMessages = (body.entry ?? []).some((e: { changes?: { value?: { messages?: unknown[] } }[] }) => e.changes?.some((c) => c.value?.messages?.length));
-  if (hasMessages) {
-    await enqueue("whatsapp.webhook", { workspaceId, body }, { dedupeKey: `wa:${createHash("sha256").update(raw).digest("hex")}`, workspaceId });
+  const body = JSON.parse(raw) as { object?: string; entry?: Entry[] };
+  // One app can serve many numbers: route each change by the phone number it arrived on.
+  const byWorkspace = new Map<string, Entry[]>();
+  for (const e of body.entry ?? []) {
+    for (const c of e.changes ?? []) {
+      if (!c.value?.messages?.length) continue; // status callbacks (sent/delivered/read) carry no messages
+      const ws = await workspaceForWhatsAppNumber(c.value.metadata?.phone_number_id ?? "");
+      if (!ws) continue;
+      byWorkspace.set(ws, [...(byWorkspace.get(ws) ?? []), { ...e, changes: [c] }]);
+    }
+  }
+  const hash = createHash("sha256").update(raw).digest("hex");
+  for (const [workspaceId, entry] of byWorkspace) {
+    await enqueue("whatsapp.webhook", { workspaceId, body: { object: body.object, entry } }, { dedupeKey: `wa:${workspaceId}:${hash}`, workspaceId });
   }
   return Response.json({ ok: true });
 }

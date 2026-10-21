@@ -6,7 +6,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Jawab: every question, answered",
-  description: "Jawab answers your customers on Telegram, WhatsApp and Instagram from your own menu, stock and calendar, and handles hiring with a human Approve on every step.",
+  description: "Jawab is the AI front desk for any business: it answers your customers on WhatsApp, Telegram and Instagram from your own prices, stock and calendar, takes bookings, and hands the tricky ones to you.",
   icons: { icon: "/bell.svg" },
 };
 

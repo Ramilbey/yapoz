@@ -2,7 +2,7 @@ import { db, t } from "@/db";
 import { and, asc, eq, ne } from "drizzle-orm";
 import { handle, getSession } from "@/lib/auth";
 import { ok } from "@/lib/api";
-import { env } from "@/lib/env";
+import { simulatorWorkspace } from "@/lib/samples";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +12,8 @@ export const GET = handle(async (req: Request) => {
   const sessionId = u.searchParams.get("sessionId") ?? "";
   if (!/^[a-zA-Z0-9_-]{8,64}$/.test(sessionId)) return ok({ messages: [] });
   const session = await getSession();
-  const workspaceId = session?.workspaceId ?? env.demoWorkspaceId;
+  const workspaceId = await simulatorWorkspace(u.searchParams.get("workspace"), session?.workspaceId ?? null);
+  if (!workspaceId) return ok({ messages: [] });
   const [thread] = await db.select().from(t.threads).where(and(eq(t.threads.workspaceId, workspaceId), eq(t.threads.channel, "simulator"), eq(t.threads.externalThreadId, `sim:${sessionId}`)));
   if (!thread) return ok({ messages: [], aiPaused: false });
   const msgs = await db

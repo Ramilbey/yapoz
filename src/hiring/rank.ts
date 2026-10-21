@@ -216,7 +216,7 @@ export async function rankRequisition(workspaceId: string, requisitionId: string
         const res = await claude().messages.create({
           model: env.smartModel,
           max_tokens: 1800,
-          system: `You rank anonymized candidates for a restaurant job against explicit criteria. Score 0-100 with this rubric: required skill years vs minimum (40), availability match (20), distance to the restaurant (15), relevance and recency of past roles (15), languages and other stated criteria (10). Use only what the resume says. Never consider names, gender, age, religion, ethnicity, marital status or appearance. Evidence quotes must be copied verbatim from that candidate's text.`,
+          system: `You rank anonymized candidates for a job at a local business against explicit criteria. Score 0-100 with this rubric: required skill years vs minimum (40), availability match (20), distance to the workplace (15), relevance and recency of past roles (15), languages and other stated criteria (10). Use only what the resume says. Never consider names, gender, age, religion, ethnicity, marital status or appearance. Evidence quotes must be copied verbatim from that candidate's text.`,
           tools: [RANK_TOOL],
           tool_choice: { type: "tool", name: "record_ranking" },
           messages: [

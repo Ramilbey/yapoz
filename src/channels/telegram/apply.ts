@@ -3,7 +3,8 @@
 import type { Message, CallbackQuery } from "grammy/types";
 import { db, t } from "@/db";
 import { and, eq } from "drizzle-orm";
-import { tg, downloadTelegramFile } from "./api";
+import { downloadTelegramFile } from "./api";
+import type { BotCtx } from "./handle";
 import { addCandidate } from "@/hiring/ingest";
 import { extractPdfText } from "@/hiring/pdf";
 
@@ -32,8 +33,13 @@ async function save(workspaceId: string, chatId: string, step: Step, data: Apply
     .onConflictDoUpdate({ target: [t.botSessions.workspaceId, t.botSessions.channel, t.botSessions.chatId], set: { flow: "apply", step, data, updatedAt: new Date() } });
 }
 
-async function ask(chatId: number, step: Step, workspaceId: string) {
-  const api = tg();
+async function wsName(workspaceId: string) {
+  const [w] = await db.select({ name: t.workspaces.name }).from(t.workspaces).where(eq(t.workspaces.id, workspaceId));
+  return w?.name ?? "the business";
+}
+
+async function ask(ctx: BotCtx, chatId: number, step: Step, workspaceId: string) {
+  const api = ctx.api;
   switch (step) {
     case "name":
       return api.sendMessage(chatId, "Great, let's get your application in. It takes 2 minutes; send /cancel to stop.\n\nWhat's your full name?");
@@ -44,7 +50,7 @@ async function ask(chatId: number, step: Step, workspaceId: string) {
       });
     }
     case "experience":
-      return api.sendMessage(chatId, "Tell me about your kitchen experience: where you worked, what you did and for how long.\n(e.g. “4 years on a wood-fired oven at Casa Fumo, dough and service”)");
+      return api.sendMessage(chatId, "Tell me about your work experience: where you worked, what you did and for how long.");
     case "availability":
       return api.sendMessage(chatId, "When can you work? (e.g. evenings, weekends, full-time, mornings)");
     case "district":
@@ -52,15 +58,20 @@ async function ask(chatId: number, step: Step, workspaceId: string) {
     case "cv":
       return api.sendMessage(chatId, "Send your CV as a PDF if you have one, or type “skip”.");
     case "consent":
-      return api.sendMessage(chatId, "Last step. We'll store your details and CV to consider you for jobs at Forno Sette, for up to 180 days. You can delete them any time with /delete_my_data. Do you agree?", {
+      return api.sendMessage(chatId, `Last step. We'll store your details and CV so ${await wsName(workspaceId)} can consider you for jobs, for up to 180 days. You can delete them any time with /delete_my_data. Do you agree?`, {
         reply_markup: { inline_keyboard: [[{ text: "I agree", callback_data: "apply:consent:yes" }, { text: "No thanks", callback_data: "apply:consent:no" }]] },
       });
   }
 }
 
-export async function startApply(workspaceId: string, m: Message) {
+export async function startApply(ctx: BotCtx, workspaceId: string, m: Message) {
+  const [w] = await db.select({ name: t.workspaces.name, settings: t.workspaces.settings }).from(t.workspaces).where(eq(t.workspaces.id, workspaceId));
+  if (!w?.settings.modules?.hiring) {
+    await ctx.api.sendMessage(m.chat.id, `${w?.name ?? "This business"} isn't taking job applications here right now. Ask me anything else!`);
+    return;
+  }
   await save(workspaceId, String(m.chat.id), "name", { username: m.from?.username ?? null });
-  await ask(m.chat.id, "name", workspaceId);
+  await ask(ctx, m.chat.id, "name", workspaceId);
 }
 
 function next(step: Step): Step {
@@ -68,7 +79,7 @@ function next(step: Step): Step {
 }
 
 /** Returns true if the update belonged to an active /apply flow. */
-export async function handleApplyFlow(workspaceId: string, m: Message | null, q?: CallbackQuery): Promise<boolean> {
+export async function handleApplyFlow(ctx: BotCtx, workspaceId: string, m: Message | null, q?: CallbackQuery): Promise<boolean> {
   const chat = m?.chat.id ?? (q?.message?.chat.id as number | undefined);
   if (chat === undefined) return false;
   const chatId = String(chat);
@@ -105,29 +116,29 @@ export async function handleApplyFlow(workspaceId: string, m: Message | null, q?
       if (m?.document) {
         const isPdf = m.document.mime_type === "application/pdf" || m.document.file_name?.toLowerCase().endsWith(".pdf");
         if (!isPdf) {
-          await tg().sendMessage(chat, "Please send the CV as a PDF, or type “skip”.");
+          await ctx.api.sendMessage(chat, "Please send the CV as a PDF, or type “skip”.");
           return true;
         }
         data.cv = { fileId: m.document.file_id, filename: m.document.file_name ?? "cv.pdf" };
       } else if (/^skip$/i.test(text)) data.cv = null;
       else {
-        await tg().sendMessage(chat, "Send a PDF, or type “skip”.");
+        await ctx.api.sendMessage(chat, "Send a PDF, or type “skip”.");
         return true;
       }
       break;
     case "consent": {
       if (!cb.startsWith("apply:consent:")) {
-        await tg().sendMessage(chat, "Please tap “I agree” or “No thanks” above.");
+        await ctx.api.sendMessage(chat, "Please tap “I agree” or “No thanks” above.");
         return true;
       }
       await db.delete(t.botSessions).where(eq(t.botSessions.id, s.id));
       if (cb.endsWith(":no")) {
-        await tg().sendMessage(chat, "No problem, nothing was saved. Send /apply any time.");
+        await ctx.api.sendMessage(chat, "No problem, nothing was saved. Send /apply any time.");
         return true;
       }
       let doc: { filename: string; mime: string; bytes: Buffer; text: string } | undefined;
       if (data.cv) {
-        const { bytes } = await downloadTelegramFile(data.cv.fileId);
+        const { bytes } = await downloadTelegramFile(ctx.ref, data.cv.fileId);
         doc = { filename: data.cv.filename, mime: "application/pdf", bytes, text: await extractPdfText(bytes) };
       }
       const raw = [
@@ -141,20 +152,20 @@ export async function handleApplyFlow(workspaceId: string, m: Message | null, q?
       ].filter(Boolean).join("\n");
       await addCandidate({
         workspaceId, fullName: data.name ?? "Applicant", source: "bot_apply", sourceRef: "Telegram /apply",
-        telegramChatId: chatId, telegramUsername: data.username ?? null, rawText: raw, doc, consent: true, roleInterest: data.role ?? null,
+        telegramChatId: chatId, telegramBot: ctx.ref, telegramUsername: data.username ?? null, rawText: raw, doc, consent: true, roleInterest: data.role ?? null,
         district: data.district ?? null,
       });
-      await tg().sendMessage(chat, `Thanks ${data.name?.split(" ")[0] ?? ""}! Your application is in. If it's a match, our team will invite you to an interview right here in this chat.`);
+      await ctx.api.sendMessage(chat, `Thanks ${data.name?.split(" ")[0] ?? ""}! Your application is in. If it's a match, our team will invite you to an interview right here in this chat.`);
       return true;
     }
   }
   const n = next(step);
   await save(workspaceId, chatId, n, data);
-  await ask(chat, n, workspaceId);
+  await ask(ctx, chat, n, workspaceId);
   return true;
 }
 
-export async function deleteMyData(workspaceId: string, m: Message) {
+export async function deleteMyData(ctx: BotCtx, workspaceId: string, m: Message) {
   const chatId = String(m.chat.id);
   const deleted = await db
     .delete(t.candidates)
@@ -162,5 +173,5 @@ export async function deleteMyData(workspaceId: string, m: Message) {
     .returning({ id: t.candidates.id });
   await db.delete(t.botSessions).where(and(eq(t.botSessions.workspaceId, workspaceId), eq(t.botSessions.chatId, chatId)));
   await db.insert(t.events).values({ workspaceId, type: "candidate.deleted_on_request", props: { count: deleted.length } });
-  await tg().sendMessage(m.chat.id, deleted.length ? "Done. Your application, CV and interview details have been deleted." : "We don't have any application data for this chat.");
+  await ctx.api.sendMessage(m.chat.id, deleted.length ? "Done. Your application, CV and interview details have been deleted." : "We don't have any application data for this chat.");
 }

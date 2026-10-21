@@ -1,10 +1,14 @@
 # Jawab
 
-An AI front desk for businesses on Telegram, WhatsApp and Instagram. It answers from the business's own menu, stock,
-hours and policies, books tables, hands anything sensitive to a person, and runs hiring with a human **Approve** on
-every outbound step. One sign-in, three desks: Owner, Service, HR.
+The AI front desk for any business on WhatsApp, Telegram and Instagram. An owner signs up, explains their business in
+their own words (or uploads a menu, price list or photo of the price board), checks the draft Claude makes from it,
+connects their own chat accounts and goes live. Jawab then answers customers from that business's prices, stock, hours
+and policies, takes bookings (tables, appointments or day bookings), hands anything sensitive to a person, and can run
+hiring with a human **Approve** on every outbound step. One sign-in, three desks: Owner, Service, HR.
 
-The demo business is **Forno Sette**, a fictional wood-fired pizzeria in Bangsar, Kuala Lumpur (prices in MYR).
+Two fictional **sample businesses** ship with it, so anyone can try it from the landing page:
+**Forno Sette** (`FORNO7`, a wood-fired pizzeria in Bangsar, with hiring switched on) and
+**Kasih Hair Studio** (`KASIH1`, a salon in Mont Kiara booked by appointment). Prices in MYR.
 
 ## Run it locally
 
@@ -15,31 +19,57 @@ npm install
 cp .env.example .env.local        # then fill in at least DATABASE_URL, AUTH_SECRET, APP_ENCRYPTION_KEY, ANTHROPIC_API_KEY
 npm run fonts                     # downloads General Sans from Fontshare (optional; falls back to Bricolage)
 npm run db:migrate
-npm run db:seed                   # Forno Sette + 30 candidates + 7 days of labeled demo history
+npm run db:seed                   # both sample businesses + 30 candidates + 7 days of labeled demo history
 npm run dev
 ```
 
-Open http://localhost:3000 for the site and http://localhost:3000/login for the dashboards.
-Workspace `FORNO7`, accounts `owner@demo`, `service@demo`, `hr@demo`, password `DEMO_PASSWORD` (default `forno7demo`).
+- http://localhost:3000: the site. "Get started" opens sign-up; "Ring the bell" talks to the sample businesses.
+- http://localhost:3000/signup: create a business. You land in the setup wizard.
+- http://localhost:3000/login: sample accounts `owner@demo`, `service@demo`, `hr@demo` (Forno Sette) and `owner@demo` on
+  `KASIH1`, password `DEMO_PASSWORD` (default `forno7demo`). The Workspace ID is only asked for when an email belongs to
+  more than one business.
 
 Generate secrets with `openssl rand -base64 48` (AUTH_SECRET) and `openssl rand -base64 32` (APP_ENCRYPTION_KEY).
 
-### Telegram
+## How a business gets set up
 
-1. Create a bot with @BotFather, put the token in `TELEGRAM_BOT_TOKEN` and the username in `TELEGRAM_BOT_USERNAME`.
-2. Local development, no public URL needed: `npm run telegram:poll` (runs the same handler as the webhook).
-3. Production: set `APP_URL` (https) and `TELEGRAM_WEBHOOK_SECRET`, then `npm run telegram:webhook`.
-4. Business Mode: in @BotFather turn on Business Mode for the bot. On a Telegram Premium account open
-   Settings → Business → Chatbots, add the bot and allow it to reply. Customers who message that account now get answers
-   from the account itself; anything the owner types is left alone.
-5. Hiring source: make the bot an admin of your jobs channel or group. It registers the chat automatically and reads
-   resume posts and PDFs from there. Candidates can also apply with `/apply` in the bot.
+1. **Sign up** (`/signup`): business name, owner name, email, password. The workspace ID is made from the name
+   (e.g. `KASIH42`); currency and time zone are guessed from the browser and confirmed in step 1.
+2. **Setup wizard** (`/app/setup`), six steps:
+   1. Basics: type of business, address, time zone, currency, languages.
+   2. Your business: a free-text brief, uploads (PDF, JPG/PNG/WEBP photos, TXT/CSV, up to 4 MB each, 10 files) and an
+      optional website. **Draft my assistant** sends all of it to the smart model (PDFs as document blocks, photos as
+      image blocks, the website as text) with a forced `record_business_draft` tool. Anything missing becomes an open
+      question instead of a guess. Without `ANTHROPIC_API_KEY` the owner fills the same form by hand.
+   3. Review: edit everything (answers to open questions, hours, products and services with priced options, booking
+      types, delivery, policies, FAQs). Saved into Knowledge.
+   4. Channels (below). 5. Try it in a test chat (simulator channel, same pipeline). 6. Go live.
+3. Until the owner presses **Go live**, messages on real channels are stored but not answered; the simulator always answers.
+4. **Team:** Settings → Team creates one-time invite links (7 days) for Owner, Service or HR desks. There's no email
+   service, so the owner sends the link however they like. **Hiring** is an optional module (Settings → Hiring).
 
-### WhatsApp and Instagram
+## Channels, per business
 
-See `docs/integrations.md` for the exact setup, API versions, the two WhatsApp templates to create
-(`interview_invite`, `booking_reminder`) and the 24-hour/7-day rules. Webhooks:
-`/api/webhooks/whatsapp` and `/api/webhooks/instagram` (GET for verification, POST with `X-Hub-Signature-256`).
+Every business connects its own accounts in Settings → Channels (or setup step 4). Secrets are stored AES-256-GCM
+encrypted on the business's channel row and never sent back to the browser.
+
+- **Telegram, shared Jawab bot** (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`): each business gets a customer link
+  `t.me/<bot>?start=<WORKSPACE>` (and a QR). For **Telegram Business** (replies from the owner's own account) the owner
+  taps "Link my Telegram" (a 15-minute one-time `link_<code>`), then adds the bot under Settings → Telegram Business →
+  Chatbots. In @BotFather turn on Business Mode for the shared bot.
+- **Telegram, the business's own bot:** paste a @BotFather token. Jawab checks it with `getMe` and sets a webhook to
+  `/api/webhooks/telegram/<channelId>` with its own secret token (or `npm run telegram:poll` picks it up locally).
+- **WhatsApp:** the business pastes the Phone number ID, a permanent System User access token, its app secret and
+  (optionally) the WhatsApp Business Account ID from its own Meta app. Jawab validates them with the Graph API and shows
+  the callback URL `/api/webhooks/whatsapp/<channelId>` and a verify token to paste into the app's webhook settings.
+  Embedded Signup (one-click) needs Meta Tech Provider approval; it's the next step, not built.
+- **Instagram:** "Connect Instagram" runs Instagram Login on Jawab's Meta app (`INSTAGRAM_APP_ID`,
+  `INSTAGRAM_APP_SECRET`), exchanges for a long-lived token (refreshed by the daily sweep), and subscribes the account
+  to `messages` and `comments`. Until the app passes App Review, only accounts added as Instagram testers can connect.
+  Webhooks for every business arrive at `/api/webhooks/instagram` and are routed by `entry.id`.
+
+Local development, no public URL needed: `npm run telegram:poll` (shared bot plus every connected own bot).
+Production: set `APP_URL` (https) and `TELEGRAM_WEBHOOK_SECRET`, then `npm run telegram:webhook` for the shared bot.
 
 ### Google Calendar (optional)
 
@@ -51,30 +81,29 @@ Without it, Jawab uses its built-in calendar and Jitsi links for video interview
 
 **Vercel + Supabase Postgres.** `DATABASE_URL` = Supabase transaction pooler (port 6543), `DATABASE_URL_LISTEN` =
 session pooler (port 5432; the live inbox uses Postgres LISTEN/NOTIFY). Run `npm run db:migrate && npm run db:seed`
-once against it. `vercel.json` schedules `/api/jobs/sweep` daily (set `CRON_SECRET`); webhooks are processed straight
-after the response with Next.js `after()`, the sweep only retries failures and applies resume retention.
+once against it. `vercel.json` schedules `/api/jobs/sweep` daily (set `CRON_SECRET`): it retries failed jobs, applies
+CV retention and refreshes Instagram tokens. Webhooks are processed straight after the response with Next.js `after()`.
+Vercel caps request bodies at about 4.5 MB, which is why setup uploads go one file at a time, 4 MB max.
 
 **Your own Ubuntu server.** `npm run build && npm start` behind Nginx, plus `npm run worker` (systemd or pm2) for retries
 and retention. The live stream sets `X-Accel-Buffering: no`, so Nginx doesn't buffer it.
 
-## The 3-minute demo
+## The demo
 
-Before you go on stage: Settings → Reset demo data (or `POST /api/demo/reset` with `Authorization: Bearer $DEMO_RESET_TOKEN`).
-Open three tabs: Owner (Today), Service (Inbox), HR (the Pizza cook role). Keep the site's "Ring the bell" Simulator
-open as the fallback if any webhook misbehaves: it goes through the exact same pipeline.
+Before you go on stage: Settings → Reset sample data on the Forno Sette owner desk (or `POST /api/demo/reset` with
+`Authorization: Bearer $DEMO_RESET_TOKEN`). Keep the site's "Ring the bell" simulator open as the fallback if any
+webhook misbehaves: it goes through the exact same pipeline.
 
-1. **QR → Telegram.** The QR at the bottom of the site opens the bot. A judge asks
-   "Do you have the Margherita in large, and can I book a table for 4 at 8pm Friday?" The reply shows RM 52 and a
-   booking reference; the booking pops into Bookings and the thread into the Inbox with its tool trail.
-2. **Escalation.** Send "franchise partnership?" It gets a holding reply and lands in Needs you with a one-line summary.
-3. **Owner dashboard.** Show auto-resolved %, first-reply time and top questions. Under Knowledge gaps, press
-   Add answer on "gluten-free?", write the answer, then ask the bot "do you have gluten free base?" again: answered.
-4. **Hiring.** Type "pizza cook, 3+ years wood-fired, evenings, near Bangsar" → ranked list with evidence quotes.
-   A teammate who did `/apply` in the bot is in the list: Draft invite → Approvals → Approve and send. Their phone
-   gets the invite with three time buttons; they tap one; the Interviews calendar updates live.
+1. **The pitch in one minute.** Landing page → "Get started" → sign up a new business → paste a short brief (or upload
+   a menu photo) → Draft my assistant → fix one price in Review → Save → Try it: ask a price and book for tomorrow.
+2. **Any business.** On the site, switch the simulator between the pizzeria and the salon and ask each the same kind of
+   question; the salon books by service length, the pizzeria by headcount.
+3. **Escalation.** Ask about a franchise or complain: holding reply, and it lands in Needs you with a one-line summary.
+4. **Owner dashboard.** Auto-resolved %, first-reply time, top questions, knowledge gaps → Add answer → ask again.
+5. **Hiring** (Forno Sette). "pizza cook, 3+ years wood-fired, evenings, near Bangsar" → ranked list with evidence →
+   Draft invite → Approve → the candidate picks a time in Telegram → the Interviews calendar updates live.
 
-Turn on **Demo traffic** (Owner → Today) if you want the charts to move during the pitch. It replays seeded
-conversations and everything it adds is labeled as demo data; the "Include demo data" switch shows live traffic only.
+Turn on **Demo traffic** (Owner → Today, sample businesses only) if you want the charts to move during the pitch.
 
 ## How it's built
 
@@ -82,7 +111,12 @@ conversations and everything it adds is labeled as demo data; the "Include demo 
 - Postgres via Drizzle (`src/db/schema.ts`, migrations in `drizzle/`), row-level security policies by `workspace_id`.
 - One inbound shape for every channel → `src/agent/pipeline.ts`: classify (fast model) in parallel with the tool-using
   agent (fast or smart model), safety-net escalation, Autopilot or Copilot, human takeover, full logging in `agent_runs`.
+- Generic knowledge: products and services with priced options (size, colour or any label) and stock, booking types
+  (`party` by headcount, `appointment` by service length and staff capacity, `day` for rooms and rentals), hours with
+  exceptions, policies, FAQs. The prompt, the knowledge block and the tools are the same for every business.
 - Tools: `search_catalog`, `check_variant`, `get_business_info`, `check_slots`, `create_booking`, `escalate` (`src/agent/tools.ts`).
+- Setup: `src/setup/*` (website reader with a public-address check, Claude draft, importer).
+- Channels: `src/channels/connections.ts` resolves each business's credentials and routes webhooks to the right business.
 - Hiring: `src/hiring/*`: Claude parsing, criteria chips, SQL filter + smart-model ranking with evidence quotes that are
   verified against the resume text, names and personal details removed before ranking, approvals, slot offers, calendar.
 - Live updates: Postgres triggers → `pg_notify` → `/api/stream` (server-sent events), with polling as a fallback.
@@ -90,14 +124,16 @@ conversations and everything it adds is labeled as demo data; the "Include demo 
 
 ### Where this differs from the original brief (`PROMPT.md`)
 
-- **Supabase Auth, Realtime and Storage** are replaced by our own sign-in (Workspace ID + email + password, signed
-  cookie), Postgres LISTEN/NOTIFY for the live inbox, and resumes stored in Postgres. Supabase still works as the database.
-  This keeps everything testable without a Supabase project and runs the same on Vercel or your own server.
+- **One business → any business.** The brief described a single demo business; Jawab is now multi-business with
+  sign-up, a setup wizard and per-business channel connections. Forno Sette stays as a sample.
+- **Supabase Auth, Realtime and Storage** are replaced by our own sign-in (email + password, Workspace ID only when
+  needed, signed cookie), Postgres LISTEN/NOTIFY for the live inbox, and files stored in Postgres.
 - **Inngest** is replaced by a `jobs` table + `after()` + sweep (the brief allowed either).
 - **shadcn/ui** isn't used; the few primitives come straight from Radix and are styled to the tokens.
 - **After Effects / dotLottie** pieces: none were provided, so every scene is GSAP, as the brief allows.
 - **General Sans** can't be committed (Fontshare licence), so `npm run fonts` downloads it.
 - **Zoom** is not implemented; video interviews use Google Meet (when connected) or Jitsi.
+- **District distances** for hiring only know Klang Valley areas; elsewhere the "near" filter is skipped.
 
 ## Tests
 
@@ -105,10 +141,16 @@ conversations and everything it adds is labeled as demo data; the "Include demo 
 npm run db:reset && npm test
 ```
 
-Covers the agent tools (prices, stock, sold-out flags, hours with exceptions, bookings and capacity, escalation), the
-Telegram adapter end to end against a recording Bot API client (business connections, owner-message filtering,
-`/apply` with consent, approve → invite with slot buttons → booked interview, `/delete_my_data`) and the WhatsApp and
-Instagram adapters (signatures, normalization, 24-hour window, comment private replies).
+33 tests: the agent tools (prices, stock, sold-out flags, hours with exceptions, table, appointment and day bookings,
+escalation); sign-up and setup (workspace IDs, a messy Claude-style draft repaired and imported, the tools answering
+from it, the not-live gate, which business the public simulator may reach); Telegram end to end against recording Bot
+API clients (shared bot, link codes for Business Mode, deep links per business, a business's own bot, `/apply` with
+consent and the hiring switch, approve → invite → booked interview, `/delete_my_data`); WhatsApp and Instagram
+(signatures, per-business credentials and routing, a business's own webhook URL, 24-hour window, comment private
+replies, no secrets in the status API).
+
+`node scripts/walkthrough.mjs <dir>` drives a browser from the landing page through sign-up, setup, go-live, an invite
+and a teammate's first sign-in, and saves screenshots (needs a running server).
 
 ## Environment
 

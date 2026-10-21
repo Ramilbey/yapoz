@@ -6,6 +6,8 @@ import { body, ok } from "@/lib/api";
 
 const Patch = z.object({
   title: z.string().trim().min(1).max(200).optional(),
+  category: z.string().trim().toLowerCase().min(1).max(40).optional(),
+  tags: z.array(z.string().trim().max(30)).max(10).optional(),
   body: z.string().trim().max(4000).optional(),
   available: z.boolean().optional(),
   availabilityNote: z.string().trim().max(200).nullable().optional(),

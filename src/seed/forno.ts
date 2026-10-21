@@ -11,10 +11,25 @@ export const WORKSPACE = {
     confidenceThreshold: 0.55,
     demoTraffic: false,
     resumeRetentionDays: 180,
-    booking: { slotMinutes: 30, seatsPerSlot: 32, durationMinutes: 90, maxPartySize: 10, leadMinutes: 60 },
+    business: {
+      type: "wood-fired pizzeria",
+      description: "Neapolitan-style wood-fired pizzeria in Bangsar with a 40-seat dining room, a terrace and its own delivery riders nearby. Also sells aprons and T-shirts.",
+      address: "27 Jalan Telawi 3, Bangsar Baru, 59100 Kuala Lumpur",
+      phone: null,
+      website: null,
+      languages: ["English", "Malay"],
+    },
+    modules: { hiring: true },
+    live: true,
+    sample: true,
+    onboarding: { step: 6, completedAt: "2026-10-01T00:00:00.000Z" },
     hr: { interviewMinutes: 30, workdayStart: "10:00", workdayEnd: "18:00", location: "Forno Sette, 27 Jalan Telawi 3, Bangsar Baru" },
   } satisfies WorkspaceSettings,
 };
+
+export const BOOKING_TYPES = [
+  { key: "table", name: "Table", unit: "party" as const, capacity: 32, durationMinutes: 90, slotMinutes: 30, maxPerBooking: 10, leadMinutes: 60, notes: "Tables are held 15 minutes. Groups of 8+ pay a RM 100 deposit." },
+];
 
 export const DISTRICT = "Bangsar";
 

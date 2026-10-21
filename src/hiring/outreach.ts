@@ -39,13 +39,13 @@ async function write(ws: Ws, instruction: string, fallback: string): Promise<str
 export async function draftInvite(workspaceId: string, matchId: string, mode: "onsite" | "video" = "onsite") {
   const { match, cand, req, ws } = await load(workspaceId, matchId);
   const slots = await proposeSlots(ws);
-  const reach = reachableChannel(cand);
+  const reach = await reachableChannel(cand);
   const first = cand.fullName.split(" ")[0];
-  const where = mode === "video" ? "a short video call" : `our restaurant (${ws.settings.hr.location})`;
+  const where = mode === "video" ? "a short video call" : `${ws.name} (${ws.settings.hr.location || ws.settings.business?.address || ws.city})`;
   const fallback = `Hi ${first}, thanks for your interest in the ${req.title} role at ${ws.name}. We liked your experience and would like to invite you to a ${ws.settings.hr.interviewMinutes}-minute interview at ${where}. Please pick a time below that suits you.`;
   const draft = await write(
     ws,
-    `Write an interview invitation in language "${language(cand)}" to ${first} for the ${req.title} role. Interview: ${ws.settings.hr.interviewMinutes} minutes, ${mode === "video" ? "video call (link sent after they pick a time)" : `in person at ${ws.settings.hr.location}`}. Mention one specific thing from their experience: "${match.summary ?? cand.profile?.summary ?? ""}". End by asking them to pick one of the times shown as buttons below (don't list the times).`,
+    `Write an interview invitation in language "${language(cand)}" to ${first} for the ${req.title} role. Interview: ${ws.settings.hr.interviewMinutes} minutes, ${mode === "video" ? "video call (link sent after they pick a time)" : `in person at ${ws.settings.hr.location || ws.settings.business?.address || ws.city}`}. Mention one specific thing from their experience: "${match.summary ?? cand.profile?.summary ?? ""}". End by asking them to pick one of the times shown as buttons below (don't list the times).`,
     fallback,
   );
   const [o] = await db
@@ -57,7 +57,7 @@ export async function draftInvite(workspaceId: string, matchId: string, mode: "o
 
 export async function draftRejection(workspaceId: string, matchId: string) {
   const { cand, req, ws } = await load(workspaceId, matchId);
-  const reach = reachableChannel(cand);
+  const reach = await reachableChannel(cand);
   const first = cand.fullName.split(" ")[0];
   const fallback = `Hi ${first}, thank you for applying for the ${req.title} role at ${ws.name}. We've decided to move forward with other candidates this time. We appreciate your interest and wish you all the best.`;
   const draft = await write(ws, `Write a kind, brief rejection in language "${language(cand)}" to ${first} who applied for ${req.title}. Thank them, no reasons, no false promises.`, fallback);
@@ -81,7 +81,7 @@ export async function approveAndSend(workspaceId: string, outreachId: string, ap
     if (!slots.length || slots.some((s) => new Date(s.start) < new Date())) slots = fresh;
   }
   const buttons = o.kind === "invite" ? slots.map((s, i) => [{ text: slotLabel(ws, s), data: `slot:${o.id}:${i}` }]) : undefined;
-  const channel = reachableChannel(cand).channel;
+  const channel = (await reachableChannel(cand)).channel;
   try {
     await sendToCandidate(cand, channel, text, buttons);
     await db.update(t.outreach).set({ status: "sent", sentAt: new Date(), slots, channel, error: null }).where(eq(t.outreach.id, o.id));
