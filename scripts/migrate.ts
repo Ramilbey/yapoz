@@ -4,8 +4,8 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 
 const reset = process.argv.includes("--reset");
-const url = process.env.DATABASE_URL_LISTEN ?? process.env.DATABASE_URL;
-if (!url) throw new Error("DATABASE_URL is not set");
+const url = process.env.DATABASE_URL_LISTEN ?? process.env.DATABASE_URL ?? process.env.POSTGRES_URL_NON_POOLING ?? process.env.POSTGRES_URL;
+if (!url) throw new Error("DATABASE_URL or POSTGRES_URL is not set");
 const sql = postgres(url, { max: 1, onnotice: () => {} });
 
 if (reset) {

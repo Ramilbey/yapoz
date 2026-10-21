@@ -6,7 +6,7 @@ type Globals = { __sql?: postgres.Sql; __listenSql?: postgres.Sql };
 const g = globalThis as unknown as Globals;
 
 function url() {
-  const u = process.env.DATABASE_URL;
+  const u = process.env.DATABASE_URL || process.env.POSTGRES_URL;
   if (!u) {
     return "postgres://dummy:dummy@localhost:5432/dummy";
   }
