@@ -13,12 +13,11 @@ function url() {
   return u;
 }
 
-/** Pooled client. With Supabase use the transaction pooler (port 6543) here. */
 export const sql =
   g.__sql ??
   postgres(url(), {
     max: Number(process.env.DB_POOL_MAX ?? 10),
-    prepare: !/:6543\//.test(process.env.DATABASE_URL ?? ""),
+    prepare: !/:6543\//.test(url()),
     idle_timeout: 20,
     onnotice: () => {},
   });
