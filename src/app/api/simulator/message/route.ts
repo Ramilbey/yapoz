@@ -49,7 +49,8 @@ export const POST = handle(async (req: Request) => {
     status: out.status ?? null,
     outcome: out.outcome ?? null,
     tools: (out.tools ?? []).map((tc) => ({ name: tc.name, label: tc.label, ok: tc.ok, ms: tc.ms })),
-    escalated: out.escalated ?? [],
+    // Staff-written summaries (and AI error details) stay inside the signed-in desks; the public site only gets the category.
+    escalated: (out.escalated ?? []).map((e) => (session ? e : { category: e.category })),
     booking: out.booking ?? null,
     latencyMs: out.latencyMs ?? null,
     model: out.model ?? null,

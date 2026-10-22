@@ -462,6 +462,36 @@ async function callAnthropicNative(
   };
 }
 
+export type AIAttempt = { provider: string; model: string; status?: number; message: string };
+
+/** Every provider and model failed. Carries each attempt so staff can see why replies stopped. */
+export class AIUnavailableError extends Error {
+  constructor(public attempts: AIAttempt[]) {
+    super(`AI generation failed: ${attempts.map((a) => `[${a.provider} ${a.model}]: ${a.message}`).join(" | ")}`);
+    this.name = "AIUnavailableError";
+  }
+}
+
+const SECRET = /\b(sk-[A-Za-z0-9_-]{8,}|gsk_[A-Za-z0-9]{8,}|AIza[0-9A-Za-z_-]{20,}|Bearer\s+\S+)/g;
+
+function gist(a: AIAttempt): string {
+  const text = a.message.replace(/^\d{3}\s+/, "");
+  if (a.status === 429 || /rate limit|quota/i.test(text)) return /request too large|tokens per minute/i.test(text) ? "rate limit (tokens per minute)" : "rate limited";
+  if (a.status === 413 || /request too large/i.test(text)) return "request too large for this model";
+  if (a.status === 404) return "model not found";
+  if (a.status === 401 || a.status === 403) return "API key rejected";
+  if (/timed? ?out|timeout|aborted/i.test(text)) return "timed out";
+  return `${a.status ?? "error"}: ${text.replace(/\s+/g, " ").slice(0, 70)}`;
+}
+
+/** One short line for the Needs-you card: why the AI couldn't answer. No keys, no stack traces. */
+export function explainAiError(e: unknown): string {
+  const line = e instanceof AIUnavailableError
+    ? e.attempts.slice(0, 4).map((a) => `${a.provider} ${a.model.split("/").pop()}: ${gist(a)}`).join("; ") + (e.attempts.length > 4 ? `; +${e.attempts.length - 4} more` : "")
+    : (e instanceof Error ? e.message : String(e)).replace(/\s+/g, " ");
+  return line.replace(SECRET, "[hidden]").slice(0, 220);
+}
+
 /** Models that just answered 429 ("Groq:openai/gpt-oss-20b") go to the back of the line until their window passes. */
 const coolingUntil = new Map<string, number>();
 const MAX_ATTEMPTS = 6;
@@ -488,7 +518,7 @@ export async function executeWithFallback(params: AnthropicMessageParams): Promi
   if (hasImages(params)) attempts = [...attempts.filter((a) => a.p.vision), ...attempts.filter((a) => !a.p.vision)];
   attempts = attempts.slice(0, MAX_ATTEMPTS);
 
-  const errors: string[] = [];
+  const errors: AIAttempt[] = [];
 
   for (let i = 0; i < attempts.length; i++) {
     const { p, model } = attempts[i];
@@ -496,7 +526,7 @@ export async function executeWithFallback(params: AnthropicMessageParams): Promi
       return p.type === "anthropic" ? await callAnthropicNative(p, params) : await callOpenAICompatible(p, params, model);
     } catch (err: any) {
       const msg = err?.message || String(err);
-      errors.push(`[${p.name} ${model}]: ${msg}`);
+      errors.push({ provider: p.name, model, status: typeof err?.status === "number" ? err.status : undefined, message: msg });
       const isRateLimit = err?.status === 429 || msg.includes("429") || msg.toLowerCase().includes("rate limit");
       if (isRateLimit) coolingUntil.set(`${p.name}:${model}`, Date.now() + retryAfterMs(err));
       const next = attempts[i + 1];
@@ -509,7 +539,7 @@ export async function executeWithFallback(params: AnthropicMessageParams): Promi
     }
   }
 
-  throw new Error(`AI generation failed: ${errors.join(" | ")}`);
+  throw new AIUnavailableError(errors);
 }
 
 /** For /api/health?test=ai: one small forced tool call per provider and tier, the way the agent calls them. */

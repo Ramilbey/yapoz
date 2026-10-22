@@ -4,7 +4,7 @@ import { cx } from "../ui/cx";
 
 type Accent = "telegram" | "whatsapp" | "instagram";
 type Tool = { name: string; label: string; ok: boolean; ms: number };
-type Msg = { id: string; from: "me" | "them" | "staff"; text: string; tools?: Tool[]; meta?: string; escalated?: { category: string; summary: string }[]; pending?: boolean };
+type Msg = { id: string; from: "me" | "them" | "staff"; text: string; tools?: Tool[]; meta?: string; escalated?: { category: string; summary?: string }[]; pending?: boolean };
 
 export type SampleBusiness = { id: string; name: string; type: string | null };
 

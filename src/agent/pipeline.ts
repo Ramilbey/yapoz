@@ -2,6 +2,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { db, t } from "@/db";
 import { and, desc, eq, gt, lte, ne, sql } from "drizzle-orm";
 import { claude, addUsage, textOf, type Usage } from "./claude";
+import { explainAiError } from "./ai-router";
 import { knowledge, type Workspace } from "./knowledge";
 import { rules, contextBlock } from "./prompt";
 import { classify, type Classification } from "./classify";
@@ -221,7 +222,8 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
       error = e instanceof Error ? e.message : String(e);
       console.error("[agent] failed", e);
       reply = DEFAULT_HOLD;
-      if (!ctx.escalations.length) toolLog.push(await runTool(ctx, "escalate", { category: "other", priority: "high", reason: "AI error", summary: `Agent error; customer wrote: ${latest.slice(0, 160)}` }, latest));
+      // The reason goes to staff only (Needs you, Inbox); the customer gets the holding reply above.
+      if (!ctx.escalations.length) toolLog.push(await runTool(ctx, "escalate", { category: "other", priority: "high", reason: "AI error", summary: `AI couldn't answer (${explainAiError(e)}). Customer wrote: ${latest.slice(0, 60)}` }, latest));
     }
   }
 
