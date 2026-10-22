@@ -17,12 +17,21 @@ export function getProviders(): AIProviderConfig[] {
   // 1. Groq (Free forever, ultra-fast 500 tok/sec, 30 RPM)
   if (process.env.GROQ_API_KEY) {
     providers.push({
-      name: "Groq",
+      name: "Groq (GPT-OSS)",
       type: "openai_compatible",
       apiKey: process.env.GROQ_API_KEY,
       baseURL: "https://api.groq.com/openai/v1",
-      fastModel: process.env.GROQ_FAST_MODEL || "llama-3.1-8b-instant",
-      smartModel: process.env.GROQ_SMART_MODEL || "llama-3.1-8b-instant",
+      fastModel: process.env.GROQ_FAST_MODEL || "openai/gpt-oss-20b",
+      smartModel: process.env.GROQ_SMART_MODEL || "openai/gpt-oss-120b",
+      enabled: true,
+    });
+    providers.push({
+      name: "Groq (Qwen)",
+      type: "openai_compatible",
+      apiKey: process.env.GROQ_API_KEY,
+      baseURL: "https://api.groq.com/openai/v1",
+      fastModel: "qwen/qwen3.8-27b",
+      smartModel: "qwen/qwen3.8-27b",
       enabled: true,
     });
   }
