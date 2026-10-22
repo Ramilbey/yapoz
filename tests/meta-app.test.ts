@@ -10,7 +10,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { createWorkspace } from "../src/lib/workspace";
 import { decryptJson, encryptJson } from "../src/lib/crypto";
 import { MetaError, metaAppOf, saveMetaApp, removeMetaApp, webhookAppSecret } from "../src/channels/meta";
-import { channelOf, channelStatus, clearWebhookIssue, connectWhatsApp, whatsappCreds, whatsappDependsOnMetaApp, type WhatsAppSecrets } from "../src/channels/connections";
+import { channelOf, channelStatus, clearWebhookIssue, connectWhatsApp, disconnectWhatsApp, whatsappCreds, whatsappDependsOnMetaApp, type WhatsAppSecrets } from "../src/channels/connections";
 
 const APP_ID = "1234567890123456";
 const SECRET = "a1b2c3d4e5f60718293a4b5c6d7e8f90";
@@ -293,4 +293,52 @@ test("the demo workspace falls back to the server's own variables, each mapped t
   // A business that hasn't saved its own never inherits the demo's app.
   const { workspaceId: other } = await biz("Kedai Lain");
   assert.equal(await metaAppOf(other), null);
+});
+
+test("the verify token is made once and kept: reconnecting, disconnecting and connecting again never change it", async () => {
+  const { GET, POST } = await import("../src/app/api/webhooks/whatsapp/[channelId]/route");
+  const { workspaceId: ws } = await biz("Kedai Token Tetap");
+  await saveMetaApp(ws, null, APP_ID, SECRET);
+  const first = await connectWhatsApp(ws, input());
+  const channelId = (await wa(ws)).id;
+  const handshake = (token: string) => GET(new Request(`http://x/api/webhooks/whatsapp/${channelId}?hub.mode=subscribe&hub.verify_token=${token}&hub.challenge=ok42`), { params: Promise.resolve({ channelId }) });
+
+  // Reconnecting with a new access token keeps it.
+  const again = await connectWhatsApp(ws, input({ accessToken: "EAAG-temporary-token-24-hours-000000" }));
+  assert.equal(again.verifyToken, first.verifyToken);
+
+  // Disconnecting drops the access token and the number, but not the verify token.
+  await disconnectWhatsApp(ws);
+  const ch = await wa(ws);
+  assert.deepEqual(decryptJson<WhatsAppSecrets>(ch.credentialsEnc!), { verifyToken: first.verifyToken }, "only the verify token is left");
+  assert.equal(ch.config.phoneNumberId, undefined);
+  assert.equal(await whatsappCreds(ws), null);
+  assert.equal((await channelStatus(ws)).whatsapp.connected, false);
+  // Meta's handshake still passes while disconnected; deliveries are acknowledged but not answered or recorded.
+  assert.equal(await (await handshake(first.verifyToken)).text(), "ok42");
+  assert.equal((await handshake("something-else")).status, 403);
+  const raw = JSON.stringify({ entry: [{ changes: [{ field: "messages", value: { metadata: { phone_number_id: PHONE }, messages: [{ from: "60111", id: "wamid.D", timestamp: "1760950000", type: "text", text: { body: "hello?" } }] } }] }] });
+  const sig = "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex");
+  const res = await POST(new Request("http://x", { method: "POST", body: raw, headers: { "x-hub-signature-256": sig } }), { params: Promise.resolve({ channelId }) });
+  assert.equal(res.status, 200, "200, so Meta doesn't keep retrying a number the owner disconnected");
+  assert.deepEqual(await res.json(), { ok: true, ignored: "not connected" });
+  assert.equal((await wa(ws)).config.lastWebhookAt, undefined);
+
+  // Connecting again, even a different setup, brings back the same token.
+  const back = await connectWhatsApp(ws, input());
+  assert.equal(back.verifyToken, first.verifyToken);
+  assert.equal((await channelStatus(ws)).whatsapp.verifyToken, first.verifyToken);
+  assert.equal(await (await handshake(first.verifyToken)).text(), "ok42");
+});
+
+test("a connection made before this change keeps the verify token it already has, e.g. the one pasted into Meta", async () => {
+  const { workspaceId: ws } = await biz("Kedai Token Lama");
+  await saveMetaApp(ws, null, APP_ID, SECRET);
+  const ch = await channelOf(ws, "whatsapp");
+  await db.update(t.channels).set({ credentialsEnc: encryptJson({ token: "old", verifyToken: "Wk1Wd5Fy_EFXitPrVYSUrlk0", appSecret: OTHER_SECRET }), config: { phoneNumberId: PHONE } }).where(eq(t.channels.id, ch.id));
+  const r = await connectWhatsApp(ws, input());
+  assert.equal(r.verifyToken, "Wk1Wd5Fy_EFXitPrVYSUrlk0");
+  const secrets = decryptJson<WhatsAppSecrets>((await wa(ws)).credentialsEnc!);
+  assert.equal(secrets.token, GOOD);
+  assert.equal(secrets.appSecret, undefined, "the old secret is dropped: the Meta app's is used");
 });

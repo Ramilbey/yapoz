@@ -381,11 +381,12 @@ function WhatsApp({ s, meta, patch }: { s: ChannelStatus["whatsapp"]; meta: Chan
               </p>
               <CopyField value={s.webhookUrl} label="Callback URL" />
               {s.verifyToken ? <CopyField value={s.verifyToken} label="Verify token" /> : null}
+              <p className="text-[12.5px] text-muted">The verify token stays the same if you disconnect and connect again, so Meta&apos;s webhook settings keep working.</p>
               <WhatsAppHealth s={s} />
             </div>
           ) : null}
           {s.source === "workspace" ? (
-            <button className={linkBtn} onClick={() => window.confirm("Disconnect WhatsApp? Customer messages stop being answered.") && patch("/api/channels/whatsapp", "DELETE", undefined, "WhatsApp disconnected.")}>
+            <button className={linkBtn} onClick={() => window.confirm("Disconnect WhatsApp? Customer messages stop being answered. The verify token is kept for when you connect again.") && patch("/api/channels/whatsapp", "DELETE", undefined, "WhatsApp disconnected.")}>
               Disconnect
             </button>
           ) : null}

@@ -1,10 +1,8 @@
 import { z } from "zod";
-import { eq } from "drizzle-orm";
-import { db, t } from "@/db";
 import { apiSession, handle, HttpError } from "@/lib/auth";
 import { body, ok } from "@/lib/api";
 import { hit } from "@/lib/ratelimit";
-import { channelOf, connectWhatsApp } from "@/channels/connections";
+import { connectWhatsApp, disconnectWhatsApp } from "@/channels/connections";
 import { MetaError } from "@/channels/meta";
 
 export const dynamic = "force-dynamic";
@@ -31,13 +29,9 @@ export const POST = handle(async (req: Request) => {
   }
 });
 
+/** Disconnect the number. The verify token is kept, so reconnecting doesn't break Meta's webhook settings. */
 export const DELETE = handle(async () => {
   const s = await apiSession(["owner"]);
-  const ch = await channelOf(s.workspaceId, "whatsapp");
-  const {
-    phoneNumberId: _p, wabaId: _w, appId: _a, displayPhone: _d, verifiedName: _v, tokenExpiresAt: _x,
-    wabaChecked: _wc, lastWebhookAt: _l1, lastWebhookIssue: _l2, lastWebhookTest: _l3, lastSendError: _l4, lastSendErrorAt: _l5, ...rest
-  } = ch.config;
-  await db.update(t.channels).set({ credentialsEnc: null, config: rest }).where(eq(t.channels.id, ch.id));
+  await disconnectWhatsApp(s.workspaceId);
   return ok({ ok: true });
 });

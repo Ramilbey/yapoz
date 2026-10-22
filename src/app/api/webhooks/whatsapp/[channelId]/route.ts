@@ -15,7 +15,9 @@ async function channel(ctx: { params: Promise<{ channelId: string }> }) {
   if (!/^[0-9a-f-]{36}$/.test(channelId)) return null;
   const [ch] = await db.select().from(t.channels).where(and(eq(t.channels.id, channelId), eq(t.channels.type, "whatsapp")));
   if (!ch?.credentialsEnc) return null;
-  return { ch, secrets: decryptJson<WhatsAppSecrets>(ch.credentialsEnc) };
+  const secrets = decryptJson<WhatsAppSecrets>(ch.credentialsEnc);
+  // A disconnected number keeps only its verify token: Meta's handshake still passes, but nothing is answered.
+  return { ch, secrets, connected: Boolean(secrets.token && ch.config.phoneNumberId) };
 }
 
 /** What Settings → Channels shows the owner: when Meta last reached us, and whether it was a real message. */
@@ -42,6 +44,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ channelId: stri
 export async function POST(req: Request, ctx: { params: Promise<{ channelId: string }> }) {
   const c = await channel(ctx);
   if (!c) return new Response("not found", { status: 404 });
+  // 200, not an error: Meta would otherwise keep retrying deliveries for a number the owner chose to disconnect.
+  if (!c.connected) return Response.json({ ok: true, ignored: "not connected" });
   const raw = await req.text();
   // Meta signs every delivery with the app secret; without this check anyone could post fake customer messages.
   // The secret comes from the business's saved Meta app; connections made before that existed keep the one stored with the number.

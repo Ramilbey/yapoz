@@ -22,7 +22,7 @@ export async function channelOf(workspaceId: string, type: ChannelType): Promise
 }
 
 /** What is encrypted on the WhatsApp channel row. The app secret lives with the Meta app now; older connections kept it here. */
-export type WhatsAppSecrets = { token: string; verifyToken: string; appSecret?: string };
+export type WhatsAppSecrets = { token?: string; verifyToken: string; appSecret?: string };
 /**
  * Everything needed to talk to one WhatsApp number, from the form fields to where they come from:
  *   appId (Meta app ID)  appSecret (App secret)  → the business's saved Meta app (integrations), else older channel secret
@@ -32,8 +32,8 @@ export type WhatsAppCreds = { token: string; verifyToken: string; appSecret: str
 
 export async function whatsappCreds(workspaceId: string): Promise<WhatsAppCreds | null> {
   const c = await channelOf(workspaceId, "whatsapp");
-  if (c.credentialsEnc && c.config.phoneNumberId) {
-    const s = decryptJson<WhatsAppSecrets>(c.credentialsEnc);
+  const s = c.credentialsEnc && c.config.phoneNumberId ? decryptJson<WhatsAppSecrets>(c.credentialsEnc) : null;
+  if (s?.token) {
     const app = await metaAppOf(workspaceId);
     return {
       token: s.token, verifyToken: s.verifyToken, appSecret: app?.appSecret ?? s.appSecret ?? "", appId: app?.appId || String(c.config.appId ?? ""),
@@ -67,7 +67,9 @@ export async function connectWhatsApp(workspaceId: string, input: { phoneNumberI
   if (accountChecked) await subscribeWaba(input.wabaId, input.accessToken);
 
   const ch = await channelOf(workspaceId, "whatsapp");
-  const secrets: WhatsAppSecrets = { token: input.accessToken, verifyToken: randomBytes(18).toString("base64url") };
+  // The verify token is made once and then kept, through reconnects and disconnects, so Meta's webhook settings never go stale.
+  const kept = ch.credentialsEnc ? decryptJson<WhatsAppSecrets>(ch.credentialsEnc).verifyToken : null;
+  const secrets: WhatsAppSecrets = { token: input.accessToken, verifyToken: kept || randomBytes(18).toString("base64url") };
   await db
     .update(t.channels)
     .set({
@@ -79,6 +81,20 @@ export async function connectWhatsApp(workspaceId: string, input: { phoneNumberI
     .where(eq(t.channels.id, ch.id));
   await db.insert(t.events).values({ workspaceId, type: "channel.connected", props: { channel: "whatsapp", phone: number.displayPhone, appId: app.appId } });
   return { ...number, accountChecked, tokenExpiresAt: token.expiresAt, webhookUrl: `${env.appUrl}/api/webhooks/whatsapp/${ch.id}`, verifyToken: secrets.verifyToken };
+}
+
+/**
+ * Disconnect the number: the access token and the number's details go, the verify token stays (encrypted), so connecting
+ * again, with the same number or another, keeps the webhook settings already saved in Meta working.
+ */
+export async function disconnectWhatsApp(workspaceId: string) {
+  const ch = await channelOf(workspaceId, "whatsapp");
+  const {
+    phoneNumberId: _p, wabaId: _w, appId: _a, displayPhone: _d, verifiedName: _v, tokenExpiresAt: _x,
+    wabaChecked: _wc, lastWebhookAt: _l1, lastWebhookIssue: _l2, lastWebhookTest: _l3, lastSendError: _l4, lastSendErrorAt: _l5, ...rest
+  } = ch.config;
+  const kept = ch.credentialsEnc ? decryptJson<WhatsAppSecrets>(ch.credentialsEnc).verifyToken : null;
+  await db.update(t.channels).set({ credentialsEnc: kept ? encryptJson({ verifyToken: kept }) : null, config: rest }).where(eq(t.channels.id, ch.id));
 }
 
 /** A WhatsApp connection made through the Meta app box has no secret of its own: it can't lose the Meta app. */

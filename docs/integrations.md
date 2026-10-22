@@ -59,8 +59,10 @@ below are only used by the shared Telegram bot, Jawab's Instagram app, and as a 
      (`GET /{phone_number_id}`) but not the account. Then the number alone is confirmed, the account is flagged as not
      confirmed in Settings, and no subscription is attempted (Meta's app-level webhook delivers). A number that isn't on an
      account the token *can* see is still refused.
-  We then show a per-business callback URL `/api/webhooks/whatsapp/<channelId>` plus a generated verify token to paste into
-  the app's webhook settings (field `messages`). Env fallbacks for the demo workspace: `META_APP_ID`, `META_APP_SECRET`,
+  We then show a per-business callback URL `/api/webhooks/whatsapp/<channelId>` plus a verify token to paste into the app's
+  webhook settings (field `messages`). The verify token is generated on the first connect and then kept: reconnecting, or
+  disconnecting and connecting again, reuses it, so Meta's webhook settings never go stale. While disconnected the handshake
+  still passes but deliveries are ignored (answered 200 so Meta doesn't keep retrying). Env fallbacks for the demo workspace: `META_APP_ID`, `META_APP_SECRET`,
   `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_BUSINESS_ACCOUNT_ID`, `WHATSAPP_TOKEN`.
 - **Not built yet: Embedded Signup.** One-click onboarding needs Jawab's own Meta app to be an approved Tech Provider
   (business verification + App Review). The platform route `/api/webhooks/whatsapp` already routes by
