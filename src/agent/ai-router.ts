@@ -17,21 +17,12 @@ export function getProviders(): AIProviderConfig[] {
   // 1. Groq (Free forever, ultra-fast 500 tok/sec, 30 RPM)
   if (process.env.GROQ_API_KEY) {
     providers.push({
-      name: "Groq (GPT-OSS)",
+      name: "Groq",
       type: "openai_compatible",
       apiKey: process.env.GROQ_API_KEY,
       baseURL: "https://api.groq.com/openai/v1",
-      fastModel: process.env.GROQ_FAST_MODEL || "openai/gpt-oss-20b",
-      smartModel: process.env.GROQ_SMART_MODEL || "openai/gpt-oss-120b",
-      enabled: true,
-    });
-    providers.push({
-      name: "Groq (Qwen)",
-      type: "openai_compatible",
-      apiKey: process.env.GROQ_API_KEY,
-      baseURL: "https://api.groq.com/openai/v1",
-      fastModel: "qwen/qwen3.8-27b",
-      smartModel: "qwen/qwen3.8-27b",
+      fastModel: process.env.GROQ_FAST_MODEL || "llama-3.1-8b-instant",
+      smartModel: process.env.GROQ_SMART_MODEL || "llama-3.3-70b-versatile",
       enabled: true,
     });
   }
@@ -39,30 +30,12 @@ export function getProviders(): AIProviderConfig[] {
   // 2. Google Gemini (Free tier, 15 RPM, 1M tokens/min)
   if (process.env.GEMINI_API_KEY) {
     providers.push({
-      name: "Google Gemini 3.8",
+      name: "Google Gemini",
       type: "openai_compatible",
       apiKey: process.env.GEMINI_API_KEY,
       baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
-      fastModel: "gemini-3.8-flash",
-      smartModel: "gemini-3.8-flash",
-      enabled: true,
-    });
-    providers.push({
-      name: "Google Gemini 2.5",
-      type: "openai_compatible",
-      apiKey: process.env.GEMINI_API_KEY,
-      baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
-      fastModel: process.env.GEMINI_FAST_MODEL || "gemini-2.5-flash",
-      smartModel: process.env.GEMINI_SMART_MODEL || "gemini-2.5-flash",
-      enabled: true,
-    });
-    providers.push({
-      name: "Google Gemini 1.5",
-      type: "openai_compatible",
-      apiKey: process.env.GEMINI_API_KEY,
-      baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
-      fastModel: "gemini-1.5-flash",
-      smartModel: "gemini-1.5-flash",
+      fastModel: process.env.GEMINI_FAST_MODEL || "gemini-1.5-flash",
+      smartModel: process.env.GEMINI_SMART_MODEL || "gemini-1.5-flash",
       enabled: true,
     });
   }
@@ -254,7 +227,7 @@ async function callOpenAICompatible(
   const client = new OpenAI({
     apiKey: provider.apiKey || "dummy",
     baseURL: provider.baseURL,
-    timeout: 35000,
+    timeout: 15000,
     maxRetries: 1,
   });
 
