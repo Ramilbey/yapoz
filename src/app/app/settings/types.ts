@@ -2,6 +2,8 @@ import type { WorkspaceSettings } from "@/db/schema";
 
 export type Mode = "autopilot" | "copilot";
 export type ChannelStatus = {
+  /** The business's Meta app, shared by WhatsApp and Instagram. The secret never leaves the server. */
+  metaApp: { connected: boolean; appId: string | null; appName: string | null; source: "workspace" | "env" | null };
   telegram: {
     mode: Mode;
     sharedBot: string | null;
@@ -19,6 +21,9 @@ export type ChannelStatus = {
     verifiedName: string | null;
     webhookUrl: string | null;
     verifyToken: string | null;
+    wabaId: string | null;
+    tokenExpiresAt: string | null;
+    needsMetaApp: boolean;
     lastWebhookAt: string | null;
     lastWebhookIssue: "signature" | null;
     lastWebhookTest: boolean;

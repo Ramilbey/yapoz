@@ -48,18 +48,22 @@ below are only used by the shared Telegram bot, Jawab's Instagram app, and as a 
 - Reply buttons: `type: "interactive", interactive: { type: "button", body: { text }, action: { buttons: [{ type: "reply", reply: { id, title } }] } }`,
   max **3** buttons, title ≤ **20** chars, id ≤ 256. Taps arrive as `messages[].interactive.button_reply.{id,title}`.
   Interview slots use ids `slot:<outreachId>:<index>`.
-- **Connecting a business (what's built):** the owner pastes the Phone number ID, a System User access token
-  (`whatsapp_business_messaging`, `whatsapp_business_management`), their app secret and optionally the WABA ID from
-  their own Meta app. We check them with `GET /{version}/{phone_number_id}?fields=display_phone_number,verified_name`,
-  call `POST /{waba_id}/subscribed_apps` when a WABA ID is given, store everything encrypted, and show a per-business
-  callback URL `/api/webhooks/whatsapp/<channelId>` plus a generated verify token to paste into the app's webhook
-  settings (field `messages`).
+- **Connecting a business (what's built):** two steps in Settings → Channels, because one Meta app serves WhatsApp and Instagram.
+  1. *Meta app*: App ID + App secret. Checked with `GET /{app_id}?fields=name` using the app access token `{app_id}|{app_secret}`
+     (Meta rejects a wrong pair); saved in `integrations` (provider `meta_app`), the secret encrypted.
+  2. *WhatsApp number*: Phone number ID, WhatsApp Business Account ID, access token. Checked with
+     `GET /debug_token?input_token=…` (valid, `app_id` equals the saved App ID, scopes include `whatsapp_business_messaging` and
+     `whatsapp_business_management`, `expires_at` shown to the owner), `GET /{waba_id}/phone_numbers` (the Phone number ID
+     must be on that account) and `POST /{waba_id}/subscribed_apps`. Only then is the token saved (encrypted).
+  We then show a per-business callback URL `/api/webhooks/whatsapp/<channelId>` plus a generated verify token to paste into
+  the app's webhook settings (field `messages`). Env fallbacks for the demo workspace: `META_APP_ID`, `META_APP_SECRET`,
+  `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_BUSINESS_ACCOUNT_ID`, `WHATSAPP_TOKEN`.
 - **Not built yet: Embedded Signup.** One-click onboarding needs Jawab's own Meta app to be an approved Tech Provider
   (business verification + App Review). The platform route `/api/webhooks/whatsapp` already routes by
   `metadata.phone_number_id`, so numbers onboarded that way will land in the right business.
 - Webhook: `GET` verification with `hub.mode=subscribe`, `hub.verify_token`, `hub.challenge`; `POST` bodies are verified with
-  `X-Hub-Signature-256 = "sha256=" + HMAC_SHA256(raw body, app secret)` before parsing (the business's own app secret on
-  its per-channel URL, `META_APP_SECRET` on the platform URL).
+  `X-Hub-Signature-256 = "sha256=" + HMAC_SHA256(raw body, app secret)` before parsing (the business's saved Meta app secret
+  on its per-channel URL, falling back to the secret stored with an older connection; `META_APP_SECRET` on the platform URL).
 - **24-hour customer-service window:** free-form messages only within 24 h of the customer's last message (we check
   `threads.last_inbound_at`). Outside it, only approved templates. Create two templates in WhatsApp Manager:
   Each business creates them in its own WhatsApp Manager, with its own name in the text:

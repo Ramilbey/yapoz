@@ -210,8 +210,8 @@ function WhatsAppHealth({ s }: { s: ChannelStatus["whatsapp"] }) {
         </>
       ) : s.lastWebhookIssue === "signature" ? (
         <p className="text-signal-ink">
-          Meta reached Jawab on {when(s.lastWebhookAt)}, but the delivery was rejected: its signature doesn&apos;t match the App secret you saved. Copy the App secret from App settings → Basic of the
-          same app, then disconnect and connect again.
+          Meta reached Jawab on {when(s.lastWebhookAt)}, but the delivery was rejected: its signature doesn&apos;t match the App secret saved in the Meta app box above. Copy the App secret from App settings → Basic of the
+          app that owns this WhatsApp number, and save it there again. No need to reconnect the number.
         </p>
       ) : s.lastWebhookTest ? (
         <p className="text-fg-2">
@@ -230,12 +230,124 @@ function WhatsAppHealth({ s }: { s: ChannelStatus["whatsapp"] }) {
   );
 }
 
-function WhatsApp({ s, patch }: { s: ChannelStatus["whatsapp"]; patch: Patch }) {
-  const [f, setF] = useState({ phoneNumberId: "", accessToken: "", appSecret: "", wabaId: "" });
+/** A settings box without the Autopilot/Copilot switch, for things that aren't a channel. */
+function Plain({ title, status, children }: { title: string; status: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <li className="py-6">
+      <div className="flex flex-wrap items-center gap-2.5">
+        <h3 className="text-[17px] font-semibold">{title}</h3>
+        {status}
+      </div>
+      <div className="mt-3">{children}</div>
+    </li>
+  );
+}
+
+const soon = (iso: string) => new Date(iso).getTime() - Date.now() < 3 * 24 * 60 * 60 * 1000;
+
+/**
+ * The business's Meta app, saved once and shared by WhatsApp and Instagram: Meta App ID + App secret.
+ * Jawab asks Meta whether the two belong together before saving, and later uses the secret to check that
+ * webhooks really come from Meta.
+ */
+function MetaApp({ s, needsMetaApp, patch }: { s: ChannelStatus["metaApp"]; needsMetaApp: boolean; patch: Patch }) {
+  const [f, setF] = useState({ appId: "", appSecret: "" });
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [help, setHelp] = useState(false);
+  const own = s.source === "workspace";
+  const showForm = !s.connected || editing;
+  return (
+    <Plain title="Meta app" status={s.connected ? <Chip tone="answered">{s.appName ?? `App ${s.appId ?? ""}`}</Chip> : <Chip>Not set</Chip>}>
+      <p className="max-w-[72ch] text-[13.5px] text-fg-2">
+        One Meta app serves both WhatsApp and Instagram, so you save it once, here, apart from your WhatsApp number. Jawab checks the App ID and secret with Meta before saving, stores the secret encrypted, and uses it to confirm that messages really come from Meta.
+      </p>
+      {needsMetaApp && !s.connected ? (
+        <p className="mt-2 max-w-[72ch] text-[13px] text-signal-ink">
+          Your WhatsApp number was connected before this box existed, with an App secret that Meta isn&apos;t accepting. Save your Meta app here to replace it. No need to reconnect the number.
+        </p>
+      ) : null}
+      {s.connected && !editing ? (
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13.5px]">
+          <span>
+            <span className="text-muted">App ID</span> <span className="num">{s.appId || "not set"}</span>
+          </span>
+          <span className="text-muted">{own ? "Checked with Meta" : "Using this server's Meta app"}</span>
+          {own ? (
+            <>
+              <button className={linkBtn} onClick={() => setEditing(true)}>
+                Replace
+              </button>
+              <button className={linkBtn} onClick={() => window.confirm("Remove the Meta app?") && patch("/api/channels/meta", "DELETE", undefined, "Meta app removed.")}>
+                Remove
+              </button>
+            </>
+          ) : null}
+        </div>
+      ) : (
+        <form
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setBusy(true);
+            try {
+              await patch("/api/channels/meta", "POST", f, "Meta confirmed the App ID and secret. They're saved.");
+              setF({ appId: "", appSecret: "" });
+              setEditing(false);
+            } catch {
+              // shown by patch()
+            } finally {
+              setBusy(false);
+            }
+          }}
+          className="mt-2 max-w-[720px]"
+        >
+          <button type="button" onClick={() => setHelp((v) => !v)} className="text-[13px] font-medium underline decoration-brass underline-offset-4" aria-expanded={help}>
+            {help ? "Hide the steps" : "Where do I find these?"}
+          </button>
+          {help ? (
+            <Steps
+              items={[
+                <>
+                  At developers.facebook.com open <b>My apps</b> and choose your app (create one of type Business if you don&apos;t have it yet, and add the WhatsApp product).
+                </>,
+                <>
+                  <b>App settings → Basic</b> shows the <b>App ID</b> at the top and the <b>App secret</b> (press Show). Both come from the same app.
+                </>,
+              ]}
+            />
+          ) : null}
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="meta-id">Meta App ID</Label>
+              <Input id="meta-id" inputMode="numeric" autoComplete="off" value={f.appId} onChange={(e) => setF({ ...f, appId: e.target.value.trim() })} placeholder="e.g. 1234567890123456" required />
+            </div>
+            <div>
+              <Label htmlFor="meta-secret">App secret</Label>
+              <Input id="meta-secret" type="password" autoComplete="off" value={f.appSecret} onChange={(e) => setF({ ...f, appSecret: e.target.value.trim() })} placeholder="32 characters" required />
+            </div>
+          </div>
+          <div className="mt-3 flex items-center gap-3">
+            <Button type="submit" variant="brass" loading={busy}>
+              Check with Meta and save
+            </Button>
+            {editing ? (
+              <button type="button" className={linkBtn} onClick={() => setEditing(false)}>
+                Cancel
+              </button>
+            ) : null}
+          </div>
+        </form>
+      )}
+    </Plain>
+  );
+}
+
+function WhatsApp({ s, meta, patch }: { s: ChannelStatus["whatsapp"]; meta: ChannelStatus["metaApp"]; patch: Patch }) {
+  const [f, setF] = useState({ phoneNumberId: "", wabaId: "", accessToken: "" });
   const [busy, setBusy] = useState(false);
   const [help, setHelp] = useState(false);
   return (
-    <Card title="WhatsApp" type="whatsapp" mode={s.mode} patch={patch} status={s.connected ? <Chip tone="answered">{s.displayPhone ?? "Connected"}</Chip> : <Chip>Not connected</Chip>}>
+    <Card title="WhatsApp number" type="whatsapp" mode={s.mode} patch={patch} status={s.connected ? <Chip tone="answered">{s.displayPhone ?? "Connected"}</Chip> : <Chip>Not connected</Chip>}>
       {s.connected ? (
         <div className="space-y-3">
           <p className="text-[13.5px] text-fg-2">
@@ -243,6 +355,20 @@ function WhatsApp({ s, patch }: { s: ChannelStatus["whatsapp"]; patch: Patch }) 
             Free-form replies within 24 hours of a customer&apos;s last message; after that only approved templates can be sent.
             {s.source === "env" ? " Using this server's demo number." : null}
           </p>
+          {s.source === "workspace" ? (
+            <dl className="grid max-w-[640px] grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[13.5px]">
+              <dt className="text-muted">Meta app</dt>
+              <dd className="num">{meta.connected ? meta.appId : <span className="text-signal-ink">not saved: add it in the Meta app box</span>}</dd>
+              <dt className="text-muted">Business Account</dt>
+              <dd className="num">{s.wabaId ?? <span className="text-signal-ink">not saved: disconnect and connect again</span>}</dd>
+              <dt className="text-muted">Access token</dt>
+              <dd className={cx(s.tokenExpiresAt && soon(s.tokenExpiresAt) && "text-signal-ink")}>
+                {s.tokenExpiresAt
+                  ? `${new Date(s.tokenExpiresAt).getTime() < Date.now() ? "expired" : "expires"} ${new Date(s.tokenExpiresAt).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}${soon(s.tokenExpiresAt) ? ": make a System User token that doesn't expire" : ""}`
+                  : "doesn't expire"}
+              </dd>
+            </dl>
+          ) : null}
           {s.webhookUrl && s.source === "workspace" ? (
             <div className="max-w-[640px] space-y-2">
               <p className="text-[13px] text-muted">
@@ -259,13 +385,17 @@ function WhatsApp({ s, patch }: { s: ChannelStatus["whatsapp"]; patch: Patch }) 
             </button>
           ) : null}
         </div>
+      ) : !meta.connected ? (
+        <p className="max-w-[72ch] text-[13.5px] text-fg-2">
+          Save your <b>Meta app</b> in the box above first. WhatsApp needs it so Jawab can check your access token with Meta and trust the messages that arrive.
+        </p>
       ) : (
         <form
           onSubmit={async (e) => {
             e.preventDefault();
             setBusy(true);
             try {
-              await patch("/api/channels/whatsapp", "POST", f, "WhatsApp connected. Now set the webhook below.");
+              await patch("/api/channels/whatsapp", "POST", f, "Meta confirmed the number. Now set the webhook below.");
             } catch {
               // shown by patch()
             } finally {
@@ -275,7 +405,7 @@ function WhatsApp({ s, patch }: { s: ChannelStatus["whatsapp"]; patch: Patch }) 
           className="max-w-[720px]"
         >
           <p className="text-[13.5px] text-fg-2">
-            Uses the official WhatsApp Business Platform through your own Meta app. Paste the details from Meta; Jawab checks them with Meta before saving and stores them encrypted.
+            The number you want customers to message, on Meta app <span className="num">{meta.appId}</span>. Jawab asks Meta whether the token belongs to that app, may use WhatsApp, and whether the number is on that Business Account, before saving anything.
           </p>
           <button type="button" onClick={() => setHelp((v) => !v)} className="mt-1 text-[13px] font-medium underline decoration-brass underline-offset-4" aria-expanded={help}>
             {help ? "Hide the steps" : "Where do I find these?"}
@@ -283,16 +413,14 @@ function WhatsApp({ s, patch }: { s: ChannelStatus["whatsapp"]; patch: Patch }) 
           {help ? (
             <Steps
               items={[
-                <>At developers.facebook.com create an app (type Business) and add the WhatsApp product.</>,
                 <>
-                  WhatsApp → API Setup shows the <b>Phone number ID</b> and the <b>WhatsApp Business Account ID</b>. Add your real business number there when you&apos;re ready.
+                  WhatsApp → API Setup shows the <b>Phone number ID</b> and the <b>WhatsApp Business Account ID</b> next to the number. Neither is the phone number itself.
                 </>,
                 <>
-                  Business Settings → System users: create one, assign it the app and your WhatsApp account, and generate a token with whatsapp_business_messaging and whatsapp_business_management. That&apos;s the{" "}
-                  <b>access token</b>, and it doesn&apos;t expire.
+                  Business Settings → <b>System users</b>: create one, assign it your app and WhatsApp account, and generate a token with <span className="num">whatsapp_business_messaging</span> and <span className="num">whatsapp_business_management</span>. Choose <b>Never</b> for expiry. That&apos;s the <b>access token</b>.
                 </>,
                 <>
-                  App settings → Basic → <b>App secret</b>. Jawab uses it to check that messages really come from Meta.
+                  The temporary token on the API Setup page stops working after 24 hours. Jawab accepts it but tells you when it will expire.
                 </>,
               ]}
             />
@@ -300,25 +428,19 @@ function WhatsApp({ s, patch }: { s: ChannelStatus["whatsapp"]; patch: Patch }) 
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div>
               <Label htmlFor="wa-pn">Phone number ID</Label>
-              <Input id="wa-pn" inputMode="numeric" value={f.phoneNumberId} onChange={(e) => setF({ ...f, phoneNumberId: e.target.value.trim() })} placeholder="e.g. 106540352242922" required />
+              <Input id="wa-pn" inputMode="numeric" autoComplete="off" value={f.phoneNumberId} onChange={(e) => setF({ ...f, phoneNumberId: e.target.value.trim() })} placeholder="e.g. 106540352242922" required />
             </div>
             <div>
-              <Label htmlFor="wa-waba" hint="optional">
-                WhatsApp Business Account ID
-              </Label>
-              <Input id="wa-waba" inputMode="numeric" value={f.wabaId} onChange={(e) => setF({ ...f, wabaId: e.target.value.trim() })} />
+              <Label htmlFor="wa-waba">WhatsApp Business Account ID</Label>
+              <Input id="wa-waba" inputMode="numeric" autoComplete="off" value={f.wabaId} onChange={(e) => setF({ ...f, wabaId: e.target.value.trim() })} required />
             </div>
             <div className="sm:col-span-2">
               <Label htmlFor="wa-token">Access token</Label>
               <Input id="wa-token" type="password" autoComplete="off" value={f.accessToken} onChange={(e) => setF({ ...f, accessToken: e.target.value.trim() })} required />
             </div>
-            <div className="sm:col-span-2">
-              <Label htmlFor="wa-secret">App secret</Label>
-              <Input id="wa-secret" type="password" autoComplete="off" value={f.appSecret} onChange={(e) => setF({ ...f, appSecret: e.target.value.trim() })} required />
-            </div>
           </div>
           <Button type="submit" className="mt-3" variant="brass" loading={busy}>
-            Check and connect
+            Check with Meta and connect
           </Button>
         </form>
       )}
@@ -367,7 +489,8 @@ export function Channels({ channels, patch, workspaceId }: { channels: ChannelSt
       <p className="mt-1 max-w-[70ch] text-[14px] text-muted">Where customers reach you. Autopilot sends replies on its own; Copilot drafts them for your team to approve in the inbox.</p>
       <ul className="mt-2 divide-y divide-line border-y border-line">
         <Telegram s={channels.telegram} patch={patch} workspaceId={workspaceId} />
-        <WhatsApp s={channels.whatsapp} patch={patch} />
+        <MetaApp s={channels.metaApp} needsMetaApp={channels.whatsapp.needsMetaApp} patch={patch} />
+        <WhatsApp s={channels.whatsapp} meta={channels.metaApp} patch={patch} />
         <Instagram s={channels.instagram} patch={patch} />
         <Card title="Website simulator" type="simulator" mode={channels.simulator.mode} patch={patch} status={<Chip tone="answered">Always on</Chip>}>
           <p className="text-[13.5px] text-fg-2">A phone on screen that talks to the same assistant. Test answers before going live, or use it as the fallback on stage.</p>

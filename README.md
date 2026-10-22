@@ -59,14 +59,30 @@ encrypted on the business's channel row and never sent back to the browser.
   Chatbots. In @BotFather turn on Business Mode for the shared bot.
 - **Telegram, the business's own bot:** paste a @BotFather token. Jawab checks it with `getMe` and sets a webhook to
   `/api/webhooks/telegram/<channelId>` with its own secret token (or `npm run telegram:poll` picks it up locally).
-- **WhatsApp:** the business pastes the Phone number ID, a permanent System User access token, its app secret and
-  (optionally) the WhatsApp Business Account ID from its own Meta app. Jawab validates them with the Graph API and shows
+- **Meta app, then WhatsApp.** One Meta app serves both WhatsApp and Instagram, so it is saved once, in its own box, apart
+  from the number. Five values, each stored in one place:
+
+  | Field | Where it comes from in Meta | Stored as | Server fallback (demo workspace) |
+  | --- | --- | --- | --- |
+  | Meta App ID | App settings → Basic | `integrations(meta_app).meta.appId` | `META_APP_ID` |
+  | App secret | App settings → Basic → Show | `integrations(meta_app).dataEnc`, encrypted | `META_APP_SECRET` |
+  | Phone number ID | WhatsApp → API Setup | `channels(whatsapp).config.phoneNumberId` | `WHATSAPP_PHONE_NUMBER_ID` |
+  | WhatsApp Business Account ID | WhatsApp → API Setup | `channels(whatsapp).config.wabaId` | `WHATSAPP_BUSINESS_ACCOUNT_ID` |
+  | Access token | Business Settings → System users | `channels(whatsapp).credentialsEnc`, encrypted | `WHATSAPP_TOKEN` |
+
+  Saving the Meta app asks Meta whether the App ID and secret belong together. Connecting the number asks Meta whether the
+  token is valid, was made by that app and has both WhatsApp permissions, whether the number is on that Business Account, and
+  subscribes the app to the account's webhooks; nothing is saved if any answer is no, and the message says which field to fix.
+  The token's expiry is shown, with a warning when it's a temporary one. The App secret signs the webhooks (WhatsApp, and
+  Instagram for that business's own account). Connections made before the Meta app box existed keep working, and saving the
+  Meta app replaces the old secret without reconnecting. Jawab then shows
   the callback URL `/api/webhooks/whatsapp/<channelId>` and a verify token to paste into the app's webhook settings.
   Embedded Signup (one-click) needs Meta Tech Provider approval; it's the next step, not built.
 - **Instagram:** "Connect Instagram" runs Instagram Login on Jawab's Meta app (`INSTAGRAM_APP_ID`,
   `INSTAGRAM_APP_SECRET`), exchanges for a long-lived token (refreshed by the daily sweep), and subscribes the account
   to `messages` and `comments`. Until the app passes App Review, only accounts added as Instagram testers can connect.
-  Webhooks for every business arrive at `/api/webhooks/instagram` and are routed by `entry.id`.
+  Webhooks for every business arrive at `/api/webhooks/instagram` and are routed by `entry.id`; each entry is accepted only if
+  its signature matches Jawab's own app (`INSTAGRAM_APP_SECRET` / `META_APP_SECRET`) or the Meta app secret of the business that owns that account.
 
 Local development, no public URL needed: `npm run telegram:poll` (shared bot plus every connected own bot).
 Production: set `APP_URL` (https) and `TELEGRAM_WEBHOOK_SECRET`, then `npm run telegram:webhook` for the shared bot.
@@ -146,13 +162,13 @@ Turn on **Demo traffic** (Owner → Today, sample businesses only) if you want t
 npm run db:reset && npm test
 ```
 
-51 tests: the agent tools (prices, stock, sold-out flags, hours with exceptions, table, appointment and day bookings,
+65 tests: the agent tools (prices, stock, sold-out flags, hours with exceptions, table, appointment and day bookings,
 escalation); sign-up and setup (workspace IDs, a messy Claude-style draft repaired and imported, the tools answering
 from it, the not-live gate, which business the public simulator may reach); Telegram end to end against recording Bot
 API clients (shared bot, link codes for Business Mode, deep links per business, a business's own bot, `/apply` with
 consent and the hiring switch, approve → invite → booked interview, `/delete_my_data`); WhatsApp and Instagram
 (signatures, per-business credentials and routing, a business's own webhook URL, 24-hour window, comment private
-replies, no secrets in the status API); AI routing (retired models swapped for served ones, 429s rotating to the next model, photos and PDFs reaching vision models, the failure reason shown to staff only); and orders (priced and stock-checked by the server, approval, stock off and back, customer messages, the activity log, workspace scoping, a chat order through the agent).
+replies, no secrets in the status API); AI routing (retired models swapped for served ones, 429s rotating to the next model, photos and PDFs reaching vision models, the failure reason shown to staff only); the Meta app and WhatsApp number checks against a fake Meta API (wrong secret, another app's token, expired or under-permissioned token, number on the wrong account, temporary token, which secret signs webhooks, one business's secret never vouching for another's); and orders (priced and stock-checked by the server, approval, stock off and back, customer messages, the activity log, workspace scoping, a chat order through the agent).
 
 `node scripts/walkthrough.mjs <dir>` drives a browser from the landing page through sign-up, setup, go-live, an invite
 and a teammate's first sign-in, and saves screenshots (needs a running server).
