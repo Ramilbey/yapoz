@@ -23,7 +23,7 @@ export const GET = handle(async () => {
 });
 
 const Patch = z.object({
-  channelModes: z.record(z.enum(["telegram", "whatsapp", "instagram", "simulator"]), z.enum(["autopilot", "copilot"])).optional(),
+  channelModes: z.record(z.string(), z.string()).optional(),
   demoTraffic: z.boolean().optional(),
   confidenceThreshold: z.number().min(0).max(1).optional(),
   resumeRetentionDays: z.number().int().min(7).max(730).optional(),
@@ -39,7 +39,8 @@ export const PATCH = handle(async (req: Request) => {
   if (b.resumeRetentionDays !== undefined) settings.resumeRetentionDays = b.resumeRetentionDays;
   await db.update(t.workspaces).set({ settings }).where(eq(t.workspaces.id, ws.id));
   for (const [type, mode] of Object.entries(b.channelModes ?? {})) {
-    await db.update(t.channels).set({ mode }).where(and(eq(t.channels.workspaceId, ws.id), eq(t.channels.type, type as "telegram")));
+    const validMode = mode === "copilot" ? "copilot" : "autopilot";
+    await db.update(t.channels).set({ mode: validMode }).where(and(eq(t.channels.workspaceId, ws.id), eq(t.channels.type, type as "telegram")));
   }
   return ok({ ok: true, settings });
 });
