@@ -29,11 +29,14 @@ export const threadStatusEnum = pgEnum("thread_status", ["open", "needs_human", 
 export const directionEnum = pgEnum("direction", ["in", "out"]);
 export const authorEnum = pgEnum("author", ["customer", "ai", "staff", "system"]);
 export const messageStatusEnum = pgEnum("message_status", ["received", "pending_approval", "sent", "failed", "discarded"]);
-export const outcomeEnum = pgEnum("run_outcome", ["auto_resolved", "booked", "escalated", "drafted", "declined", "error"]);
+export const outcomeEnum = pgEnum("run_outcome", ["auto_resolved", "booked", "ordered", "escalated", "drafted", "declined", "error"]);
 export const priorityEnum = pgEnum("priority", ["low", "normal", "high", "urgent"]);
 export const escalationStatusEnum = pgEnum("escalation_status", ["open", "resolved"]);
 export const kbKindEnum = pgEnum("kb_kind", ["product", "service", "policy", "faq", "hours", "info"]);
 export const bookingStatusEnum = pgEnum("booking_status", ["confirmed", "cancelled", "seated", "no_show"]);
+/** pending = waiting for the owner's approval; nothing is promised to the customer until confirmed. */
+export const orderStatusEnum = pgEnum("order_status", ["pending", "confirmed", "ready", "completed", "cancelled"]);
+export const fulfilmentEnum = pgEnum("fulfilment", ["pickup", "delivery"]);
 export const stageEnum = pgEnum("stage", ["sourced", "shortlisted", "invited", "scheduled", "interviewed", "hired", "rejected"]);
 export const outreachKindEnum = pgEnum("outreach_kind", ["invite", "rejection"]);
 export const outreachStatusEnum = pgEnum("outreach_status", ["draft", "approved", "sent", "failed", "cancelled"]);
@@ -334,6 +337,60 @@ export const bookings = pgTable(
     createdAt: ts("created_at").defaultNow().notNull(),
   },
   (t) => [uniqueIndex("bookings_ref").on(t.refCode), index("bookings_ws_start").on(t.workspaceId, t.startsAt)],
+);
+
+export const orders = pgTable(
+  "orders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    threadId: uuid("thread_id").references(() => threads.id, { onDelete: "set null" }),
+    customerId: uuid("customer_id").references(() => customers.id, { onDelete: "set null" }),
+    refCode: text("ref_code").notNull(),
+    customerName: text("customer_name").notNull(),
+    phone: text("phone"),
+    fulfilment: fulfilmentEnum("fulfilment").notNull().default("pickup"),
+    /** Delivery address as the customer wrote it. */
+    address: text("address"),
+    /** When the customer wants it, in their words ("7pm", "tomorrow lunch"). */
+    wanted: text("wanted"),
+    notes: text("notes"),
+    status: orderStatusEnum("status").notNull().default("pending"),
+    /** Set by staff after they check the payment; Jawab never takes payments. */
+    paid: boolean("paid").notNull().default(false),
+    /** Items only, in minor units. The delivery fee is agreed by the team. */
+    totalMinor: integer("total_minor").notNull(),
+    currency: text("currency").notNull(),
+    /** Stock was taken off the variants when the order was confirmed (so cancelling gives it back). */
+    stockTaken: boolean("stock_taken").notNull().default(false),
+    channel: channelTypeEnum("channel"),
+    handledBy: uuid("handled_by").references(() => users.id, { onDelete: "set null" }),
+    cancelReason: text("cancel_reason"),
+    isDemo: boolean("is_demo").notNull().default(false),
+    createdAt: ts("created_at").defaultNow().notNull(),
+    confirmedAt: ts("confirmed_at"),
+    readyAt: ts("ready_at"),
+    completedAt: ts("completed_at"),
+    cancelledAt: ts("cancelled_at"),
+  },
+  (t) => [uniqueIndex("orders_ws_ref").on(t.workspaceId, t.refCode), index("orders_ws_status_created").on(t.workspaceId, t.status, t.createdAt)],
+);
+
+export const orderItems = pgTable(
+  "order_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    orderId: uuid("order_id").notNull().references(() => orders.id, { onDelete: "cascade" }),
+    itemId: uuid("item_id").references(() => kbItems.id, { onDelete: "set null" }),
+    variantId: uuid("variant_id").references(() => kbVariants.id, { onDelete: "set null" }),
+    /** What was ordered as the customer saw it, e.g. "Large New York Classic Pepperoni". Kept if the menu changes. */
+    name: text("name").notNull(),
+    quantity: integer("quantity").notNull(),
+    unitPriceMinor: integer("unit_price_minor").notNull(),
+    note: text("note"),
+  },
+  (t) => [index("order_items_order").on(t.orderId)],
 );
 
 export type Criteria = {
