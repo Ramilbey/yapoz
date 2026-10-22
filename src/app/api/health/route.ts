@@ -1,13 +1,22 @@
 import { NextResponse } from "next/server";
-import { db, t, sql } from "@/db";
+import { sql } from "@/db";
 import { env } from "@/lib/env";
-import { getProviders } from "@/agent/ai-router";
+import { getSession } from "@/lib/auth";
+import { safeEqual } from "@/lib/crypto";
+import { getProviders, probeProviders } from "@/agent/ai-router";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
+/** ?test=ai calls every provider, so only a signed-in owner (or Bearer $CRON_SECRET) may run it. */
+async function mayTestAI(req: Request) {
+  const s = await getSession();
+  if (s?.role === "owner") return true;
+  return Boolean(env.cronSecret) && safeEqual(req.headers.get("authorization") ?? "", `Bearer ${env.cronSecret}`);
+}
 
 export async function GET(req: Request) {
-  const urlObj = new URL(req.url);
-  const testAI = urlObj.searchParams.get("test") === "ai";
+  const testAI = new URL(req.url).searchParams.get("test") === "ai";
 
   try {
     // 1. Test database ping
@@ -25,47 +34,8 @@ export async function GET(req: Request) {
       // Tables might not exist yet
     }
 
-    const aiProviders = getProviders().map((p) => p.name);
-
-    let aiDiagnostics: Record<string, any> | undefined = undefined;
-    if (testAI) {
-      aiDiagnostics = {};
-      const OpenAI = (await import("openai")).default;
-      
-      // Check Groq models list
-      if (process.env.GROQ_API_KEY) {
-        try {
-          const client = new OpenAI({ apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", timeout: 8000 });
-          const mList = await client.models.list();
-          aiDiagnostics["GroqModels"] = mList.data.map((m: any) => m.id);
-        } catch (e: any) {
-          aiDiagnostics["GroqModelsError"] = e?.message;
-        }
-      }
-
-      for (const p of getProviders()) {
-        try {
-          const client = new OpenAI({ apiKey: p.apiKey, baseURL: p.baseURL, timeout: 10000 });
-          const res = await client.chat.completions.create({
-            model: p.smartModel,
-            messages: [{ role: "user", content: "Say hello in one word." }],
-            max_tokens: 10,
-          });
-          aiDiagnostics[p.name] = {
-            ok: true,
-            model: p.smartModel,
-            reply: res.choices[0]?.message?.content,
-          };
-        } catch (err: any) {
-          aiDiagnostics[p.name] = {
-            ok: false,
-            model: p.smartModel,
-            error: err?.message || String(err),
-            status: err?.status,
-          };
-        }
-      }
-    }
+    let aiDiagnostics: Record<string, unknown> | string | undefined = undefined;
+    if (testAI) aiDiagnostics = (await mayTestAI(req)) ? await probeProviders() : "Sign in as an owner to run the AI test.";
 
     return NextResponse.json({
       status: "ok",
@@ -77,7 +47,7 @@ export async function GET(req: Request) {
       },
       ai: {
         configured: env.hasAnthropic,
-        providers: aiProviders,
+        providers: getProviders().map((p) => p.name),
         diagnostics: aiDiagnostics,
       },
       environment: {
@@ -87,13 +57,11 @@ export async function GET(req: Request) {
       },
     });
   } catch (error: any) {
+    console.error("[health] failed", error);
     return NextResponse.json(
       {
         status: "error",
-        database: {
-          connected: false,
-          error: error.message || String(error),
-        },
+        database: { connected: false },
         ai: {
           configured: env.hasAnthropic,
           providers: getProviders().map((p) => p.name),
