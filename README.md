@@ -3,7 +3,7 @@
 The AI front desk for any business on WhatsApp, Telegram and Instagram. An owner signs up, explains their business in
 their own words (or uploads a menu, price list or photo of the price board), checks the draft Claude makes from it,
 connects their own chat accounts and goes live. Jawab then answers customers from that business's prices, stock, hours
-and policies, takes bookings (tables, appointments or day bookings), hands anything sensitive to a person, and can run
+and policies, takes bookings (tables, appointments or day bookings), takes orders for the owner to approve, hands anything sensitive to a person, and can run
 hiring with a human **Approve** on every outbound step. One sign-in, three desks: Owner, Service, HR.
 
 Two fictional **sample businesses** ship with it, so anyone can try it from the landing page:
@@ -114,7 +114,12 @@ Turn on **Demo traffic** (Owner → Today, sample businesses only) if you want t
 - Generic knowledge: products and services with priced options (size, colour or any label) and stock, booking types
   (`party` by headcount, `appointment` by service length and staff capacity, `day` for rooms and rentals), hours with
   exceptions, policies, FAQs. The prompt, the knowledge block and the tools are the same for every business.
-- Tools: `search_catalog`, `check_variant`, `get_business_info`, `check_slots`, `create_booking`, `escalate` (`src/agent/tools.ts`).
+- Tools: `search_catalog`, `check_variant`, `get_business_info`, `check_slots`, `create_booking`, `create_order`, `escalate` (`src/agent/tools.ts`).
+- Orders (`src/lib/orders.ts`, `/app/orders`): `create_order` prices every line from the catalog, checks availability, stock, size
+  and delivery address, and saves a **pending** order. Nothing is promised until an owner or service user presses **Confirm**:
+  that takes the stock off, tells the customer in their chat, and is logged to `events`. Ready, completed, cancelled (stock goes
+  back) and paid follow; the customer hears about confirmed, ready and cancelled. The delivery fee is agreed by the team; Jawab
+  takes no payments.
 - Setup: `src/setup/*` (website reader with a public-address check, Claude draft, importer).
 - Channels: `src/channels/connections.ts` resolves each business's credentials and routes webhooks to the right business.
 - Hiring: `src/hiring/*`: Claude parsing, criteria chips, SQL filter + smart-model ranking with evidence quotes that are
@@ -141,13 +146,13 @@ Turn on **Demo traffic** (Owner → Today, sample businesses only) if you want t
 npm run db:reset && npm test
 ```
 
-33 tests: the agent tools (prices, stock, sold-out flags, hours with exceptions, table, appointment and day bookings,
+51 tests: the agent tools (prices, stock, sold-out flags, hours with exceptions, table, appointment and day bookings,
 escalation); sign-up and setup (workspace IDs, a messy Claude-style draft repaired and imported, the tools answering
 from it, the not-live gate, which business the public simulator may reach); Telegram end to end against recording Bot
 API clients (shared bot, link codes for Business Mode, deep links per business, a business's own bot, `/apply` with
 consent and the hiring switch, approve → invite → booked interview, `/delete_my_data`); WhatsApp and Instagram
 (signatures, per-business credentials and routing, a business's own webhook URL, 24-hour window, comment private
-replies, no secrets in the status API).
+replies, no secrets in the status API); AI routing (retired models swapped for served ones, 429s rotating to the next model, photos and PDFs reaching vision models, the failure reason shown to staff only); and orders (priced and stock-checked by the server, approval, stock off and back, customer messages, the activity log, workspace scoping, a chat order through the agent).
 
 `node scripts/walkthrough.mjs <dir>` drives a browser from the landing page through sign-up, setup, go-live, an invite
 and a teammate's first sign-in, and saves screenshots (needs a running server).
