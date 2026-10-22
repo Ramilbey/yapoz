@@ -30,12 +30,21 @@ export function getProviders(): AIProviderConfig[] {
   // 2. Google Gemini (Free tier, 15 RPM, 1M tokens/min)
   if (process.env.GEMINI_API_KEY) {
     providers.push({
-      name: "Google Gemini",
+      name: "Google Gemini 2.5",
       type: "openai_compatible",
       apiKey: process.env.GEMINI_API_KEY,
       baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
-      fastModel: process.env.GEMINI_FAST_MODEL || "gemini-1.5-flash",
-      smartModel: process.env.GEMINI_SMART_MODEL || "gemini-2.0-flash",
+      fastModel: process.env.GEMINI_FAST_MODEL || "gemini-2.5-flash",
+      smartModel: process.env.GEMINI_SMART_MODEL || "gemini-2.5-flash",
+      enabled: true,
+    });
+    providers.push({
+      name: "Google Gemini 1.5",
+      type: "openai_compatible",
+      apiKey: process.env.GEMINI_API_KEY,
+      baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
+      fastModel: "gemini-1.5-flash",
+      smartModel: "gemini-1.5-flash",
       enabled: true,
     });
   }
@@ -188,6 +197,26 @@ function formatOpenAIMessages(params: AnthropicMessageParams): OpenAI.Chat.Compl
   return result;
 }
 
+function cleanSchema(schema: any): any {
+  if (!schema || typeof schema !== "object") return schema;
+  if (Array.isArray(schema)) return schema.map(cleanSchema);
+
+  const copy: any = { ...schema };
+  if (Array.isArray(copy.type)) {
+    const mainType = copy.type.find((t: string) => t !== "null") || "string";
+    copy.type = mainType;
+  }
+  if (copy.properties && typeof copy.properties === "object") {
+    copy.properties = Object.fromEntries(
+      Object.entries(copy.properties).map(([k, v]) => [k, cleanSchema(v)])
+    );
+  }
+  if (copy.items) {
+    copy.items = cleanSchema(copy.items);
+  }
+  return copy;
+}
+
 function formatOpenAITools(tools?: Array<any>): OpenAI.Chat.Completions.ChatCompletionTool[] | undefined {
   if (!tools || !tools.length) return undefined;
   return tools.map((t) => ({
@@ -195,7 +224,7 @@ function formatOpenAITools(tools?: Array<any>): OpenAI.Chat.Completions.ChatComp
     function: {
       name: t.name,
       description: t.description,
-      parameters: t.input_schema || {},
+      parameters: cleanSchema(t.input_schema) || {},
     },
   }));
 }
@@ -232,7 +261,7 @@ async function callOpenAICompatible(
     tools: openAITools,
     tool_choice: toolChoice,
     temperature: params.temperature ?? 0.3,
-    max_tokens: params.max_tokens || 800,
+    max_tokens: Math.min(params.max_tokens || 1024, 4096),
   });
 
   const choice = res.choices[0];
