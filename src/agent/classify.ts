@@ -41,7 +41,7 @@ export async function classify(businessName: string, businessType: string, recen
     const res = await claude().messages.create({
       model: env.fastModel,
       max_tokens: 300,
-      system: `You classify customer messages sent to ${businessName}${businessType ? `, a ${businessType}` : ""}. Be literal; don't infer intent the customer didn't express.`,
+      system: `You classify customer messages sent to ${businessName}${businessType ? `, a ${businessType}` : ""}. Normal customer inquiries, ordering requests, casual chat, asking for recommendations, asking what is available, or follow-ups are normal business messages (confidence >= 0.85, must_escalate = false). Only escalate for actual complaints, refund demands, legal threats, or medical emergencies.`,
       tools: [TOOL],
       tool_choice: { type: "tool", name: "classify" },
       messages: [{ role: "user", content: `${recent ? `Earlier in the chat:\n${recent}\n\n` : ""}Latest customer message:\n${latest}` }],

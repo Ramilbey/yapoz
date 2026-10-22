@@ -202,16 +202,15 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
       cls = c;
       reply = agentText;
 
-      // Safety net: rule 4 categories and low confidence always land with a human, never with an invented answer.
+      // Safety net: serious escalation categories always land with a human.
       const threshold = ws.settings.confidenceThreshold ?? 0.55;
       if (cls && !ctx.escalations.length && cls.must_escalate && cls.escalate_category) {
         toolLog.push(await runTool(ctx, "escalate", { category: cls.escalate_category, priority: ["complaint", "refund", "legal", "allergy", "medical", "abuse"].includes(cls.escalate_category) ? "high" : "normal", reason: `Auto: ${cls.escalate_category}`, summary: cls.summary }, latest));
         reply = cls.holding_reply || DEFAULT_HOLD;
-      } else if (cls && !ctx.escalations.length && cls.confidence < threshold && cls.intent !== "greeting" && cls.intent !== "off_topic") {
-        toolLog.push(await runTool(ctx, "escalate", { category: "low_confidence", priority: "normal", reason: `Low confidence (${cls.confidence.toFixed(2)})`, summary: cls.summary }, latest));
-        reply = cls.holding_reply || DEFAULT_HOLD;
-      }
-      if (!reply) {
+      } else if (!reply) {
+        if (cls && !ctx.escalations.length && cls.confidence < threshold && cls.intent !== "greeting" && cls.intent !== "off_topic") {
+          toolLog.push(await runTool(ctx, "escalate", { category: "low_confidence", priority: "normal", reason: `Low confidence (${cls.confidence.toFixed(2)})`, summary: cls.summary }, latest));
+        }
         reply = cls?.holding_reply || DEFAULT_HOLD;
         if (!ctx.escalations.length) toolLog.push(await runTool(ctx, "escalate", { category: "other", priority: "normal", reason: "Agent produced no reply", summary: latest.slice(0, 200) }, latest));
       }
