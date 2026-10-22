@@ -10,13 +10,18 @@ import { Chip, ChannelMark } from "@/components/ui/chip";
 import { Button } from "@/components/ui/button";
 import { cx } from "@/components/ui/cx";
 
+type Check = { code: string; level: "pass" | "warn" | "fail"; message: string };
+type Receipt = {
+  id: string; mime: string; verdict: "consistent" | "review" | "mismatch" | "unreadable"; checks: Check[]; createdAt: string; model: string | null;
+  reading: { amount: number | null; currency: string | null; paidAt: string | null; payeeName: string | null; payeeAccount: string | null; reference: string | null; method: string | null } | null;
+};
 type Item = { id: string; name: string; quantity: number; unitPriceMinor: number; note: string | null };
 type Order = {
   id: string; threadId: string | null; refCode: string; customerName: string; phone: string | null; fulfilment: "pickup" | "delivery"; address: string | null; wanted: string | null; notes: string | null;
   status: "pending" | "confirmed" | "ready" | "completed" | "cancelled"; paid: boolean; totalMinor: number; currency: string; channel: string | null; cancelReason: string | null; isDemo: boolean;
-  createdAt: string; confirmedAt: string | null; readyAt: string | null; completedAt: string | null; cancelledAt: string | null; handledByName: string | null; items: Item[];
+  createdAt: string; confirmedAt: string | null; readyAt: string | null; completedAt: string | null; cancelledAt: string | null; handledByName: string | null; items: Item[]; receipts: Receipt[];
 };
-type Data = { orders: Order[]; timezone: string; currency: string };
+type Data = { orders: Order[]; timezone: string; currency: string; payments: { enabled: boolean; receiptRequired: boolean } };
 type Action = "confirm" | "ready" | "complete" | "cancel" | "paid" | "unpaid";
 type Tab = "pending" | "active" | "done";
 
@@ -32,6 +37,48 @@ function money(minor: number, currency: string) {
   const major = minor / 100;
   if (currency === "MYR") return `RM ${Number.isInteger(major) ? major : major.toFixed(2)}`;
   return new Intl.NumberFormat("en", { style: "currency", currency }).format(major);
+}
+
+const VERDICT: Record<Receipt["verdict"], { label: string; tone: "answered" | "brass" | "signal" | "neutral" }> = {
+  consistent: { label: "Looks consistent", tone: "answered" },
+  review: { label: "Take a look", tone: "brass" },
+  mismatch: { label: "Doesn't add up", tone: "signal" },
+  unreadable: { label: "Couldn't read", tone: "neutral" },
+};
+const MARK: Record<Check["level"], string> = { pass: "✓", warn: "!", fail: "✗" };
+
+/** A receipt the customer sent, what Jawab read off it, and each check against the order and your accounts. Advice only. */
+function ReceiptCard({ order, r, tz }: { order: Order; r: Receipt; tz: string }) {
+  const v = VERDICT[r.verdict];
+  const url = `/api/orders/${order.id}/receipts/${r.id}`;
+  const rd = r.reading;
+  return (
+    <div className="mt-3 flex gap-3 rounded-xl border border-line p-3">
+      <a href={url} target="_blank" rel="noreferrer" className="block h-20 w-16 shrink-0 overflow-hidden rounded-lg border border-line bg-raised" aria-label="Open the receipt">
+        {r.mime === "application/pdf" ? <span className="grid h-full place-items-center text-[12px] text-muted">PDF</span> : /* eslint-disable-next-line @next/next/no-img-element */ <img src={url} alt="Payment receipt" className="h-full w-full object-cover" />}
+      </a>
+      <div className="min-w-0 flex-1 text-[13.5px]">
+        <div className="flex flex-wrap items-center gap-2">
+          <Chip tone={v.tone}>{v.label}</Chip>
+          <span className="num text-[12px] text-muted">{stamp(r.createdAt, tz)}</span>
+        </div>
+        {rd && (rd.amount !== null || rd.payeeName || rd.reference) ? (
+          <p className="num mt-1.5 text-[12.5px] text-fg-2">
+            {[rd.amount !== null ? `${rd.currency ?? ""} ${rd.amount.toFixed(2)}`.trim() : null, rd.payeeName, rd.payeeAccount, rd.method, rd.reference ? `ref ${rd.reference}` : null].filter(Boolean).join(" · ")}
+          </p>
+        ) : null}
+        <ul className="mt-1.5 space-y-0.5">
+          {r.checks.map((c, i) => (
+            <li key={i} className={cx("flex gap-2", c.level === "fail" ? "text-signal-ink" : c.level === "pass" ? "text-fg-2" : "text-fg")}>
+              <span aria-hidden className="num w-3 shrink-0">{MARK[c.level]}</span>
+              <span>{c.message}</span>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-1.5 text-[12px] text-muted">Read by AI from the image. It can&apos;t see your bank: check your own statement before you rely on it.</p>
+      </div>
+    </div>
+  );
 }
 
 const stamp = (iso: string, tz: string) => new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: tz });
@@ -53,7 +100,7 @@ function timeline(o: Order, tz: string) {
 export default function OrdersPage() {
   const toast = useToast();
   const { data, mutate } = useSWR<Data>("/api/orders", getJson);
-  useLive(["orders"], () => mutate(), 150);
+  useLive(["orders", "order_receipts"], () => mutate(), 150);
   const [tab, setTab] = useState<Tab | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const seen = useRef<Set<string> | null>(null);
@@ -84,6 +131,12 @@ export default function OrdersPage() {
     } finally {
       setBusy(null);
     }
+  }
+
+  function confirm(o: Order) {
+    const last = o.receipts[0];
+    if (last && (last.verdict === "mismatch" || last.verdict === "review") && !window.confirm(`The receipt for ${o.refCode} ${last.verdict === "mismatch" ? "doesn't add up" : "needs a closer look"}:\n\n${last.checks.filter((c) => c.level !== "pass").map((c) => `• ${c.message}`).join("\n")}\n\nConfirm the order anyway?`)) return;
+    void act(o, "confirm");
   }
 
   function cancel(o: Order) {
@@ -158,6 +211,19 @@ export default function OrdersPage() {
                         <span>Total{o.fulfilment === "delivery" ? " (items; add the delivery fee)" : ""}</span>
                         <span className="num">{money(o.totalMinor, o.currency)}</span>
                       </div>
+                      {data.payments.enabled && o.status !== "cancelled" ? (
+                        <div className="mt-3">
+                          {o.receipts.length === 0 && o.status !== "completed" ? (
+                            <p className="text-[13.5px] text-fg-2">
+                              <Chip tone="signal">Waiting for receipt</Chip>{" "}
+                              <span className="ml-1">The customer was asked to pay and send a receipt in chat.</span>
+                            </p>
+                          ) : null}
+                          {o.receipts.map((r) => (
+                            <ReceiptCard key={r.id} order={o} r={r} tz={tz} />
+                          ))}
+                        </div>
+                      ) : null}
                       {o.address ? <p className="mt-2 text-[14px]"><span className="text-muted">Deliver to:</span> {o.address}</p> : null}
                       {o.wanted ? <p className="mt-1 text-[14px]"><span className="text-muted">Wanted:</span> {o.wanted}</p> : null}
                       {o.notes ? <p className="mt-1 text-[14px]"><span className="text-muted">Notes:</span> {o.notes}</p> : null}
@@ -169,7 +235,7 @@ export default function OrdersPage() {
                     </div>
                     <div className="flex flex-wrap items-start gap-2 lg:w-[210px] lg:flex-col lg:items-stretch">
                       {o.status === "pending" ? (
-                        <Button size="sm" variant="primary" loading={busy === `${o.id}:confirm`} disabled={pending} onClick={() => act(o, "confirm")}>
+                        <Button size="sm" variant="primary" loading={busy === `${o.id}:confirm`} disabled={pending || (data.payments.receiptRequired && o.receipts.length === 0)} onClick={() => confirm(o)}>
                           Confirm order
                         </Button>
                       ) : null}

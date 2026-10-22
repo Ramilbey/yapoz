@@ -5,6 +5,7 @@ import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import { db, t } from "@/db";
 import { shortCode } from "./crypto";
 import { formatMoney } from "./money";
+import { receiptRequired, receiptsFor, type ReceiptSummary } from "./receipts";
 
 type Ws = typeof t.workspaces.$inferSelect;
 export type OrderRow = typeof t.orders.$inferSelect;
@@ -104,6 +105,12 @@ export async function transitionOrder(o: { workspaceId: string; orderId: string;
     switch (o.action) {
       case "confirm": {
         if (order.status !== "pending") return fail(409, `This order is already ${order.status}.`);
+        // Payments on in Settings: the customer has to have sent a receipt. What it shows is the owner's call.
+        const [wsRow] = await tx.select().from(t.workspaces).where(eq(t.workspaces.id, o.workspaceId));
+        if (wsRow && receiptRequired(wsRow)) {
+          const [r] = await tx.select({ n: sql<number>`count(*)::int` }).from(t.orderReceipts).where(eq(t.orderReceipts.orderId, order.id));
+          if (!r?.n) return fail(409, "No payment receipt yet. Ask the customer to send one in chat before you confirm.");
+        }
         if (byVariant.size) {
           const vs = await tx.select().from(t.kbVariants).where(inArray(t.kbVariants.id, [...byVariant.keys()])).for("update");
           for (const v of vs) {
@@ -164,7 +171,7 @@ export function orderMessage(ws: Ws, kind: "confirmed" | "ready" | "cancelled", 
   return `Sorry, we can't make your order ${order.refCode}${order.cancelReason ? `: ${order.cancelReason}` : ""}. Reply here and we'll sort something out.`;
 }
 
-export type OrderWithItems = OrderRow & { items: OrderItemRow[]; handledByName: string | null };
+export type OrderWithItems = OrderRow & { items: OrderItemRow[]; handledByName: string | null; receipts: ReceiptSummary[] };
 
 /** The Orders page: newest first, with items. Pending orders always come back, however old. */
 export async function loadOrders(workspaceId: string, limit = 120): Promise<OrderWithItems[]> {
@@ -176,6 +183,8 @@ export async function loadOrders(workspaceId: string, limit = 120): Promise<Orde
     .orderBy(sql`(${t.orders.status} = 'pending') desc`, desc(t.orders.createdAt))
     .limit(limit);
   if (!rows.length) return [];
-  const items = await db.select().from(t.orderItems).where(inArray(t.orderItems.orderId, rows.map((r) => r.o.id)));
-  return rows.map((r) => ({ ...r.o, handledByName: r.by ?? null, items: items.filter((i) => i.orderId === r.o.id) }));
+  const ids = rows.map((r) => r.o.id);
+  const items = await db.select().from(t.orderItems).where(inArray(t.orderItems.orderId, ids));
+  const receipts = await receiptsFor(ids);
+  return rows.map((r) => ({ ...r.o, handledByName: r.by ?? null, items: items.filter((i) => i.orderId === r.o.id), receipts: receipts.filter((x) => x.orderId === r.o.id) }));
 }

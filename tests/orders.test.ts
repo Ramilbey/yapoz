@@ -35,6 +35,8 @@ const variant = async (slug: string, size: string, color?: string) => {
   }
   return r.v;
 };
+/** FORNO7 asks for payment, so an order can only be confirmed once a receipt is on it. */
+const addReceipt = (orderId: string) => db.insert(t.orderReceipts).values({ workspaceId: "FORNO7", orderId, mime: "image/png", sha256: `t-${Math.random()}`, bytes: Buffer.from("x"), verdict: "consistent" });
 const orderCount = async () => (await db.select({ id: t.orders.id }).from(t.orders).where(eq(t.orders.workspaceId, "FORNO7"))).length;
 
 type Placed = { ok: boolean; refCode?: string; duplicate?: boolean; total?: string; problems?: string[]; items?: { name: string; quantity: number; lineTotal: string; note: string | null }[]; instruction?: string };
@@ -149,6 +151,8 @@ test("confirming takes stock off, refuses when it's gone, and cancelling gives i
   const [aId, bId] = [await idOf(a.out.refCode!), await idOf(b.out.refCode!)];
 
   assert.equal(await stock(), 2);
+  await addReceipt(aId);
+  await addReceipt(bId);
   const first = await transitionOrder({ workspaceId: "FORNO7", orderId: aId, action: "confirm", userId: OWNER });
   assert.ok(first.ok && first.notify === "confirmed" && first.order.stockTaken && first.order.status === "confirmed" && first.order.handledBy === OWNER);
   assert.equal(await stock(), 0);
@@ -194,6 +198,9 @@ test("steps happen in order, finished orders stay finished, paid is a separate t
   const paid = await step("paid");
   assert.ok(paid.ok && paid.order.paid && paid.order.status === "pending" && paid.notify === null);
   assert.ok((await step("unpaid")).ok);
+  const noReceipt = await step("confirm");
+  assert.ok(!noReceipt.ok && noReceipt.status === 409 && /No payment receipt yet/.test(noReceipt.error), "payments are on: no receipt, no confirm");
+  await addReceipt(id);
   assert.ok((await step("confirm")).ok);
   const again = await step("confirm");
   assert.ok(!again.ok && /already confirmed/.test(again.error));
@@ -310,7 +317,7 @@ async function chatWhereAiDiesAfter(tool: string, args: unknown, text: string) {
 
 test("the AI dies after saving an order: the customer is told their order is in, not 'passed to our team'", async () => {
   const { out, escalations, run, threadId } = await chatWhereAiDiesAfter("create_order", { items: [{ product: "margherita", size: "large", quantity: 1 }], fulfilment: "pickup", customer_name: "Hana" }, "1 large margherita for pickup, I'm Hana");
-  assert.match(out.reply ?? "", /^Got it! Your order ORD-[A-Z0-9]{4} is in:\n• 1 × Large Margherita\nTotal RM 52\. The team will confirm it shortly\.$/);
+  assert.match(out.reply ?? "", /^Got it! Your order ORD-[A-Z0-9]{4} is in:\n• 1 × Large Margherita\nTotal RM 52\.\nTo place it, please pay RM 52 to:\n• Bank transfer: Sample Bank, 1234 5678 9012 \(Forno Sette Sdn Bhd\)\n• DuitNow: DuitNow, 012-345 6789 \(Forno Sette Sdn Bhd\)\nPlease put your order code in the payment reference\.\nThen send a photo or screenshot of the payment receipt here\. The team confirms your order after they check it\.$/);
   assert.ok(!/passed this to our team/.test(out.reply ?? ""));
   assert.ok(!/confirmed (and|!)|on its way|paid/i.test(out.reply ?? ""), "never claims more than 'received'");
   assert.equal(out.outcome, "ordered");
@@ -351,6 +358,8 @@ test("acknowledgement(): delivery orders say 'plus delivery', failed tool calls 
   assert.equal(acknowledgement([log("create_order", { ok: false, problems: ["x"] }, false)]), null);
   const text = acknowledgement([log("create_order", { refCode: "ORD-AAAA", fulfilment: "delivery", total: "RM 48", items: [{ name: "Small Marinara", quantity: 2, note: "no oregano" }] })])!;
   assert.match(text, /order ORD-AAAA is in:\n• 2 × Small Marinara \(no oregano\)\nTotal RM 48 plus delivery\. The team will confirm it shortly\./);
+  const pay = acknowledgement([log("create_order", { refCode: "ORD-CCCC", total: "RM 10", howToPay: "To place it, please pay RM 10 to:\n• Bank", items: [] })])!;
+  assert.match(pay, /Total RM 10\.\nTo place it, please pay RM 10 to:/);
   const both = acknowledgement([log("create_booking", { refCode: "F7-ZZZZ", when: "Fri 24 Oct, 7:00 PM", bookingType: "Table", quantity: 4 }), log("create_order", { refCode: "ORD-BBBB", total: "RM 10", items: [] })])!;
   assert.match(both, /^You're booked: Table for 4, Fri 24 Oct, 7:00 PM\. Your reference is F7-ZZZZ\.\n\nGot it! Your order ORD-BBBB is in\./);
 });

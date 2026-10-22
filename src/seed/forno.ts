@@ -24,6 +24,16 @@ export const WORKSPACE = {
     sample: true,
     onboarding: { step: 6, completedAt: "2026-10-01T00:00:00.000Z" },
     hr: { interviewMinutes: 30, workdayStart: "10:00", workdayEnd: "18:00", location: "Forno Sette, 27 Jalan Telawi 3, Bangsar Baru" },
+    // Made-up account details: nothing here is a real bank account.
+    payments: {
+      enabled: true,
+      requireReceipt: true,
+      note: "Please put your order code in the payment reference.",
+      accounts: [
+        { id: "demo-bank", type: "bank_transfer", provider: "Sample Bank", accountName: "Forno Sette Sdn Bhd", accountNumber: "1234 5678 9012" },
+        { id: "demo-duitnow", type: "duitnow", provider: "DuitNow", accountName: "Forno Sette Sdn Bhd", accountNumber: "012-345 6789" },
+      ],
+    },
   } satisfies WorkspaceSettings,
 };
 

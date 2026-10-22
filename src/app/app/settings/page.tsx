@@ -12,12 +12,14 @@ import { Input, Label } from "@/components/ui/field";
 import { BusinessForm } from "@/components/app/business-form";
 import { Channels } from "./channels";
 import { TeamSection } from "./team";
+import { Payments } from "./payments";
 import type { Patch, SettingsData } from "./types";
 
 const SECTIONS = [
   ["assistant", "Assistant"],
   ["channels", "Channels"],
   ["business", "Business"],
+  ["payments", "Payments"],
   ["team", "Team"],
   ["modules", "Hiring"],
 ] as const;
@@ -144,6 +146,8 @@ export default function SettingsPage() {
               }}
             />
           </section>
+
+          <Payments key={ws.id} initial={st.payments} patch={patch} />
 
           <TeamSection hiring={Boolean(st.modules?.hiring)} />
 

@@ -37,6 +37,8 @@ export const bookingStatusEnum = pgEnum("booking_status", ["confirmed", "cancell
 /** pending = waiting for the owner's approval; nothing is promised to the customer until confirmed. */
 export const orderStatusEnum = pgEnum("order_status", ["pending", "confirmed", "ready", "completed", "cancelled"]);
 export const fulfilmentEnum = pgEnum("fulfilment", ["pickup", "delivery"]);
+/** What Jawab makes of a payment receipt next to its order. It is advice for the owner: Jawab can't see the bank. */
+export const receiptVerdictEnum = pgEnum("receipt_verdict", ["consistent", "review", "mismatch", "unreadable"]);
 export const stageEnum = pgEnum("stage", ["sourced", "shortlisted", "invited", "scheduled", "interviewed", "hired", "rejected"]);
 export const outreachKindEnum = pgEnum("outreach_kind", ["invite", "rejection"]);
 export const outreachStatusEnum = pgEnum("outreach_status", ["draft", "approved", "sent", "failed", "cancelled"]);
@@ -55,6 +57,17 @@ export type BusinessProfile = {
   languages: string[];
 };
 
+/** Where customers pay. Shown to them after they order, and what a receipt is checked against. */
+export type PayAccount = { id: string; type: "bank_transfer" | "duitnow" | "ewallet"; provider: string; accountName: string; accountNumber: string };
+export type PaymentSettings = {
+  enabled: boolean;
+  /** An order can't be confirmed until the customer has sent a receipt. */
+  requireReceipt: boolean;
+  accounts: PayAccount[];
+  /** Free text after the account details, e.g. "Put your order code in the payment reference." */
+  note?: string;
+};
+
 export type WorkspaceSettings = {
   confidenceThreshold: number;
   demoTraffic: boolean;
@@ -67,6 +80,7 @@ export type WorkspaceSettings = {
   /** Shown publicly as a "try a sample business" demo on the site. */
   sample?: boolean;
   hr: { interviewMinutes: number; workdayStart: string; workdayEnd: string; location: string };
+  payments?: PaymentSettings;
 };
 
 export const workspaces = pgTable("workspaces", {
@@ -374,6 +388,45 @@ export const orders = pgTable(
     cancelledAt: ts("cancelled_at"),
   },
   (t) => [uniqueIndex("orders_ws_ref").on(t.workspaceId, t.refCode), index("orders_ws_status_created").on(t.workspaceId, t.status, t.createdAt)],
+);
+
+/** What the AI read off a receipt. Every field is null when it wasn't visible: nothing here is a guess. */
+export type ReceiptReading = {
+  looksLikeReceipt: boolean;
+  amount: number | null;
+  currency: string | null;
+  paidAt: string | null;
+  payeeName: string | null;
+  payeeAccount: string | null;
+  payerName: string | null;
+  reference: string | null;
+  method: string | null;
+  status: "successful" | "pending" | "failed" | "unknown";
+  legibility: "clear" | "partial" | "poor";
+  /** Visual oddities a careful person would also notice (mismatched fonts, edited-looking digits, cropped edges). */
+  oddities: string[];
+};
+export type ReceiptCheck = { code: string; level: "pass" | "warn" | "fail"; message: string };
+
+export const orderReceipts = pgTable(
+  "order_receipts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    orderId: uuid("order_id").notNull().references(() => orders.id, { onDelete: "cascade" }),
+    threadId: uuid("thread_id").references(() => threads.id, { onDelete: "set null" }),
+    mime: text("mime").notNull(),
+    sha256: text("sha256").notNull(),
+    bytes: bytea("bytes").notNull(),
+    reading: jsonb("reading").$type<ReceiptReading | null>(),
+    checks: jsonb("checks").$type<ReceiptCheck[]>().notNull().default([]),
+    verdict: receiptVerdictEnum("verdict").notNull(),
+    /** The reading's model, e.g. "Google Gemini: gemini-3.8-flash". */
+    model: text("model"),
+    isDemo: boolean("is_demo").notNull().default(false),
+    createdAt: ts("created_at").defaultNow().notNull(),
+  },
+  (t) => [index("receipts_order").on(t.orderId), index("receipts_ws_hash").on(t.workspaceId, t.sha256)],
 );
 
 export const orderItems = pgTable(

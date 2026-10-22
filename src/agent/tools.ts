@@ -8,6 +8,7 @@ import { hoursForDate, describeDay, openStatus, type HoursData } from "@/lib/hou
 import { addLocalDays, localDate, human, zoned } from "@/lib/time";
 import { checkSlots, createBooking, resolveBookingType, resolveService, bookingTypesOf } from "@/lib/booking";
 import { placeOrder, lineTotal, MAX_LINES, MAX_QTY, type OrderLine } from "@/lib/orders";
+import { paymentInstruction } from "@/lib/receipts";
 import type { ToolCallLog } from "@/db/schema";
 
 export const ESCALATION_CATEGORIES = [
@@ -485,12 +486,14 @@ export async function runTool(ctx: ToolContext, name: string, input: Record<stri
         });
         (ctx.orders ??= []).push({ refCode: r.order.refCode, id: r.order.id });
         const money = (m: number) => formatMoney(m, ctx.ws.currency);
+        const payHow = paymentInstruction(ctx.ws, r.order.totalMinor, r.order.refCode, fulfilment === "delivery");
         return done(
           {
             ok: true, refCode: r.order.refCode, status: "pending", duplicate: r.duplicate, fulfilment, ...(fulfilment === "delivery" ? { address } : {}),
             items: r.items.map((i) => ({ name: i.name, quantity: i.quantity, unitPrice: money(i.unitPriceMinor), lineTotal: money(lineTotal(i)), note: i.note })),
             total: money(r.order.totalMinor), note: fulfilment === "delivery" ? "Total is for the items; the delivery fee is confirmed by the team." : undefined,
-            instruction: `${r.duplicate ? "This exact order was already placed a moment ago, so no second one was made. " : ""}Tell the customer the order is received, with the reference code, the items and the total. Say the team will confirm it shortly. Do NOT say it is confirmed, paid or being prepared.`,
+            ...(payHow ? { howToPay: payHow } : {}),
+            instruction: `${r.duplicate ? "This exact order was already placed a moment ago, so no second one was made. " : ""}Tell the customer the order is received, with the reference code, the items and the total.${payHow ? ` Then give them howToPay exactly as written (same accounts, same amount) and ask them to send the receipt in this chat. The team confirms the order after checking it.` : " Say the team will confirm it shortly."} Do NOT say it is confirmed, paid or being prepared, and never invent payment details.`,
           },
           `ordered: ${r.items.reduce((n, i) => n + i.quantity, 0)} item${r.items.reduce((n, i) => n + i.quantity, 0) === 1 ? "" : "s"} · ${money(r.order.totalMinor)} · ${r.order.refCode}${r.duplicate ? " (already placed)" : ""}`,
         );

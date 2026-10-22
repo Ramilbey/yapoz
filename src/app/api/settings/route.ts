@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { randomUUID } from "node:crypto";
 import { db, t } from "@/db";
 import { and, eq } from "drizzle-orm";
 import { apiSession, handle } from "@/lib/auth";
@@ -28,6 +29,24 @@ const Patch = z.object({
   demoTraffic: z.boolean().optional(),
   confidenceThreshold: z.number().min(0).max(1).optional(),
   resumeRetentionDays: z.number().int().min(7).max(730).optional(),
+  payments: z
+    .object({
+      enabled: z.boolean(),
+      requireReceipt: z.boolean(),
+      note: z.string().trim().max(300).optional(),
+      accounts: z
+        .array(
+          z.object({
+            type: z.enum(["bank_transfer", "duitnow", "ewallet"]),
+            provider: z.string().trim().min(1, "Which bank or wallet?").max(60),
+            accountName: z.string().trim().min(1, "Whose account is it?").max(80),
+            accountNumber: z.string().trim().min(3, "Add the account number, DuitNow ID or phone").max(40),
+          }),
+        )
+        .max(5, "Five accounts at most"),
+    })
+    .refine((p) => !p.enabled || p.accounts.length > 0, { message: "Add at least one account before turning payments on", path: ["accounts"] })
+    .optional(),
 });
 
 export const PATCH = handle(async (req: Request) => {
@@ -38,6 +57,9 @@ export const PATCH = handle(async (req: Request) => {
   if (b.demoTraffic !== undefined) settings.demoTraffic = b.demoTraffic && env.demoMode && Boolean(settings.sample);
   if (b.confidenceThreshold !== undefined) settings.confidenceThreshold = b.confidenceThreshold;
   if (b.resumeRetentionDays !== undefined) settings.resumeRetentionDays = b.resumeRetentionDays;
+  if (b.payments) {
+    settings.payments = { enabled: b.payments.enabled, requireReceipt: b.payments.requireReceipt, note: b.payments.note || undefined, accounts: b.payments.accounts.map((a) => ({ ...a, id: randomUUID().slice(0, 8) })) };
+  }
   await db.update(t.workspaces).set({ settings }).where(eq(t.workspaces.id, ws.id));
   for (const [type, mode] of Object.entries(b.channelModes ?? {})) {
     if (!mode) continue;

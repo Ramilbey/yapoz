@@ -4,6 +4,7 @@ import { and, desc, eq, gt, lte, ne, sql } from "drizzle-orm";
 import { claude, addUsage, textOf, type Usage } from "./claude";
 import { explainAiError } from "./ai-router";
 import { acknowledgement } from "./acknowledge";
+import { receiptIntake } from "@/lib/receipts";
 import { knowledge, type Workspace } from "./knowledge";
 import { rules, contextBlock } from "./prompt";
 import { classify, type Classification } from "./classify";
@@ -127,6 +128,19 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
   const [inbound] = await db.select().from(t.messages).where(eq(t.messages.id, inboundMessageId));
   // "Typing…" while the AI works. Autopilot only: a Copilot reply waits for staff, so the customer would see typing, then nothing.
   const stopTyping = mode === "autopilot" ? keepTyping(adapterFor(thread.channel), thread, { externalMessageId: inbound.externalMessageId }) : () => {};
+
+  // A file from a customer whose order is waiting for its payment receipt: read and check it, answer from a fixed template.
+  if (inbound.attachments.length) {
+    const receipt = await receiptIntake(ws, thread, inbound, { isDemo: opts.isDemo }).catch((e) => {
+      console.error("[receipts] intake failed", e);
+      return null;
+    });
+    if (receipt) {
+      const sent = await deliver(thread, receipt.reply, { author: "ai", status: mode === "copilot" ? "pending_approval" : "sent", isDemo: opts.isDemo });
+      await db.insert(t.events).values({ workspaceId: ws.id, type: "message.answered", props: { channel: thread.channel, outcome: "receipt", threadId }, isDemo: Boolean(opts.isDemo) });
+      return { reply: receipt.reply, status: sent.status, outcome: "receipt", latencyMs: Date.now() - started };
+    }
+  }
 
   const historyRows = await db
     .select()
