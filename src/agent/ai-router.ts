@@ -22,13 +22,22 @@ export function getProviders(): AIProviderConfig[] {
       apiKey: process.env.GROQ_API_KEY,
       baseURL: "https://api.groq.com/openai/v1",
       fastModel: process.env.GROQ_FAST_MODEL || "llama-3.1-8b-instant",
-      smartModel: process.env.GROQ_SMART_MODEL || "llama-3.3-70b-versatile",
+      smartModel: process.env.GROQ_SMART_MODEL || "llama-3.1-8b-instant",
       enabled: true,
     });
   }
 
   // 2. Google Gemini (Free tier, 15 RPM, 1M tokens/min)
   if (process.env.GEMINI_API_KEY) {
+    providers.push({
+      name: "Google Gemini 3.8",
+      type: "openai_compatible",
+      apiKey: process.env.GEMINI_API_KEY,
+      baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
+      fastModel: "gemini-3.8-flash",
+      smartModel: "gemini-3.8-flash",
+      enabled: true,
+    });
     providers.push({
       name: "Google Gemini 2.5",
       type: "openai_compatible",

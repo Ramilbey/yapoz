@@ -31,6 +31,18 @@ export async function GET(req: Request) {
     if (testAI) {
       aiDiagnostics = {};
       const OpenAI = (await import("openai")).default;
+      
+      // Check Groq models list
+      if (process.env.GROQ_API_KEY) {
+        try {
+          const client = new OpenAI({ apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", timeout: 8000 });
+          const mList = await client.models.list();
+          aiDiagnostics["GroqModels"] = mList.data.map((m: any) => m.id);
+        } catch (e: any) {
+          aiDiagnostics["GroqModelsError"] = e?.message;
+        }
+      }
+
       for (const p of getProviders()) {
         try {
           const client = new OpenAI({ apiKey: p.apiKey, baseURL: p.baseURL, timeout: 10000 });
