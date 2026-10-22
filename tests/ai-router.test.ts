@@ -26,6 +26,8 @@ test("Gemini: newest stable flash-lite for fast, flash for smart, never preview,
 const calls: { url: string; body: any }[] = [];
 /** Groq models answering 429: Groq limits tokens per minute for each model separately. */
 let groqLimited: string[] = [];
+/** What the fake model sends as the tool call's arguments. */
+let toolArgs = '{"ok":true}';
 const realFetch = globalThis.fetch;
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { "content-type": "application/json" } });
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -37,7 +39,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   if (url.includes("groq") && body?.messages?.some((m: any) => Array.isArray(m.content))) return json({ error: { message: "content must be a string" } }, 400);
   return json({
     id: "x", object: "chat.completion", created: 0, model: body?.model,
-    choices: [{ index: 0, finish_reason: "tool_calls", message: { role: "assistant", content: null, tool_calls: [{ id: "call_1", type: "function", function: { name: "record", arguments: '{"ok":true}' } }] } }],
+    choices: [{ index: 0, finish_reason: "tool_calls", message: { role: "assistant", content: null, tool_calls: [{ id: "call_1", type: "function", function: { name: body?.tool_choice?.function?.name ?? "record", arguments: toolArgs } }] } }],
     usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
   });
 }) as typeof fetch;
@@ -114,4 +116,52 @@ test("a menu photo goes to a model that can see it, as an image part; a PDF arri
   const sent = calls.find((c) => c.url.endsWith("/chat/completions"))!.body.messages.at(-1).content;
   assert.equal(typeof sent, "string");
   assert.match(sent, /menu\.pdf/);
+});
+
+test("nullable fields go out as optional, non-null ones; a reply that leaves them out gets its nulls back", async () => {
+  const classifyLike = {
+    name: "classify_like",
+    description: "x",
+    input_schema: {
+      type: "object",
+      properties: {
+        intent: { type: "string" },
+        escalate_category: { type: ["string", "null"], enum: ["partnership", "refund", null], description: "Only when must_escalate." },
+        nested: { type: ["object", "null"], properties: { n: { type: "integer" }, label: { type: ["string", "null"] } }, required: ["n", "label"] },
+        list: { type: "array", items: { type: "object", properties: { name: { type: "string" }, district: { type: ["string", "null"] } }, required: ["name", "district"] } },
+      },
+      required: ["intent", "escalate_category", "nested", "list"],
+    },
+  };
+  calls.length = 0;
+  toolArgs = JSON.stringify({ intent: "greeting", list: [{ name: "a" }, { name: "b", district: "KL" }] });
+  try {
+    const r = await executeWithFallback({ model: "claude-haiku-5-5", max_tokens: 300, messages: [{ role: "user", content: "hi" }], tools: [classifyLike], tool_choice: { type: "tool", name: "classify_like" } });
+    // Whichever provider answered first got the same schema (earlier tests may have left Groq cooling down).
+    const sent = calls.find((c) => c.url.endsWith("/chat/completions"))!.body.tools[0].function.parameters;
+    assert.deepEqual(sent.required, ["intent", "list"], "nullable properties are no longer required");
+    assert.equal(sent.properties.escalate_category.type, "string");
+    assert.deepEqual(sent.properties.escalate_category.enum, ["partnership", "refund"], "null isn't a value the model has to pick");
+    assert.match(sent.properties.escalate_category.description, /^Only when must_escalate\. Leave this out when it doesn't apply \(don't send null\)\.$/);
+    assert.equal(sent.properties.nested.type, "object");
+    assert.deepEqual(sent.properties.nested.required, ["n"]);
+    assert.equal(sent.properties.nested.properties.label.type, "string");
+    assert.deepEqual(sent.properties.list.items.required, ["name"]);
+    // The model left the nullable ones out; the rest of the app sees the nulls the schema promised.
+    const use = r.content.find((b) => b.type === "tool_use") as { input: unknown };
+    assert.deepEqual(use.input, { intent: "greeting", escalate_category: null, nested: null, list: [{ name: "a", district: null }, { name: "b", district: "KL" }] });
+  } finally {
+    toolArgs = '{"ok":true}';
+  }
+});
+
+test("values the model does send are kept, including inside a nullable object", async () => {
+  const tool = { name: "t", description: "x", input_schema: { type: "object", properties: { cat: { type: ["string", "null"], enum: ["a", null] }, obj: { type: ["object", "null"], properties: { label: { type: ["string", "null"] }, n: { type: "integer" } } } }, required: ["cat", "obj"] } };
+  toolArgs = JSON.stringify({ cat: "a", obj: { n: 2 } });
+  try {
+    const r = await executeWithFallback({ model: "claude-haiku-5-5", max_tokens: 300, messages: [{ role: "user", content: "hi" }], tools: [tool], tool_choice: { type: "tool", name: "t" } });
+    assert.deepEqual((r.content.find((b) => b.type === "tool_use") as { input: unknown }).input, { cat: "a", obj: { n: 2, label: null } });
+  } finally {
+    toolArgs = '{"ok":true}';
+  }
 });

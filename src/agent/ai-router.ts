@@ -310,6 +310,14 @@ async function formatOpenAIMessages(params: AnthropicMessageParams, vision: bool
   return result;
 }
 
+const isNullable = (schema: any) => Array.isArray(schema?.type) && schema.type.includes("null");
+const OMIT_HINT = "Leave this out when it doesn't apply (don't send null).";
+
+/**
+ * Anthropic-style schemas allow "string or null". Groq (and others) validate tool arguments strictly and reject null for
+ * a plain string, so a model that correctly says "no value" with null fails the whole call and the router wastes an attempt.
+ * Nullable properties are sent as optional, non-null ones; restoreNulls() puts the null back afterwards.
+ */
 function cleanSchema(schema: any): any {
   if (!schema || typeof schema !== "object") return schema;
   if (Array.isArray(schema)) return schema.map(cleanSchema);
@@ -322,14 +330,32 @@ function cleanSchema(schema: any): any {
     if (Array.isArray(copy.enum)) copy.enum = copy.enum.filter((v: unknown) => v !== null);
   }
   if (copy.properties && typeof copy.properties === "object") {
+    const nullable = Object.entries(copy.properties).filter(([, v]) => isNullable(v)).map(([k]) => k);
     copy.properties = Object.fromEntries(
-      Object.entries(copy.properties).map(([k, v]) => [k, cleanSchema(v)])
+      Object.entries(copy.properties).map(([k, v]: [string, any]) => [k, cleanSchema(isNullable(v) ? { ...v, description: [v.description, OMIT_HINT].filter(Boolean).join(" ") } : v)]),
     );
+    if (Array.isArray(copy.required) && nullable.length) {
+      copy.required = copy.required.filter((k: string) => !nullable.includes(k));
+      if (!copy.required.length) delete copy.required;
+    }
   }
   if (copy.items) {
     copy.items = cleanSchema(copy.items);
   }
   return copy;
+}
+
+/** The other half of cleanSchema: a nullable property the model left out comes back as null, as the original schema promised. */
+export function restoreNulls(schema: any, value: any): any {
+  if (!schema || typeof schema !== "object" || value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return schema.items ? value.map((v) => restoreNulls(schema.items, v)) : value;
+  const out: Record<string, unknown> = { ...value };
+  for (const [key, sub] of Object.entries(schema.properties ?? {})) {
+    if (out[key] === undefined) {
+      if (isNullable(sub)) out[key] = null;
+    } else out[key] = restoreNulls(sub, out[key]);
+  }
+  return out;
 }
 
 function formatOpenAITools(tools?: Array<any>): OpenAI.Chat.Completions.ChatCompletionTool[] | undefined {
@@ -402,7 +428,8 @@ async function callOpenAICompatible(
       if (tc.type === "function") {
         let parsedInput: Record<string, unknown> = {};
         try {
-          parsedInput = JSON.parse(tc.function.arguments || "{}");
+          const schema = params.tools?.find((tool) => tool.name === tc.function.name)?.input_schema;
+          parsedInput = restoreNulls(schema, JSON.parse(tc.function.arguments || "{}"));
         } catch {
           parsedInput = {};
         }
