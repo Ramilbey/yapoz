@@ -18,6 +18,8 @@ export type AIProviderConfig = {
   vision: boolean;
   /** When the configured model isn't served any more, choose a replacement from the provider's model list. */
   pick?: Picker;
+  /** Other served chat models to try after a 429: providers like Groq limit each model separately. */
+  spare?: (ids: string[]) => string[];
   enabled: boolean;
 };
 
@@ -55,6 +57,7 @@ export function getProviders(): AIProviderConfig[] {
       smartModel: process.env.GROQ_SMART_MODEL || "openai/gpt-oss-120b",
       vision: false,
       pick: pickGroq,
+      spare: (ids) => ids.filter((id) => /gpt-oss|llama|qwen|kimi/i.test(id) && !NOT_CHAT.test(id)),
       enabled: true,
     });
   }
@@ -199,6 +202,15 @@ async function modelFor(p: AIProviderConfig, tier: Tier): Promise<string> {
   return chosen;
 }
 
+/** This tier's model first, then the provider's other models, so a per-model limit doesn't take the whole provider out. */
+async function modelsFor(p: AIProviderConfig, tier: Tier): Promise<string[]> {
+  if (p.type === "anthropic") return [tier === "smart" ? p.smartModel : p.fastModel];
+  const first = await modelFor(p, tier);
+  if (!p.pick) return [first];
+  const other = await modelFor(p, tier === "smart" ? "fast" : "smart");
+  return [...new Set([first, other, ...(p.spare?.((await availableModels(p)) ?? []) ?? [])])];
+}
+
 /** Reasoning models spend output tokens thinking before they answer or call a tool. */
 const isReasoning = (model: string) => /gpt-oss|qwen3|deepseek-r1|gemini-(2\.5|[3-9])|o\d-|o\d$/i.test(model);
 /** Models that accept reasoning_effort; "low" keeps replies fast and leaves tokens for the answer. */
@@ -334,7 +346,8 @@ function formatOpenAITools(tools?: Array<any>): OpenAI.Chat.Completions.ChatComp
 
 async function callOpenAICompatible(
   provider: AIProviderConfig,
-  params: AnthropicMessageParams
+  params: AnthropicMessageParams,
+  modelToUse: string,
 ): Promise<UnifiedMessageResponse> {
   const client = new OpenAI({
     apiKey: provider.apiKey || "dummy",
@@ -344,7 +357,6 @@ async function callOpenAICompatible(
     maxRetries: 0,
   });
 
-  const modelToUse = await modelFor(provider, tierOf(params.model));
   const reasoning = isReasoning(modelToUse);
 
   const openAIMessages = await formatOpenAIMessages(params, provider.vision);
@@ -450,8 +462,9 @@ async function callAnthropicNative(
   };
 }
 
-/** Providers that just answered 429 go to the back of the line until their limit window has passed. */
+/** Models that just answered 429 ("Groq:openai/gpt-oss-20b") go to the back of the line until their window passes. */
 const coolingUntil = new Map<string, number>();
+const MAX_ATTEMPTS = 6;
 
 function retryAfterMs(err: any): number {
   const h = err?.headers;
@@ -459,42 +472,39 @@ function retryAfterMs(err: any): number {
   return Number.isFinite(s) && s > 0 ? Math.min(s * 1000, 60_000) : 20_000;
 }
 
-/** Execute with automatic cascading fallback across all configured providers. */
+/** Execute with automatic cascading fallback across every configured provider and model. */
 export async function executeWithFallback(params: AnthropicMessageParams): Promise<UnifiedMessageResponse> {
-  let providers = getProviders();
+  const providers = getProviders();
 
   if (providers.length === 0) {
     throw new Error("No AI API keys configured. Please configure GROQ_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY, or ANTHROPIC_API_KEY.");
   }
+  const tier = tierOf(params.model);
+  let attempts = (await Promise.all(providers.map(async (p) => (await modelsFor(p, tier)).map((model) => ({ p, model }))))).flat();
   const now = Date.now();
-  const cooling = (p: AIProviderConfig) => (coolingUntil.get(p.name) ?? 0) > now;
-  providers = [...providers.filter((p) => !cooling(p)), ...providers.filter(cooling)];
+  const cooling = (a: { p: AIProviderConfig; model: string }) => (coolingUntil.get(`${a.p.name}:${a.model}`) ?? 0) > now;
+  attempts = [...attempts.filter((a) => !cooling(a)), ...attempts.filter(cooling)];
   // Photos (menus, price boards) go to a model that can see them first.
-  if (hasImages(params)) providers = [...providers.filter((p) => p.vision), ...providers.filter((p) => !p.vision)];
+  if (hasImages(params)) attempts = [...attempts.filter((a) => a.p.vision), ...attempts.filter((a) => !a.p.vision)];
+  attempts = attempts.slice(0, MAX_ATTEMPTS);
 
   const errors: string[] = [];
 
-  for (let i = 0; i < providers.length; i++) {
-    const provider = providers[i];
+  for (let i = 0; i < attempts.length; i++) {
+    const { p, model } = attempts[i];
     try {
-      if (provider.type === "anthropic") {
-        return await callAnthropicNative(provider, params);
-      } else {
-        return await callOpenAICompatible(provider, params);
-      }
+      return p.type === "anthropic" ? await callAnthropicNative(p, params) : await callOpenAICompatible(p, params, model);
     } catch (err: any) {
       const msg = err?.message || String(err);
-      errors.push(`[${provider.name}]: ${msg}`);
+      errors.push(`[${p.name} ${model}]: ${msg}`);
       const isRateLimit = err?.status === 429 || msg.includes("429") || msg.toLowerCase().includes("rate limit");
-      if (isRateLimit) coolingUntil.set(provider.name, Date.now() + retryAfterMs(err));
-      const nextProvider = providers[i + 1]?.name;
+      if (isRateLimit) coolingUntil.set(`${p.name}:${model}`, Date.now() + retryAfterMs(err));
+      const next = attempts[i + 1];
 
-      if (nextProvider) {
-        console.warn(
-          `[AI Router] Provider "${provider.name}" ${isRateLimit ? "rate limited (429)" : "failed: " + msg}. Automatically falling back to "${nextProvider}"...`
-        );
+      if (next) {
+        console.warn(`[AI Router] ${p.name} ${model} ${isRateLimit ? "rate limited (429)" : "failed: " + msg}. Falling back to ${next.p.name} ${next.model}...`);
       } else {
-        console.error(`[AI Router] Provider "${provider.name}" failed: ${msg}. No more fallback providers available.`);
+        console.error(`[AI Router] ${p.name} ${model} failed: ${msg}. No more fallbacks.`);
       }
     }
   }
@@ -519,7 +529,7 @@ export async function probeProviders() {
         };
         const started = Date.now();
         try {
-          const r = p.type === "anthropic" ? await callAnthropicNative(p, params) : await callOpenAICompatible(p, params);
+          const r = p.type === "anthropic" ? await callAnthropicNative(p, params) : await callOpenAICompatible(p, params, model);
           out[tier] = { ok: r.content.some((b) => b.type === "tool_use"), model, ms: Date.now() - started };
         } catch (e: any) {
           out[tier] = { ok: false, model, ms: Date.now() - started, error: String(e?.message ?? e).slice(0, 300) };

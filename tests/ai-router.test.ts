@@ -24,7 +24,8 @@ test("Gemini: newest stable flash-lite for fast, flash for smart, never preview,
 });
 
 const calls: { url: string; body: any }[] = [];
-let groqLimited = false;
+/** Groq models answering 429: Groq limits tokens per minute for each model separately. */
+let groqLimited: string[] = [];
 const realFetch = globalThis.fetch;
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { "content-type": "application/json" } });
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -32,7 +33,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const body = init?.body ? JSON.parse(String(init.body)) : null;
   calls.push({ url, body });
   if (url.endsWith("/models")) return json({ object: "list", data: (url.includes("groq") ? GROQ : ["models/gemini-2.5-flash"]).map((id) => ({ id, object: "model" })) });
-  if (url.includes("groq") && groqLimited) return new Response(JSON.stringify({ error: { message: "Rate limit reached for model openai/gpt-oss-20b on tokens per minute (TPM)" } }), { status: 429, headers: { "content-type": "application/json", "retry-after": "30" } });
+  if (url.includes("groq") && body?.model && groqLimited.includes(body.model)) return new Response(JSON.stringify({ error: { message: "Rate limit reached for model openai/gpt-oss-20b on tokens per minute (TPM)" } }), { status: 429, headers: { "content-type": "application/json", "retry-after": "30" } });
   if (url.includes("groq") && body?.messages?.some((m: any) => Array.isArray(m.content))) return json({ error: { message: "content must be a string" } }, 400);
   return json({
     id: "x", object: "chat.completion", created: 0, model: body?.model,
@@ -62,19 +63,34 @@ test("a forced tool call reaches Groq with a served model, low reasoning effort 
   assert.deepEqual(category.enum, ["a", "b"]);
 });
 
-test("a 429 falls through to the next provider at once, and that provider leads until the limit window passes", async () => {
+const groqChats = () => calls.filter((c) => c.url.includes("groq") && c.url.endsWith("/chat/completions")).map((c) => c.body.model);
+const hi = { model: "claude-haiku-5-5", max_tokens: 300, messages: [{ role: "user", content: "hi" }] };
+
+test("a 429 on one Groq model moves to Groq's next model at once, without waiting out retry-after", async () => {
   calls.length = 0;
-  groqLimited = true;
+  groqLimited = ["openai/gpt-oss-20b"];
   const started = Date.now();
-  const first = await executeWithFallback({ model: "claude-haiku-5-5", max_tokens: 300, messages: [{ role: "user", content: "hi" }] });
+  const r = await executeWithFallback(hi);
   assert.ok(Date.now() - started < 3000, "no waiting out retry-after");
-  assert.match(first.model ?? "", /^Google Gemini: /);
-  assert.equal(calls.filter((c) => c.url.includes("groq") && c.url.endsWith("/chat/completions")).length, 1, "Groq tried once, not retried");
-  groqLimited = false;
+  assert.equal(r.model, "Groq: openai/gpt-oss-120b");
+  assert.deepEqual(groqChats(), ["openai/gpt-oss-20b", "openai/gpt-oss-120b"], "each model tried once, not retried");
+  // gpt-oss-20b is cooling down now, so the next reply starts with the model that has room.
+  groqLimited = [];
   calls.length = 0;
-  const second = await executeWithFallback({ model: "claude-haiku-5-5", max_tokens: 300, messages: [{ role: "user", content: "hi" }] });
-  assert.match(second.model ?? "", /^Google Gemini: /, "Groq is cooling down, so Gemini goes first");
-  assert.ok(!calls.some((c) => c.url.includes("groq") && c.url.endsWith("/chat/completions")));
+  assert.equal((await executeWithFallback(hi)).model, "Groq: openai/gpt-oss-120b");
+  assert.deepEqual(groqChats(), ["openai/gpt-oss-120b"]);
+});
+
+test("when every Groq model is limited, Gemini answers, and leads while Groq cools down", async () => {
+  calls.length = 0;
+  groqLimited = ["openai/gpt-oss-120b", "qwen/qwen3.8-27b"];
+  const first = await executeWithFallback(hi);
+  assert.match(first.model ?? "", /^Google Gemini: /);
+  groqLimited = [];
+  calls.length = 0;
+  const second = await executeWithFallback(hi);
+  assert.match(second.model ?? "", /^Google Gemini: /, "all Groq models are cooling, so Gemini goes first");
+  assert.deepEqual(groqChats(), []);
 });
 
 test("a menu photo goes to a model that can see it, as an image part; a PDF arrives as text", async () => {
