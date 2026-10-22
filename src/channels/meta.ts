@@ -1,0 +1,129 @@
+// A business's Meta app (App ID + App secret) and the checks Jawab makes with Meta before it trusts a WhatsApp number.
+// One Meta app serves both WhatsApp and Instagram, so it is saved once per business, separately from the number:
+//   Meta app       App ID  → integrations(meta_app).meta.appId      App secret → integrations(meta_app).dataEnc (encrypted)
+//   WhatsApp number  Phone number ID, Business Account ID → channels(whatsapp).config      Access token → channels(whatsapp).credentialsEnc
+// The demo workspace falls back to META_APP_ID / META_APP_SECRET / WHATSAPP_* env vars.
+import { and, eq } from "drizzle-orm";
+import { db, t } from "@/db";
+import { env } from "@/lib/env";
+import { decryptJson, encryptJson } from "@/lib/crypto";
+
+export type MetaField = "appId" | "appSecret" | "phoneNumberId" | "wabaId" | "accessToken";
+
+/** Something the owner can fix, in words that name the Meta setting. `status` is the HTTP status the API answers with. */
+export class MetaError extends Error {
+  constructor(public field: MetaField | null, message: string, public status = 400) {
+    super(message);
+    this.name = "MetaError";
+  }
+}
+
+class GraphError extends Error {
+  constructor(public status: number, message: string, public code?: number) {
+    super(message);
+  }
+}
+
+const REQUIRED_SCOPES = ["whatsapp_business_messaging", "whatsapp_business_management"];
+
+async function graph<T>(path: string, query: Record<string, string>, opts: { method?: "GET" | "POST"; token?: string } = {}): Promise<T> {
+  const url = `https://graph.facebook.com/${env.whatsapp.graphVersion}/${path}?${new URLSearchParams(query)}`;
+  let res: Response;
+  try {
+    res = await fetch(url, { method: opts.method ?? "GET", headers: opts.token ? { authorization: `Bearer ${opts.token}` } : undefined, signal: AbortSignal.timeout(12_000), cache: "no-store" });
+  } catch {
+    throw new MetaError(null, "Couldn't reach Meta. Try again in a moment.", 502);
+  }
+  const j = (await res.json().catch(() => ({}))) as T & { error?: { message?: string; code?: number } };
+  if (!res.ok) throw new GraphError(res.status, j.error?.message ?? `Meta answered ${res.status}`, j.error?.code);
+  return j;
+}
+
+/** Meta checks the App ID and App secret together: an app access token is "<app id>|<app secret>". */
+export async function verifyMetaApp(appId: string, appSecret: string): Promise<{ name: string | null }> {
+  try {
+    const j = await graph<{ id?: string; name?: string }>(appId, { fields: "name", access_token: `${appId}|${appSecret}` });
+    if (j.id && j.id !== appId) throw new MetaError("appId", `Meta answered for a different app (${j.id}). Check the App ID.`);
+    return { name: j.name ?? null };
+  } catch (e) {
+    if (e instanceof GraphError) throw new MetaError("appSecret", `Meta didn't accept this App ID and App secret together (${e.message}). Copy both from App settings → Basic in the same app.`);
+    throw e;
+  }
+}
+
+/** Is the token valid, made by this app, allowed to use WhatsApp, and when does it stop working? */
+export async function inspectAccessToken(appId: string, appSecret: string, token: string): Promise<{ expiresAt: string | null; scopes: string[] }> {
+  let d: { app_id?: string; is_valid?: boolean; expires_at?: number; scopes?: string[]; error?: { message?: string } };
+  try {
+    d = (await graph<{ data?: typeof d }>("debug_token", { input_token: token, access_token: `${appId}|${appSecret}` })).data ?? {};
+  } catch (e) {
+    if (e instanceof GraphError) throw new MetaError("accessToken", `Meta couldn't read this access token (${e.message}).`);
+    throw e;
+  }
+  if (!d.is_valid) throw new MetaError("accessToken", `Meta says this access token isn't valid${d.error?.message ? ` (${d.error.message})` : ""}. It may have expired: make a new System User token.`);
+  if (d.app_id && d.app_id !== appId) throw new MetaError("accessToken", `This access token was made by a different Meta app (${d.app_id}), not ${appId}. Generate it in the same app.`);
+  if (d.scopes) {
+    const missing = REQUIRED_SCOPES.filter((s) => !d.scopes!.includes(s));
+    if (missing.length) throw new MetaError("accessToken", `This access token is missing the ${missing.join(" and ")} permission${missing.length > 1 ? "s" : ""}. Generate a new System User token with both.`);
+  }
+  return { expiresAt: d.expires_at ? new Date(d.expires_at * 1000).toISOString() : null, scopes: d.scopes ?? [] };
+}
+
+/** The number must really be on this WhatsApp Business Account; returns what the owner will recognise it by. */
+export async function checkNumberOnWaba(wabaId: string, phoneNumberId: string, token: string): Promise<{ displayPhone: string | null; verifiedName: string | null }> {
+  let numbers: { id: string; display_phone_number?: string; verified_name?: string }[];
+  try {
+    numbers = (await graph<{ data?: typeof numbers }>(`${wabaId}/phone_numbers`, { fields: "id,display_phone_number,verified_name", limit: "100" }, { token })).data ?? [];
+  } catch (e) {
+    if (e instanceof GraphError) throw new MetaError("wabaId", `Meta won't show the WhatsApp Business Account ${wabaId} to this token (${e.message}). Check the account ID, and that the token's system user is assigned to it.`);
+    throw e;
+  }
+  const hit = numbers.find((n) => n.id === phoneNumberId);
+  if (!hit) {
+    const have = numbers.map((n) => `${n.display_phone_number ?? "number"} (ID ${n.id})`).join(", ");
+    throw new MetaError("phoneNumberId", `Phone number ID ${phoneNumberId} isn't on WhatsApp Business Account ${wabaId}.${have ? ` That account has: ${have}.` : " That account has no numbers yet."}`);
+  }
+  return { displayPhone: hit.display_phone_number ?? null, verifiedName: hit.verified_name ?? null };
+}
+
+/** Subscribes the token's app to the account's webhooks so Meta sends it the customers' messages. */
+export async function subscribeWaba(wabaId: string, token: string) {
+  try {
+    const j = await graph<{ success?: boolean }>(`${wabaId}/subscribed_apps`, {}, { method: "POST", token });
+    if (!j.success) throw new MetaError("wabaId", "Meta didn't subscribe the app to this WhatsApp Business Account.");
+  } catch (e) {
+    if (e instanceof GraphError) throw new MetaError("wabaId", `Couldn't subscribe to the WhatsApp Business Account ${wabaId} (${e.message}).`);
+    throw e;
+  }
+}
+
+export type MetaApp = { appId: string; appName: string | null; appSecret: string; source: "workspace" | "env" };
+
+export async function metaAppOf(workspaceId: string): Promise<MetaApp | null> {
+  const [row] = await db.select().from(t.integrations).where(and(eq(t.integrations.workspaceId, workspaceId), eq(t.integrations.provider, "meta_app")));
+  if (row) return { appId: row.meta.appId ?? "", appName: row.meta.appName || null, appSecret: decryptJson<{ appSecret: string }>(row.dataEnc).appSecret, source: "workspace" };
+  const w = env.whatsapp;
+  if (workspaceId === env.demoWorkspaceId && w.appSecret) return { appId: w.appId, appName: null, appSecret: w.appSecret, source: "env" };
+  return null;
+}
+
+/** Checks the pair with Meta, then saves it. The secret is encrypted and never sent back to the browser. */
+export async function saveMetaApp(workspaceId: string, userId: string | null, appId: string, appSecret: string): Promise<{ appName: string | null }> {
+  const { name } = await verifyMetaApp(appId, appSecret);
+  const values = { workspaceId, userId, provider: "meta_app", dataEnc: encryptJson({ appSecret }), meta: { appId, appName: name ?? "", verifiedAt: new Date().toISOString() } };
+  await db
+    .insert(t.integrations)
+    .values(values)
+    .onConflictDoUpdate({ target: [t.integrations.workspaceId, t.integrations.provider], set: { userId, dataEnc: values.dataEnc, meta: values.meta } });
+  await db.insert(t.events).values({ workspaceId, type: "channel.meta_app_saved", props: { appId } });
+  return { appName: name };
+}
+
+export async function removeMetaApp(workspaceId: string) {
+  await db.delete(t.integrations).where(and(eq(t.integrations.workspaceId, workspaceId), eq(t.integrations.provider, "meta_app")));
+}
+
+/** The secret Meta signs this business's webhooks with: its saved Meta app, else the one stored with an older WhatsApp connection. */
+export async function webhookAppSecret(workspaceId: string, legacySecret?: string | null): Promise<string> {
+  return (await metaAppOf(workspaceId))?.appSecret ?? legacySecret ?? "";
+}

@@ -2,6 +2,7 @@ import { db, t } from "@/db";
 import { and, eq, sql } from "drizzle-orm";
 import { enqueue } from "@/lib/jobs";
 import { decryptJson, safeEqual, verifyMetaSignature } from "@/lib/crypto";
+import { webhookAppSecret } from "@/channels/meta";
 import type { WhatsAppSecrets } from "@/channels/connections";
 import { createHash } from "node:crypto";
 
@@ -43,7 +44,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ channelId: str
   if (!c) return new Response("not found", { status: 404 });
   const raw = await req.text();
   // Meta signs every delivery with the app secret; without this check anyone could post fake customer messages.
-  if (!verifyMetaSignature(raw, req.headers.get("x-hub-signature-256"), c.secrets.appSecret.trim())) {
+  // The secret comes from the business's saved Meta app; connections made before that existed keep the one stored with the number.
+  const appSecret = (await webhookAppSecret(c.ch.workspaceId, c.secrets.appSecret)).trim();
+  if (!verifyMetaSignature(raw, req.headers.get("x-hub-signature-256"), appSecret)) {
     console.error(`[whatsapp:webhook] Bad signature for channel ${c.ch.id}: the App secret saved in Jawab doesn't match the Meta app sending these webhooks.`);
     await note(c.ch.id, { issue: "signature", test: false });
     return new Response("bad signature", { status: 401 });

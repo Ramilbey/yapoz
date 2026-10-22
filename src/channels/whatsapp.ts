@@ -63,23 +63,6 @@ export async function sendWhatsAppTemplate(workspaceId: string, to: string, name
   });
 }
 
-/** Checks a pasted phone number id + token against the Graph API before saving them. */
-export async function verifyWhatsAppNumber(phoneNumberId: string, token: string) {
-  const res = await fetch(`https://graph.facebook.com/${env.whatsapp.graphVersion}/${encodeURIComponent(phoneNumberId)}?fields=display_phone_number,verified_name`, {
-    headers: { authorization: `Bearer ${token}` },
-  });
-  const j = (await res.json().catch(() => ({}))) as { display_phone_number?: string; verified_name?: string; error?: { message?: string } };
-  if (!res.ok) throw new Error(j.error?.message ?? `Meta rejected these details (${res.status})`);
-  return { displayPhone: j.display_phone_number ?? null, verifiedName: j.verified_name ?? null };
-}
-
-/** Subscribes the app to the business account's webhooks (needed for numbers outside the app's test setup). */
-export async function subscribeWaba(wabaId: string, token: string) {
-  const res = await fetch(`https://graph.facebook.com/${env.whatsapp.graphVersion}/${encodeURIComponent(wabaId)}/subscribed_apps`, { method: "POST", headers: { authorization: `Bearer ${token}` } });
-  const j = (await res.json().catch(() => ({}))) as { success?: boolean; error?: { message?: string } };
-  if (!res.ok || !j.success) throw new Error(j.error?.message ?? `Couldn't subscribe to the WhatsApp Business Account (${res.status})`);
-}
-
 export const whatsappAdapter: ChannelAdapter = {
   async send(thread, text, extra) {
     const to = String(thread.routing.waId ?? "");

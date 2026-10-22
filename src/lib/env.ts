@@ -46,12 +46,20 @@ export const env = {
   get telegramHrChannelId() {
     return process.env.TELEGRAM_HR_CHANNEL_ID ?? "";
   },
+  /** Jawab's own Meta app and WhatsApp number (the demo workspace's fallback). Businesses save theirs in Settings → Channels. */
   get whatsapp() {
     return {
-      token: process.env.WHATSAPP_TOKEN ?? "",
-      phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID ?? "",
-      verifyToken: process.env.WHATSAPP_VERIFY_TOKEN ?? "",
+      /** Meta app ID: META_APP_ID. */
+      appId: process.env.META_APP_ID ?? "",
+      /** Meta app secret: META_APP_SECRET. */
       appSecret: process.env.META_APP_SECRET ?? "",
+      /** Phone number ID: WHATSAPP_PHONE_NUMBER_ID. */
+      phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID ?? "",
+      /** WhatsApp Business Account ID: WHATSAPP_BUSINESS_ACCOUNT_ID. */
+      wabaId: process.env.WHATSAPP_BUSINESS_ACCOUNT_ID ?? "",
+      /** Access token: WHATSAPP_TOKEN. */
+      token: process.env.WHATSAPP_TOKEN ?? "",
+      verifyToken: process.env.WHATSAPP_VERIFY_TOKEN ?? "",
       graphVersion: process.env.META_GRAPH_VERSION ?? "v26.0",
     };
   },

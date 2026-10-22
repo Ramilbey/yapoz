@@ -2,6 +2,7 @@ import { enqueue } from "@/lib/jobs";
 import { env } from "@/lib/env";
 import { verifyMetaSignature, safeEqual } from "@/lib/crypto";
 import { workspaceForInstagramAccount } from "@/channels/connections";
+import { metaAppOf } from "@/channels/meta";
 import { createHash } from "node:crypto";
 
 export const dynamic = "force-dynamic";
@@ -19,13 +20,24 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const raw = await req.text();
-  if (!verifyMetaSignature(raw, req.headers.get("x-hub-signature-256"), env.instagram.appSecret)) return new Response("bad signature", { status: 401 });
-  const body = JSON.parse(raw) as { object?: string; entry?: { id: string }[] };
+  const signature = req.headers.get("x-hub-signature-256");
+  // Jawab's own Meta app (env) can vouch for every account. A business's saved Meta app can only vouch for that business's own
+  // account, so one business can never forge messages into another's inbox.
+  const platformOk = [env.instagram.appSecret, env.whatsapp.appSecret].some((secret) => secret && verifyMetaSignature(raw, signature, secret));
+  let body: { object?: string; entry?: { id: string }[] } | null = null;
+  try {
+    body = JSON.parse(raw);
+  } catch {}
+  if (!body) return new Response(platformOk ? "bad request" : "bad signature", { status: platformOk ? 400 : 401 });
   const byWorkspace = new Map<string, { id: string }[]>();
   for (const e of body.entry ?? []) {
     const ws = await workspaceForInstagramAccount(String(e.id));
-    if (ws) byWorkspace.set(ws, [...(byWorkspace.get(ws) ?? []), e]);
+    if (!ws) continue;
+    const app = platformOk ? null : await metaAppOf(ws);
+    const own = platformOk || Boolean(app?.appSecret && verifyMetaSignature(raw, signature, app.appSecret));
+    if (own) byWorkspace.set(ws, [...(byWorkspace.get(ws) ?? []), e]);
   }
+  if (!platformOk && !byWorkspace.size) return new Response("bad signature", { status: 401 });
   const hash = createHash("sha256").update(raw).digest("hex");
   for (const [workspaceId, entry] of byWorkspace) {
     await enqueue("instagram.webhook", { workspaceId, body: { object: body.object, entry } }, { dedupeKey: `ig:${workspaceId}:${hash}`, workspaceId });
