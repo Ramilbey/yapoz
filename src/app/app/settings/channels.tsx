@@ -362,8 +362,10 @@ function WhatsApp({ s, meta, patch }: { s: ChannelStatus["whatsapp"]; meta: Chan
               <dt className="text-muted">Business Account</dt>
               <dd className="num">{s.wabaId ?? <span className="text-signal-ink">not saved: disconnect and connect again</span>}</dd>
               <dt className="text-muted">Access token</dt>
-              <dd className={cx(s.tokenExpiresAt && soon(s.tokenExpiresAt) && "text-signal-ink")}>
-                {s.tokenExpiresAt
+              <dd className={cx((s.tokenExpiresAt && soon(s.tokenExpiresAt)) || !s.tokenChecked ? "text-signal-ink" : null)}>
+                {!s.tokenChecked
+                  ? "not checked with Meta yet: disconnect and connect again to check it"
+                  : s.tokenExpiresAt
                   ? `${new Date(s.tokenExpiresAt).getTime() < Date.now() ? "expired" : "expires"} ${new Date(s.tokenExpiresAt).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}${soon(s.tokenExpiresAt) ? ": make a System User token that doesn't expire" : ""}`
                   : "doesn't expire"}
               </dd>

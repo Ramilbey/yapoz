@@ -132,6 +132,7 @@ test("connecting a number: each value lands in the right place, and the secret i
   assert.equal(wst.connected, true);
   assert.equal(wst.wabaId, WABA);
   assert.equal(wst.needsMetaApp, false);
+  assert.equal(wst.tokenChecked, true, "a number connected through the Meta app has had its token checked, even if it never expires");
   assert.ok(!JSON.stringify(await channelStatus(ws)).includes(GOOD), "the token is never sent to the browser");
   assert.equal(await whatsappDependsOnMetaApp(ws), true);
 });
@@ -179,6 +180,7 @@ test("webhooks are checked with the Meta app's secret; older connections keep wo
   const ch = await channelOf(ws, "whatsapp");
   await db.update(t.channels).set({ credentialsEnc: encryptJson({ token: GOOD, verifyToken: "v", appSecret: OTHER_SECRET }), config: { phoneNumberId: "777000111222333" } }).where(eq(t.channels.id, ch.id));
   assert.equal((await channelStatus(ws)).whatsapp.needsMetaApp, true);
+  assert.equal((await channelStatus(ws)).whatsapp.tokenChecked, false, "an older connection's token has never been checked: the page must not say it doesn't expire");
   assert.equal(await whatsappDependsOnMetaApp(ws), false);
   assert.equal((await hook(ch.id, raw, OTHER_SECRET)).status, 200, "the old secret still works");
   assert.equal((await hook(ch.id, raw, SECRET)).status, 401, "Meta signs with the real secret: rejected until the Meta app is saved");

@@ -167,6 +167,8 @@ export async function channelStatus(workspaceId: string) {
       wabaId: wa?.wabaId || null,
       /** When the access token stops working (null: it doesn't expire, or isn't known). */
       tokenExpiresAt: (waRow?.config.tokenExpiresAt as string) ?? null,
+      /** Meta has been asked about this token (done when the number is connected through the Meta app box). Older connections: not yet. */
+      tokenChecked: waRow?.config.tokenExpiresAt !== undefined,
       /** Connected before the Meta app box existed: its secret is still the one saved with the number. */
       needsMetaApp: wa?.source === "workspace" && !meta,
       // Shown so the owner can paste them into their Meta app's webhook settings.
