@@ -39,6 +39,7 @@ export async function GET() {
       environment: {
         demoMode: env.demoMode,
         demoWorkspaceId: env.demoWorkspaceId,
+        appUrl: env.appUrl,
       },
     });
   } catch (error: any) {

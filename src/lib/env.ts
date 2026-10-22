@@ -2,9 +2,7 @@
 export const env = {
   get appUrl() {
     if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, "");
-    if (process.env.VERCEL_PROJECT_PRODUCTION_URL) return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`.replace(/\/$/, "");
-    if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`.replace(/\/$/, "");
-    if (process.env.VERCEL === "1") return "https://yapoz.vercel.app";
+    if (process.env.VERCEL) return "https://yapoz.vercel.app";
     return "http://localhost:3000";
   },
   get demoMode() {
