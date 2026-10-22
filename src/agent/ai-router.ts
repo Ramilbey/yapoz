@@ -260,7 +260,15 @@ async function userParts(blocks: any[], vision: boolean): Promise<Part[]> {
   return parts;
 }
 
-async function formatOpenAIMessages(params: AnthropicMessageParams, vision: boolean): Promise<OpenAI.Chat.Completions.ChatCompletionMessageParam[]> {
+/**
+ * Gemini 3 models sign each tool call (extra_content.google.thought_signature) and refuse the next turn if a call comes back
+ * unsigned: "Function call is missing a thought_signature". Calls made by another provider have none, and Google documents
+ * this placeholder for them. Other providers reject the unknown field, so it is only ever sent to Gemini.
+ */
+const SKIP_SIGNATURE = "skip_thought_signature_validator";
+const isGemini = (p: AIProviderConfig) => /generativelanguage\.googleapis\.com/.test(p.baseURL ?? "");
+
+async function formatOpenAIMessages(params: AnthropicMessageParams, vision: boolean, gemini = false): Promise<OpenAI.Chat.Completions.ChatCompletionMessageParam[]> {
   const result: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
 
   // 1. System prompt
@@ -311,7 +319,8 @@ async function formatOpenAIMessages(params: AnthropicMessageParams, vision: bool
               name: u.name,
               arguments: JSON.stringify(u.input || {}),
             },
-          })),
+            ...(gemini ? { extra_content: { google: { thought_signature: u.extra_content?.google?.thought_signature ?? SKIP_SIGNATURE } } } : {}),
+          })) as OpenAI.Chat.Completions.ChatCompletionMessageToolCall[],
         });
         continue;
       }
@@ -408,7 +417,7 @@ async function callOpenAICompatible(
 
   const reasoning = isReasoning(modelToUse);
 
-  const openAIMessages = await formatOpenAIMessages(params, provider.vision);
+  const openAIMessages = await formatOpenAIMessages(params, provider.vision, isGemini(provider));
   const openAITools = formatOpenAITools(params.tools);
 
   let toolChoice: OpenAI.Chat.Completions.ChatCompletionToolChoiceOption | undefined = undefined;
@@ -461,6 +470,8 @@ async function callOpenAICompatible(
           id: tc.id,
           name: tc.function.name,
           input: parsedInput,
+          // Gemini's signature for this call: it has to be sent back with the call on the next turn.
+          ...((tc as any).extra_content ? { extra_content: (tc as any).extra_content } : {}),
         } as any);
       }
     }
@@ -494,7 +505,8 @@ async function callAnthropicNative(
     max_tokens: params.max_tokens,
     temperature: params.temperature,
     system: params.system as any,
-    messages: params.messages as any,
+    // Anthropic refuses fields it doesn't know, like the Gemini signature a fallback turn may carry.
+    messages: params.messages.map((m: any) => (Array.isArray(m.content) ? { ...m, content: m.content.map(({ extra_content: _x, ...b }: any) => b) } : m)) as any,
     tools: params.tools as any,
     tool_choice: params.tool_choice as any,
   });

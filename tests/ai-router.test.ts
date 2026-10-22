@@ -43,7 +43,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   if (url.includes("groq") && body?.messages?.some((m: any) => Array.isArray(m.content))) return json({ error: { message: "content must be a string" } }, 400);
   return json({
     id: "x", object: "chat.completion", created: 0, model: body?.model,
-    choices: [{ index: 0, finish_reason: "tool_calls", message: { role: "assistant", content: null, tool_calls: [{ id: "call_1", type: "function", function: { name: body?.tool_choice?.function?.name ?? "record", arguments: toolArgs } }] } }],
+    choices: [{ index: 0, finish_reason: "tool_calls", message: { role: "assistant", content: null, tool_calls: [{ id: "call_1", type: "function", function: { name: body?.tool_choice?.function?.name ?? "record", arguments: toolArgs }, ...(url.includes("generativelanguage") ? { extra_content: { google: { thought_signature: "sig-123" } } } : {}) }] } }],
     usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
   });
 }) as typeof fetch;
@@ -224,4 +224,34 @@ test("Gemini: a listed model that answers 404 is set aside for an hour and the n
     const second = await ask("claude-haiku-5-5");
     assert.equal(second.model, "Google Gemini: gemini-3.1-flash-lite", "the next-newest flash-lite takes over");
     assert.deepEqual(chatModels(), ["gemini-3.1-flash-lite"], "the 404 model isn't tried again, and the first try works");
+  }));
+
+test("Gemini signs its tool calls: the signature is kept and sent back, a call from elsewhere gets Google's placeholder, other providers never see it", () =>
+  onlyGemini(async () => {
+    const first = await executeWithFallback({ model: "claude-haiku-5-5", max_tokens: 300, messages: [{ role: "user", content: "hi" }], tools: [tool], tool_choice: { type: "tool", name: "record" } });
+    const use = first.content.find((b) => b.type === "tool_use") as { id: string; name: string; input: unknown; extra_content?: unknown };
+    assert.deepEqual(use.extra_content, { google: { thought_signature: "sig-123" } }, "kept on the tool call so the pipeline hands it back");
+
+    const turn2 = (blocks: unknown[]) => ({
+      model: "claude-haiku-5-5", max_tokens: 300, tools: [tool],
+      messages: [{ role: "user", content: "hi" }, { role: "assistant", content: blocks }, { role: "user", content: [{ type: "tool_result", tool_use_id: "call_1", content: "{}" }] }],
+    });
+    calls.length = 0;
+    await executeWithFallback(turn2([use]) as never);
+    const sent = calls.find((c) => c.url.endsWith("/chat/completions"))!.body.messages.find((m: any) => m.tool_calls).tool_calls[0];
+    assert.equal(sent.extra_content.google.thought_signature, "sig-123");
+
+    calls.length = 0;
+    await executeWithFallback(turn2([{ type: "tool_use", id: "call_1", name: "record", input: { ok: true } }]) as never);
+    const placeholder = calls.find((c) => c.url.endsWith("/chat/completions"))!.body.messages.find((m: any) => m.tool_calls).tool_calls[0];
+    assert.equal(placeholder.extra_content.google.thought_signature, "skip_thought_signature_validator");
+
+    // Groq rejects fields it doesn't know, so a signed call is sent to it without the signature.
+    process.env.GROQ_API_KEY = "test-groq";
+    delete process.env.GEMINI_API_KEY;
+    resetAiRouterState();
+    calls.length = 0;
+    await executeWithFallback(turn2([use]) as never);
+    const toGroq = calls.find((c) => c.url.includes("groq") && c.url.endsWith("/chat/completions"))!.body.messages.find((m: any) => m.tool_calls).tool_calls[0];
+    assert.equal(toGroq.extra_content, undefined);
   }));
