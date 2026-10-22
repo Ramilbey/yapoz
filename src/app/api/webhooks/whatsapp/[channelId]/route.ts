@@ -27,14 +27,37 @@ export async function GET(req: Request, ctx: { params: Promise<{ channelId: stri
 
 export async function POST(req: Request, ctx: { params: Promise<{ channelId: string }> }) {
   const c = await channel(ctx);
-  if (!c) return new Response("not found", { status: 404 });
+  if (!c) {
+    console.error("[whatsapp:webhook] Channel not found");
+    return new Response("not found", { status: 404 });
+  }
   const raw = await req.text();
-  if (!verifyMetaSignature(raw, req.headers.get("x-hub-signature-256"), c.secrets.appSecret)) return new Response("bad signature", { status: 401 });
-  const body = JSON.parse(raw) as { entry?: { changes?: { value?: { messages?: unknown[]; metadata?: { phone_number_id?: string } } }[] }[] };
-  const mine = String(c.ch.config.phoneNumberId ?? "");
-  const hasMessages = (body.entry ?? []).some((e) => e.changes?.some((x) => x.value?.messages?.length && (!x.value.metadata?.phone_number_id || x.value.metadata.phone_number_id === mine)));
+  const signature = req.headers.get("x-hub-signature-256");
+
+  if (c.secrets.appSecret && signature) {
+    const valid = verifyMetaSignature(raw, signature, c.secrets.appSecret.trim());
+    if (!valid) {
+      console.error("[whatsapp:webhook] Signature verification failed. Check App Secret.");
+      return new Response("bad signature", { status: 401 });
+    }
+  }
+
+  let body: any = {};
+  try {
+    body = JSON.parse(raw);
+  } catch (err) {
+    console.error("[whatsapp:webhook] Failed to parse body JSON", err);
+    return Response.json({ ok: false, error: "invalid json" }, { status: 400 });
+  }
+
+  const hasMessages = (body.entry ?? []).some((e: any) => e.changes?.some((x: any) => x.value?.messages?.length > 0));
   if (hasMessages) {
-    await enqueue("whatsapp.webhook", { workspaceId: c.ch.workspaceId, body }, { dedupeKey: `wa:${c.ch.workspaceId}:${createHash("sha256").update(raw).digest("hex")}`, workspaceId: c.ch.workspaceId });
+    console.log(`[whatsapp:webhook] Inbound message received for workspace ${c.ch.workspaceId}. Processing now.`);
+    await enqueue(
+      "whatsapp.webhook",
+      { workspaceId: c.ch.workspaceId, body },
+      { dedupeKey: `wa:${c.ch.workspaceId}:${createHash("sha256").update(raw).digest("hex")}`, workspaceId: c.ch.workspaceId, run: "now" },
+    );
   }
   return Response.json({ ok: true });
 }
