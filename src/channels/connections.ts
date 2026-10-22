@@ -6,7 +6,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { randomBytes } from "node:crypto";
 import { env } from "@/lib/env";
 import { decryptJson, encryptJson } from "@/lib/crypto";
-import { MetaError, checkNumberOnWaba, inspectAccessToken, metaAppOf, subscribeWaba } from "./meta";
+import { MetaError, checkNumber, inspectAccessToken, metaAppOf, subscribeWaba } from "./meta";
 
 export type ChannelType = "telegram" | "whatsapp" | "instagram" | "simulator";
 type ChannelRow = typeof t.channels.$inferSelect;
@@ -62,8 +62,9 @@ export async function connectWhatsApp(workspaceId: string, input: { phoneNumberI
   if (taken) throw new MetaError("phoneNumberId", "This WhatsApp number is already connected to another business on Jawab.", 409);
 
   const token = await inspectAccessToken(app.appId, app.appSecret, input.accessToken);
-  const number = await checkNumberOnWaba(input.wabaId, input.phoneNumberId, input.accessToken);
-  await subscribeWaba(input.wabaId, input.accessToken);
+  const { accountChecked, ...number } = await checkNumber(input.wabaId, input.phoneNumberId, input.accessToken);
+  // When Meta hides the account from the token there's nothing to subscribe: the app-level webhook in Meta's dashboard is what delivers.
+  if (accountChecked) await subscribeWaba(input.wabaId, input.accessToken);
 
   const ch = await channelOf(workspaceId, "whatsapp");
   const secrets: WhatsAppSecrets = { token: input.accessToken, verifyToken: randomBytes(18).toString("base64url") };
@@ -72,12 +73,12 @@ export async function connectWhatsApp(workspaceId: string, input: { phoneNumberI
     .set({
       credentialsEnc: encryptJson(secrets),
       // A fresh connection starts with a clean health record.
-      config: { ...ch.config, phoneNumberId: input.phoneNumberId, wabaId: input.wabaId, appId: app.appId, ...number, tokenExpiresAt: token.expiresAt, lastWebhookAt: null, lastWebhookIssue: null, lastWebhookTest: false, lastSendError: null, lastSendErrorAt: null },
+      config: { ...ch.config, phoneNumberId: input.phoneNumberId, wabaId: input.wabaId, appId: app.appId, ...number, wabaChecked: accountChecked, tokenExpiresAt: token.expiresAt, lastWebhookAt: null, lastWebhookIssue: null, lastWebhookTest: false, lastSendError: null, lastSendErrorAt: null },
       enabled: true,
     })
     .where(eq(t.channels.id, ch.id));
   await db.insert(t.events).values({ workspaceId, type: "channel.connected", props: { channel: "whatsapp", phone: number.displayPhone, appId: app.appId } });
-  return { ...number, tokenExpiresAt: token.expiresAt, webhookUrl: `${env.appUrl}/api/webhooks/whatsapp/${ch.id}`, verifyToken: secrets.verifyToken };
+  return { ...number, accountChecked, tokenExpiresAt: token.expiresAt, webhookUrl: `${env.appUrl}/api/webhooks/whatsapp/${ch.id}`, verifyToken: secrets.verifyToken };
 }
 
 /** A WhatsApp connection made through the Meta app box has no secret of its own: it can't lose the Meta app. */
@@ -165,6 +166,8 @@ export async function channelStatus(workspaceId: string) {
       displayPhone: (waRow?.config.displayPhone as string) ?? null,
       verifiedName: (waRow?.config.verifiedName as string) ?? null,
       wabaId: wa?.wabaId || null,
+      /** Meta confirmed the number sits on this Business Account. False for Meta's test numbers (it hides the account from the token). */
+      wabaChecked: waRow?.config.wabaChecked !== false,
       /** When the access token stops working (null: it doesn't expire, or isn't known). */
       tokenExpiresAt: (waRow?.config.tokenExpiresAt as string) ?? null,
       /** Meta has been asked about this token (done when the number is connected through the Meta app box). Older connections: not yet. */

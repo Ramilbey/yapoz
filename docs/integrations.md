@@ -55,6 +55,10 @@ below are only used by the shared Telegram bot, Jawab's Instagram app, and as a 
      `GET /debug_token?input_token=…` (valid, `app_id` equals the saved App ID, scopes include `whatsapp_business_messaging` and
      `whatsapp_business_management`, `expires_at` shown to the owner), `GET /{waba_id}/phone_numbers` (the Phone number ID
      must be on that account) and `POST /{waba_id}/subscribed_apps`. Only then is the token saved (encrypted).
+     Meta's own **test numbers** sit on an account no System User can be assigned to: the token can read the number
+     (`GET /{phone_number_id}`) but not the account. Then the number alone is confirmed, the account is flagged as not
+     confirmed in Settings, and no subscription is attempted (Meta's app-level webhook delivers). A number that isn't on an
+     account the token *can* see is still refused.
   We then show a per-business callback URL `/api/webhooks/whatsapp/<channelId>` plus a generated verify token to paste into
   the app's webhook settings (field `messages`). Env fallbacks for the demo workspace: `META_APP_ID`, `META_APP_SECRET`,
   `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_BUSINESS_ACCOUNT_ID`, `WHATSAPP_TOKEN`.

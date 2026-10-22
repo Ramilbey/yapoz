@@ -18,6 +18,9 @@ const OTHER_SECRET = "0f9e8d7c6b5a49382716f5e4d3c2b1a0";
 const WABA = "109876543210987";
 const PHONE = "106540352242922";
 const GOOD = "EAAG-good-system-user-token-0000000000";
+// Meta's own test number: the token can read the number, but Meta hides the (Meta-owned) account it sits on.
+const WABA_HIDDEN = "119999999999999";
+const PHONE_TEST = "144360293216111";
 
 const BOTH = ["whatsapp_business_messaging", "whatsapp_business_management", "business_management"];
 const tokens: Record<string, { app_id?: string; is_valid: boolean; expires_at?: number; scopes?: string[]; error?: { message: string } }> = {
@@ -44,6 +47,8 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   }
   if (path === `${WABA}/phone_numbers`) return auth ? json({ data: [{ id: PHONE, display_phone_number: "+60 12-345 6789", verified_name: "Kedai Test" }, { id: "100200300400500", display_phone_number: "+60 3-9999 0000" }] }) : err("no token");
   if (path === `${WABA}/subscribed_apps` && init?.method === "POST") return json({ success: true });
+  if (path === `${WABA_HIDDEN}/phone_numbers` || path === `${WABA_HIDDEN}/subscribed_apps`) return err("Unsupported get request. Object with ID '119999999999999' does not exist, cannot be loaded due to missing permissions, or does not support this operation.", 100);
+  if (path === PHONE_TEST) return auth ? json({ id: PHONE_TEST, display_phone_number: "+1 555-200-1464", verified_name: "Test Number" }) : err("no token");
   return err(`Unsupported get request. Object with ID '${path}' does not exist`, 100);
 }) as typeof fetch;
 
@@ -132,6 +137,7 @@ test("connecting a number: each value lands in the right place, and the secret i
   assert.equal(wst.connected, true);
   assert.equal(wst.wabaId, WABA);
   assert.equal(wst.needsMetaApp, false);
+  assert.equal(wst.wabaChecked, true, "Meta confirmed the number sits on the Business Account");
   assert.equal(wst.tokenChecked, true, "a number connected through the Meta app has had its token checked, even if it never expires");
   assert.ok(!JSON.stringify(await channelStatus(ws)).includes(GOOD), "the token is never sent to the browser");
   assert.equal(await whatsappDependsOnMetaApp(ws), true);
@@ -149,6 +155,31 @@ test("Meta's answers are turned into what to fix, per field, and a failed check 
   await rejects(connectWhatsApp(ws, input({ phoneNumberId: "555666777888999" })), "phoneNumberId", /isn't on WhatsApp Business Account 109876543210987\. That account has: \+60 12-345 6789 \(ID 106540352242922\), \+60 3-9999 0000 \(ID 100200300400500\)/);
   await rejects(connectWhatsApp(ws, input({ wabaId: "100000000000001" })), "wabaId", /Meta won't show the WhatsApp Business Account 100000000000001/);
   await untouched();
+});
+
+test("a Meta test number whose account Meta hides from the token still connects: the number is confirmed, the account is flagged, nothing is subscribed", async () => {
+  const { workspaceId: ws } = await biz("Kedai Nombor Ujian");
+  await saveMetaApp(ws, null, APP_ID, SECRET);
+  graphCalls.length = 0;
+  const r = await connectWhatsApp(ws, input({ phoneNumberId: PHONE_TEST, wabaId: WABA_HIDDEN }));
+  assert.equal(r.accountChecked, false);
+  assert.equal(r.displayPhone, "+1 555-200-1464");
+  assert.equal(r.verifiedName, "Test Number");
+  assert.deepEqual(graphCalls, ["GET debug_token", `GET ${WABA_HIDDEN}/phone_numbers`, `GET ${PHONE_TEST}`], "no subscription attempt on an account Meta won't show");
+  const ch = await wa(ws);
+  assert.equal(ch.config.phoneNumberId, PHONE_TEST);
+  assert.equal(ch.config.wabaId, WABA_HIDDEN);
+  assert.equal(ch.config.wabaChecked, false);
+  const st = (await channelStatus(ws)).whatsapp;
+  assert.equal(st.connected, true);
+  assert.equal(st.wabaId, WABA_HIDDEN);
+  assert.equal(st.wabaChecked, false, "the page says the account wasn't confirmed");
+  assert.equal(st.tokenChecked, true);
+  // The token still has to be valid and from the right app: hiding the account doesn't excuse a bad token.
+  await db.update(t.channels).set({ credentialsEnc: null, config: {} }).where(eq(t.channels.id, ch.id));
+  await rejects(connectWhatsApp(ws, input({ phoneNumberId: PHONE_TEST, wabaId: WABA_HIDDEN, accessToken: "EAAG-token-of-another-meta-app-00000" })), "accessToken", /different Meta app/);
+  // A number Meta shows neither way is refused with the account's error.
+  await rejects(connectWhatsApp(ws, input({ phoneNumberId: "999000999000999", wabaId: WABA_HIDDEN })), "wabaId", /Meta won't show the WhatsApp Business Account 119999999999999/);
 });
 
 test("a temporary token is accepted, with the time it stops working, so the owner is warned", async () => {

@@ -360,7 +360,10 @@ function WhatsApp({ s, meta, patch }: { s: ChannelStatus["whatsapp"]; meta: Chan
               <dt className="text-muted">Meta app</dt>
               <dd className="num">{meta.connected ? meta.appId : <span className="text-signal-ink">not saved: add it in the Meta app box</span>}</dd>
               <dt className="text-muted">Business Account</dt>
-              <dd className="num">{s.wabaId ?? <span className="text-signal-ink">not saved: disconnect and connect again</span>}</dd>
+              <dd>
+                {s.wabaId ? <span className="num">{s.wabaId}</span> : <span className="text-signal-ink">not saved: disconnect and connect again</span>}
+                {s.wabaId && !s.wabaChecked ? <span className="block text-[12.5px] text-muted">Meta doesn&apos;t show this account to the token, which is normal for Meta&apos;s test number. The number itself was confirmed; make sure <span className="num">messages</span> is subscribed under WhatsApp → Configuration.</span> : null}
+              </dd>
               <dt className="text-muted">Access token</dt>
               <dd className={cx((s.tokenExpiresAt && soon(s.tokenExpiresAt)) || !s.tokenChecked ? "text-signal-ink" : null)}>
                 {!s.tokenChecked

@@ -36,7 +36,7 @@ export const DELETE = handle(async () => {
   const ch = await channelOf(s.workspaceId, "whatsapp");
   const {
     phoneNumberId: _p, wabaId: _w, appId: _a, displayPhone: _d, verifiedName: _v, tokenExpiresAt: _x,
-    lastWebhookAt: _l1, lastWebhookIssue: _l2, lastWebhookTest: _l3, lastSendError: _l4, lastSendErrorAt: _l5, ...rest
+    wabaChecked: _wc, lastWebhookAt: _l1, lastWebhookIssue: _l2, lastWebhookTest: _l3, lastSendError: _l4, lastSendErrorAt: _l5, ...rest
   } = ch.config;
   await db.update(t.channels).set({ credentialsEnc: null, config: rest }).where(eq(t.channels.id, ch.id));
   return ok({ ok: true });

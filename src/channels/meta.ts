@@ -86,6 +86,36 @@ export async function checkNumberOnWaba(wabaId: string, phoneNumberId: string, t
   return { displayPhone: hit.display_phone_number ?? null, verifiedName: hit.verified_name ?? null };
 }
 
+/** Reads the number itself, for when Meta won't show the Business Account it sits on. */
+async function readNumber(phoneNumberId: string, token: string): Promise<{ displayPhone: string | null; verifiedName: string | null }> {
+  try {
+    const j = await graph<{ display_phone_number?: string; verified_name?: string }>(phoneNumberId, { fields: "display_phone_number,verified_name" }, { token });
+    return { displayPhone: j.display_phone_number ?? null, verifiedName: j.verified_name ?? null };
+  } catch (e) {
+    if (e instanceof GraphError) throw new MetaError("phoneNumberId", `Meta won't show phone number ID ${phoneNumberId} to this token (${e.message}).`);
+    throw e;
+  }
+}
+
+/**
+ * The number, confirmed against its Business Account when Meta lets the token see that account. Meta's own test numbers sit
+ * on an account no System User can be assigned to: the token can read the number but not the account. Then the number alone
+ * is confirmed (`accountChecked: false`) and the webhook subscription is left to the app-level one in Meta's dashboard.
+ * A number that isn't on an account the token CAN see is still refused, and so is one Meta shows neither way.
+ */
+export async function checkNumber(wabaId: string, phoneNumberId: string, token: string): Promise<{ displayPhone: string | null; verifiedName: string | null; accountChecked: boolean }> {
+  try {
+    return { ...(await checkNumberOnWaba(wabaId, phoneNumberId, token)), accountChecked: true };
+  } catch (e) {
+    if (!(e instanceof MetaError) || e.field !== "wabaId") throw e;
+    try {
+      return { ...(await readNumber(phoneNumberId, token)), accountChecked: false };
+    } catch {
+      throw e;
+    }
+  }
+}
+
 /** Subscribes the token's app to the account's webhooks so Meta sends it the customers' messages. */
 export async function subscribeWaba(wabaId: string, token: string) {
   try {

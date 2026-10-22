@@ -24,6 +24,7 @@ export type ChannelStatus = {
     wabaId: string | null;
     tokenExpiresAt: string | null;
     tokenChecked: boolean;
+    wabaChecked: boolean;
     needsMetaApp: boolean;
     lastWebhookAt: string | null;
     lastWebhookIssue: "signature" | null;
