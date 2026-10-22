@@ -10,7 +10,7 @@ import { classify, type Classification } from "./classify";
 import { TOOLS, runTool, openGapKeys, type ToolContext } from "./tools";
 import { env } from "@/lib/env";
 import { addLocalDays, localDate, zoned, fmt } from "@/lib/time";
-import { adapterFor } from "@/channels";
+import { adapterFor, type ChannelAdapter, type Inbound } from "@/channels";
 import type { Attachment, ToolCallLog } from "@/db/schema";
 
 export type ChannelType = "telegram" | "whatsapp" | "instagram" | "simulator";
@@ -125,7 +125,8 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
   const [channelRow] = await db.select().from(t.channels).where(and(eq(t.channels.workspaceId, ws.id), eq(t.channels.type, thread.channel)));
   const mode = channelRow?.mode ?? "autopilot";
   const [inbound] = await db.select().from(t.messages).where(eq(t.messages.id, inboundMessageId));
-  void adapterFor(thread.channel).typing?.(thread).catch(() => {});
+  // "Typing…" while the AI works. Autopilot only: a Copilot reply waits for staff, so the customer would see typing, then nothing.
+  const stopTyping = mode === "autopilot" ? keepTyping(adapterFor(thread.channel), thread, { externalMessageId: inbound.externalMessageId }) : () => {};
 
   const historyRows = await db
     .select()
@@ -271,6 +272,7 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
     .returning();
   if (cls?.language) await db.update(t.customers).set({ language: cls.language }).where(eq(t.customers.id, customer.id));
 
+  stopTyping();
   if (newer) {
     return { skipped: "superseded", runId: run.id, outcome, latencyMs, model: answeredBy ?? model };
   }
@@ -285,6 +287,30 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
 }
 
 type ThreadRow = typeof t.threads.$inferSelect;
+
+const TYPING_MAX_REPEATS = 6;
+
+/**
+ * Shows the channel's typing indicator now and, for channels whose indicator expires, again every `typingEveryMs` until
+ * stopped (at most TYPING_MAX_REPEATS times, so a run that never finishes can't keep a customer's phone typing).
+ */
+export function keepTyping(adapter: ChannelAdapter, thread: ThreadRow, inbound: Inbound): () => void {
+  if (!adapter.typing) return () => {};
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let stopped = false;
+  const fire = (left: number) => {
+    void adapter.typing!(thread, inbound).catch(() => {});
+    if (adapter.typingEveryMs && left > 0) {
+      timer = setTimeout(() => !stopped && fire(left - 1), adapter.typingEveryMs);
+      (timer as { unref?: () => void }).unref?.();
+    }
+  };
+  fire(TYPING_MAX_REPEATS);
+  return () => {
+    stopped = true;
+    if (timer) clearTimeout(timer);
+  };
+}
 
 /** Insert an outbound message and push it through the channel adapter (unless it's a draft). */
 export async function deliver(

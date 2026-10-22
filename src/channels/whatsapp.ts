@@ -63,7 +63,29 @@ export async function sendWhatsAppTemplate(workspaceId: string, to: string, name
   });
 }
 
+/**
+ * "Typing…" in the customer's WhatsApp while the AI works. Meta ties it to the customer's message (which it also marks as
+ * read, so the blue ticks appear) and clears it when the reply arrives, or after 25 seconds. A failure here never stops the reply.
+ */
+export async function sendWhatsAppTyping(workspaceId: string, messageId: string) {
+  const c = await whatsappCreds(workspaceId);
+  if (!c) return;
+  const res = await fetch(`https://graph.facebook.com/${c.graphVersion}/${c.phoneNumberId}/messages`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${c.token}`, "content-type": "application/json" },
+    body: JSON.stringify({ messaging_product: "whatsapp", status: "read", message_id: messageId, typing_indicator: { type: "text" } }),
+    signal: AbortSignal.timeout(8_000),
+  });
+  if (!res.ok) {
+    const j = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+    console.warn(`[whatsapp] typing indicator refused (${res.status}): ${j.error?.message ?? "unknown error"}`);
+  }
+}
+
 export const whatsappAdapter: ChannelAdapter = {
+  async typing(thread, inbound) {
+    if (inbound?.externalMessageId) await sendWhatsAppTyping(thread.workspaceId, inbound.externalMessageId);
+  },
   async send(thread, text, extra) {
     const to = String(thread.routing.waId ?? "");
     if (!to) throw new Error("Thread has no WhatsApp number");

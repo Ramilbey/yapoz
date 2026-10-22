@@ -85,6 +85,19 @@ test("WhatsApp: free-form inside the 24h window with the business's own token, r
   await assert.rejects(whatsappAdapter.send(old, "hello"), /24-hour/);
 });
 
+test("WhatsApp: 'typing…' is shown on the customer's message with the business's own number and token", async () => {
+  const before = requests.length;
+  await whatsappAdapter.typing!({ workspaceId: "KASIH1", routing: { waId: "60123456789" }, lastInboundAt: new Date() } as never, { externalMessageId: "wamid.CUSTOMER1" });
+  const r = requests.at(-1)!;
+  assert.equal(requests.length, before + 1);
+  assert.match(r.url, /graph\.facebook\.com\/v\d+\.\d+\/2077\/messages$/);
+  assert.equal(r.auth, "Bearer salon-wa-token");
+  assert.deepEqual(r.body, { messaging_product: "whatsapp", status: "read", message_id: "wamid.CUSTOMER1", typing_indicator: { type: "text" } });
+  // Without the customer's message id there's nothing to attach it to: no request.
+  await whatsappAdapter.typing!({ workspaceId: "KASIH1", routing: { waId: "60123456789" } } as never, { externalMessageId: null });
+  assert.equal(requests.length, before + 1);
+});
+
 test("WhatsApp: a business's own webhook URL checks its verify token and app secret", async () => {
   const { GET, POST } = await import("../src/app/api/webhooks/whatsapp/[channelId]/route");
   const params = { params: Promise.resolve({ channelId: salonWaChannel }) };
