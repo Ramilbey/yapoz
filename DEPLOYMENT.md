@@ -15,7 +15,7 @@
 | **Supabase Dashboard** | [https://supabase.com/dashboard/project/dkufrhbizioijmxrzcom](https://supabase.com/dashboard/project/dkufrhbizioijmxrzcom) |
 | **Primary GitHub Remote (`ramilbey`)** | `git@github.com:Ramilbey/yapoz.git` *(Tracks Vercel production)* |
 | **Secondary GitHub Remote (`origin`)** | `git@github.com:gameelacademy/yapoz.git` *(Collaborator repo)* |
-| **Vercel Deploy Webhook** | `https://api.vercel.com/v1/integrations/deploy/prj_xmhsmYW3T1f9JE0HrVB7ZLRe9hQM/9wK5uwwhmk` |
+| **Vercel Deploy Hook** | Kept out of the repo: Vercel → Settings → Git → Deploy Hooks. Export it as `VERCEL_DEPLOY_HOOK` locally. |
 
 ---
 
@@ -60,7 +60,7 @@ git push origin main
 ### Rule 3: Triggering Deployments via Deploy Hook
 Because the GitHub repository is linked across accounts, automatic push webhooks may occasionally be delayed or skipped. Always trigger the deployment hook after pushing to guarantee Vercel pulls and builds the latest commit:
 ```bash
-curl -X POST https://api.vercel.com/v1/integrations/deploy/prj_xmhsmYW3T1f9JE0HrVB7ZLRe9hQM/9wK5uwwhmk
+curl -X POST "$VERCEL_DEPLOY_HOOK"
 ```
 
 ---
@@ -186,7 +186,7 @@ git push origin main
 
 ### Step 4: Trigger the Deploy Webhook
 ```bash
-curl -X POST https://api.vercel.com/v1/integrations/deploy/prj_xmhsmYW3T1f9JE0HrVB7ZLRe9hQM/9wK5uwwhmk
+curl -X POST "$VERCEL_DEPLOY_HOOK"
 ```
 
 ### Step 5: Verify Live Status
@@ -210,3 +210,8 @@ Expected output:
 | **`prepared statement "..." already exists`** | Postgres client attempting to use prepared queries on port 6543 PgBouncer. | Check `src/db/index.ts` and verify `prepare: !isPooler` is set. |
 | **`That email and password don't match` on `/login`** | Supabase database tables are empty / unseeded. | Paste `drizzle/seed_data.sql` into the Supabase SQL Editor and click **Run**. |
 | **AI requests fail with rate limits** | Single provider quota exhausted. | Ensure both `GROQ_API_KEY` and `GEMINI_API_KEY` are provided in Vercel environment variables so `ai-router.ts` can cascade. |
+| **AI replies are always "I've passed this to our team"** | Every provider rejected its model (models get retired), so each message escalates. | Signed in as an owner, open `/api/health?test=ai`: it shows the model each provider uses and whether a tool call works. `ai-router.ts` lists each provider's models and swaps a retired one for a served one; `GROQ_*_MODEL` / `GEMINI_*_MODEL` env vars override it. |
+| **`AUTH_SECRET must be set` / everyone logged out** | `AUTH_SECRET` (32+ chars) or `APP_ENCRYPTION_KEY` is missing in Vercel. Production refuses the public fallback values. | Set them in Vercel → Settings → Environment Variables and redeploy. Keep `APP_ENCRYPTION_KEY` unchanged once channels are connected, or their saved tokens can't be decrypted. |
+| **WhatsApp: nothing arrives in Inbox** | Settings → Channels → WhatsApp says which link is broken. Usually the Meta app is unpublished (Meta then delivers only its dashboard Test sample), or `messages` isn't subscribed under Webhook fields. | Subscribe `messages`, press Test (Settings should then say the test arrived), and publish the app with `https://yapoz.vercel.app/privacy` as its privacy policy URL. |
+| **WhatsApp: "signature doesn't match"** | The App secret saved in Jawab isn't the secret of the Meta app that sends the webhooks. | Copy App settings → Basic → App secret from that app, then Disconnect and connect WhatsApp again (the verify token changes, so re-save the webhook in Meta). |
+| **WhatsApp: "Last reply failed … (#131030)"** | Meta's test number only sends to numbers on its list. | WhatsApp → API Setup → To → Manage phone number list: add and verify the phone you test from. |

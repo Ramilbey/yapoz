@@ -21,13 +21,7 @@ SET row_security = off;
 -- Data for Name: workspaces; Type: TABLE DATA; Schema: public; Owner: jawab
 --
 
-INSERT INTO public.workspaces VALUES ('TEST94', 'Test Shop', 'UTC', 'UTC', 'USD', '{"hr": {"location": "", "workdayEnd": "18:00", "workdayStart": "10:00", "interviewMinutes": 30}, "live": false, "modules": {"hiring": false}, "business": {"type": "", "phone": null, "address": "", "website": null, "languages": ["English"], "description": ""}, "onboarding": {"step": 1, "completedAt": null}, "demoTraffic": false, "confidenceThreshold": 0.55, "resumeRetentionDays": 180}', '2026-10-21 19:17:31.552469+08');
-INSERT INTO public.workspaces VALUES ('USPIZZA87', 'US Pizza', 'Kuala Lumpur', 'Asia/Kuala_Lumpur', 'MYR', '{"hr": {"location": "", "workdayEnd": "18:00", "workdayStart": "10:00", "interviewMinutes": 30}, "live": false, "modules": {"hiring": false}, "business": {"type": "", "phone": null, "address": "", "website": null, "languages": ["English"], "description": ""}, "onboarding": {"step": 1, "completedAt": null}, "demoTraffic": false, "confidenceThreshold": 0.55, "resumeRetentionDays": 180}', '2026-10-21 19:34:19.669375+08');
-INSERT INTO public.workspaces VALUES ('USPIZZA42', 'US Pizza', 'Kuala Lumpur', 'Asia/Kuala_Lumpur', 'MYR', '{"hr": {"location": "", "workdayEnd": "18:00", "workdayStart": "10:00", "interviewMinutes": 30}, "live": false, "modules": {"hiring": false}, "business": {"type": "", "phone": null, "address": "", "website": null, "languages": ["English"], "description": ""}, "onboarding": {"step": 1, "completedAt": null}, "demoTraffic": false, "confidenceThreshold": 0.55, "resumeRetentionDays": 180}', '2026-10-21 19:34:37.625429+08');
-INSERT INTO public.workspaces VALUES ('USPIZZA79', 'US Pizza', 'Kuala Lumpur', 'Asia/Kuala_Lumpur', 'MYR', '{"hr": {"location": "", "workdayEnd": "18:00", "workdayStart": "10:00", "interviewMinutes": 30}, "live": false, "modules": {"hiring": false}, "business": {"type": "", "phone": null, "address": "", "website": null, "languages": ["English"], "description": ""}, "onboarding": {"step": 1, "completedAt": null}, "demoTraffic": false, "confidenceThreshold": 0.55, "resumeRetentionDays": 180}', '2026-10-21 19:34:42.934585+08');
-INSERT INTO public.workspaces VALUES ('USPIZZA77', 'US Pizza', 'UTC', 'UTC', 'USD', '{"hr": {"location": "", "workdayEnd": "18:00", "workdayStart": "10:00", "interviewMinutes": 30}, "live": false, "modules": {"hiring": false}, "business": {"type": "", "phone": null, "address": "", "website": null, "languages": ["English"], "description": ""}, "onboarding": {"step": 1, "completedAt": null}, "demoTraffic": false, "confidenceThreshold": 0.55, "resumeRetentionDays": 180}', '2026-10-21 19:38:03.648181+08');
 INSERT INTO public.workspaces VALUES ('KASIH1', 'Kasih Hair Studio', 'Kuala Lumpur', 'Asia/Kuala_Lumpur', 'MYR', '{"hr": {"location": "Kasih Hair Studio, Mont Kiara", "workdayEnd": "18:00", "workdayStart": "10:00", "interviewMinutes": 30}, "live": true, "sample": true, "modules": {"hiring": false}, "business": {"type": "hair salon", "phone": null, "address": "2-7 Jalan Kiara 3, Mont Kiara, 50480 Kuala Lumpur", "website": null, "languages": ["English", "Malay", "Mandarin"], "description": "Friendly neighbourhood hair salon with three stylists. Cuts, colour, treatments and blow-dries for women, men and kids. Sells a small range of hair care products."}, "onboarding": {"step": 6, "completedAt": "2026-10-01T00:00:00.000Z"}, "demoTraffic": false, "confidenceThreshold": 0.55, "resumeRetentionDays": 180}', '2026-10-21 19:38:59.580092+08');
-INSERT INTO public.workspaces VALUES ('USPIZZA94', 'US Pizza', 'UTC', 'UTC', 'USD', '{"hr": {"location": "", "workdayEnd": "18:00", "workdayStart": "10:00", "interviewMinutes": 30}, "live": false, "modules": {"hiring": false}, "business": {"type": "", "phone": null, "address": "", "website": null, "languages": ["English"], "description": ""}, "onboarding": {"step": 1, "completedAt": null}, "demoTraffic": false, "confidenceThreshold": 0.55, "resumeRetentionDays": 180}', '2026-10-21 19:39:44.719846+08');
 INSERT INTO public.workspaces VALUES ('FORNO7', 'Forno Sette', 'Kuala Lumpur', 'Asia/Kuala_Lumpur', 'MYR', '{"hr": {"location": "Forno Sette, 27 Jalan Telawi 3, Bangsar Baru", "workdayEnd": "18:00", "workdayStart": "10:00", "interviewMinutes": 30}, "live": true, "sample": true, "modules": {"hiring": true}, "business": {"type": "wood-fired pizzeria", "phone": null, "address": "27 Jalan Telawi 3, Bangsar Baru, 59100 Kuala Lumpur", "website": null, "languages": ["English", "Malay"], "description": "Neapolitan-style wood-fired pizzeria in Bangsar with a 40-seat dining room, a terrace and its own delivery riders nearby. Also sells aprons and T-shirts."}, "onboarding": {"step": 6, "completedAt": "2026-10-01T00:00:00.000Z"}, "demoTraffic": false, "confidenceThreshold": 0.55, "resumeRetentionDays": 180}', '2026-10-21 19:38:50.525816+08');
 
 
@@ -43,16 +37,10 @@ INSERT INTO public.booking_types VALUES ('7ee2a3fd-7395-407c-8b46-6060003b8674',
 -- Data for Name: users; Type: TABLE DATA; Schema: public; Owner: jawab
 --
 
-INSERT INTO public.users VALUES ('3785b31e-c500-4852-8660-5cc80736d07c', 'TEST94', 'test@testshop.com', 'Test Owner', '$2b$10$.MV6R19g8ZCZdRVRjRRkzeO7nV.D6hJkvi8141u80h598DOtu2sgq', 'owner', '2026-10-21 19:17:31.552469+08');
-INSERT INTO public.users VALUES ('26412f83-1d28-4a40-96e4-e536ca94dabc', 'USPIZZA87', 'ramilbey@gmail.com', 'Ramil', '$2b$10$NjKWiLXdpxRxQcFDY7fX..YlH113/6INDxZt5qKLYjUexpLmwqAtO', 'owner', '2026-10-21 19:34:19.669375+08');
-INSERT INTO public.users VALUES ('e3bbd1c6-7136-4372-bd70-0823c8c84a93', 'USPIZZA42', 'ramilbey@gmail.com', 'Ramil', '$2b$10$eE9S/PlAxqEzA9FmqdfUw.syA18rN80ibXsUixVrL5YRFaLql8p6G', 'owner', '2026-10-21 19:34:37.625429+08');
-INSERT INTO public.users VALUES ('06bb4a0b-e9da-410d-9af0-8ba441647453', 'USPIZZA79', 'ramilbey@gmail.com', 'Ramil', '$2b$10$0faOZ1tfXH6VRBCTUjtG6Oi/9DzlW2BTWdp8GFyaqDgWW4ETm9PAW', 'owner', '2026-10-21 19:34:42.934585+08');
-INSERT INTO public.users VALUES ('09f6ad72-6c52-4aaf-a021-8cc58340de84', 'USPIZZA77', 'ramilbey@gmail.com', 'Ramil', '$2b$10$oGa9a01DIXQSyf6paicTc.PS8lpI6WpO06X9BAxCmfZTkOoWkCAKK', 'owner', '2026-10-21 19:38:03.648181+08');
 INSERT INTO public.users VALUES ('00000000-0000-4000-8000-000000000001', 'FORNO7', 'owner@demo', 'Lina Hassan', '$2b$10$ap1sP77b51svNiyQp0faHeNXJeblOJZfb.tEZddjgda5UD9qu9Pne', 'owner', '2026-10-21 19:38:50.666535+08');
 INSERT INTO public.users VALUES ('00000000-0000-4000-8000-000000000002', 'FORNO7', 'service@demo', 'Farid Aziz', '$2b$10$ap1sP77b51svNiyQp0faHeNXJeblOJZfb.tEZddjgda5UD9qu9Pne', 'service', '2026-10-21 19:38:50.666535+08');
 INSERT INTO public.users VALUES ('00000000-0000-4000-8000-000000000003', 'FORNO7', 'hr@demo', 'Mei Chen', '$2b$10$ap1sP77b51svNiyQp0faHeNXJeblOJZfb.tEZddjgda5UD9qu9Pne', 'hr', '2026-10-21 19:38:50.666535+08');
 INSERT INTO public.users VALUES ('00000000-0000-4000-8000-000000000011', 'KASIH1', 'owner@demo', 'Nadia Lim', '$2b$10$8yA42gq/ijHx.XQyWFeN.efvcllZs7pvhoRXk0H7PBvaRfcmsxtIy', 'owner', '2026-10-21 19:38:59.718585+08');
-INSERT INTO public.users VALUES ('5b544295-f4cd-4523-9d72-6ffa9bf6ddbe', 'USPIZZA94', 'ramilbey@gmail.com', 'Ramil', '$2b$10$faXFbjSjZd9Vi/.TJFhvqu3U04shs/5R7ZXOxRLCmNXikQ12tBCfq', 'owner', '2026-10-21 19:39:44.719846+08');
 
 
 --
@@ -772,26 +760,6 @@ English, Malay, Arabic', '2026-10-21 19:38:51.705165+08');
 -- Data for Name: channels; Type: TABLE DATA; Schema: public; Owner: jawab
 --
 
-INSERT INTO public.channels VALUES ('8a3b4dd8-74a1-49a8-99f4-46edc61132a5', 'TEST94', 'simulator', 'autopilot', '{}', NULL, true, '2026-10-21 19:17:31.552469+08');
-INSERT INTO public.channels VALUES ('c58b025b-64cb-46e6-988c-3ba5268155b0', 'TEST94', 'telegram', 'autopilot', '{}', NULL, true, '2026-10-21 19:17:31.552469+08');
-INSERT INTO public.channels VALUES ('8545cf7d-6c3e-456b-bc74-3e7514168c6a', 'TEST94', 'whatsapp', 'autopilot', '{}', NULL, true, '2026-10-21 19:17:31.552469+08');
-INSERT INTO public.channels VALUES ('09447cb5-6c40-4e02-8d16-e6bbb994aa50', 'TEST94', 'instagram', 'autopilot', '{}', NULL, true, '2026-10-21 19:17:31.552469+08');
-INSERT INTO public.channels VALUES ('27bac30c-5fb3-4606-a9d7-b708d60ac429', 'USPIZZA87', 'simulator', 'autopilot', '{}', NULL, true, '2026-10-21 19:34:19.669375+08');
-INSERT INTO public.channels VALUES ('561f7023-6d2e-4c0e-a5d6-d21aae5d2dfb', 'USPIZZA87', 'telegram', 'autopilot', '{}', NULL, true, '2026-10-21 19:34:19.669375+08');
-INSERT INTO public.channels VALUES ('f7a0931d-47ba-4d31-9d83-1f7ba3b773f2', 'USPIZZA87', 'whatsapp', 'autopilot', '{}', NULL, true, '2026-10-21 19:34:19.669375+08');
-INSERT INTO public.channels VALUES ('2133f2ca-9624-473e-a53b-dabc0f3b868e', 'USPIZZA87', 'instagram', 'autopilot', '{}', NULL, true, '2026-10-21 19:34:19.669375+08');
-INSERT INTO public.channels VALUES ('90c1db55-00e1-47de-bbe2-0c99630e4614', 'USPIZZA42', 'simulator', 'autopilot', '{}', NULL, true, '2026-10-21 19:34:37.625429+08');
-INSERT INTO public.channels VALUES ('a7b61d3e-2260-400d-b5b7-7829616a30b3', 'USPIZZA42', 'telegram', 'autopilot', '{}', NULL, true, '2026-10-21 19:34:37.625429+08');
-INSERT INTO public.channels VALUES ('2886beaf-0e76-4100-8c98-47df57f8d8ee', 'USPIZZA42', 'whatsapp', 'autopilot', '{}', NULL, true, '2026-10-21 19:34:37.625429+08');
-INSERT INTO public.channels VALUES ('219a7f55-75f8-47a7-b2a2-7822d7387c01', 'USPIZZA42', 'instagram', 'autopilot', '{}', NULL, true, '2026-10-21 19:34:37.625429+08');
-INSERT INTO public.channels VALUES ('1da3c7e6-4db0-4427-80d8-83bbc8f51a93', 'USPIZZA79', 'simulator', 'autopilot', '{}', NULL, true, '2026-10-21 19:34:42.934585+08');
-INSERT INTO public.channels VALUES ('fb3f7872-7d38-477d-b10b-9dbffb917bb3', 'USPIZZA79', 'telegram', 'autopilot', '{}', NULL, true, '2026-10-21 19:34:42.934585+08');
-INSERT INTO public.channels VALUES ('faa2a840-c729-48fc-81d9-1981fad1f9cd', 'USPIZZA79', 'whatsapp', 'autopilot', '{}', NULL, true, '2026-10-21 19:34:42.934585+08');
-INSERT INTO public.channels VALUES ('90d2fbe0-cb42-452a-8cfe-0c936c8e367e', 'USPIZZA79', 'instagram', 'autopilot', '{}', NULL, true, '2026-10-21 19:34:42.934585+08');
-INSERT INTO public.channels VALUES ('7d26b0de-09c7-4f99-9d9d-adef3965ef94', 'USPIZZA77', 'simulator', 'autopilot', '{}', NULL, true, '2026-10-21 19:38:03.648181+08');
-INSERT INTO public.channels VALUES ('5e5b46cb-ffe1-48ac-a7e7-0bee96ec55db', 'USPIZZA77', 'telegram', 'autopilot', '{}', NULL, true, '2026-10-21 19:38:03.648181+08');
-INSERT INTO public.channels VALUES ('79245bbf-87bf-4992-bdd8-df2e4e086ae0', 'USPIZZA77', 'whatsapp', 'autopilot', '{}', NULL, true, '2026-10-21 19:38:03.648181+08');
-INSERT INTO public.channels VALUES ('d369ce33-fb60-4b55-9b27-795cde33d806', 'USPIZZA77', 'instagram', 'autopilot', '{}', NULL, true, '2026-10-21 19:38:03.648181+08');
 INSERT INTO public.channels VALUES ('c6227b9b-10e8-4372-aba3-a96b08923443', 'FORNO7', 'simulator', 'autopilot', '{}', NULL, true, '2026-10-21 19:38:50.680401+08');
 INSERT INTO public.channels VALUES ('9bf6ffab-c75b-46e1-af2c-d8c94f1775d6', 'FORNO7', 'telegram', 'autopilot', '{"botUsername": ""}', NULL, true, '2026-10-21 19:38:50.680401+08');
 INSERT INTO public.channels VALUES ('84648923-353a-4a25-ae50-ccb95351d4d9', 'FORNO7', 'whatsapp', 'autopilot', '{"phoneNumberId": ""}', NULL, true, '2026-10-21 19:38:50.680401+08');
@@ -800,10 +768,6 @@ INSERT INTO public.channels VALUES ('855dbef7-a818-4dfe-9a83-a69151d2756b', 'KAS
 INSERT INTO public.channels VALUES ('e8ac4df0-b555-4e5c-9e2b-4ee3e4f04457', 'KASIH1', 'telegram', 'autopilot', '{}', NULL, true, '2026-10-21 19:38:59.722477+08');
 INSERT INTO public.channels VALUES ('458a6dd5-d7e4-4fdc-b4d6-094c055c0a62', 'KASIH1', 'whatsapp', 'autopilot', '{}', NULL, true, '2026-10-21 19:38:59.722477+08');
 INSERT INTO public.channels VALUES ('89badd0f-2332-4489-862c-0cf7c8edaa56', 'KASIH1', 'instagram', 'autopilot', '{}', NULL, true, '2026-10-21 19:38:59.722477+08');
-INSERT INTO public.channels VALUES ('09c91643-7fa5-4f44-a026-67dde398c5c1', 'USPIZZA94', 'simulator', 'autopilot', '{}', NULL, true, '2026-10-21 19:39:44.719846+08');
-INSERT INTO public.channels VALUES ('db86440b-d6f3-4d06-897d-0c3d2889763d', 'USPIZZA94', 'telegram', 'autopilot', '{}', NULL, true, '2026-10-21 19:39:44.719846+08');
-INSERT INTO public.channels VALUES ('df1a989d-0633-4471-9b5f-170b5acc209f', 'USPIZZA94', 'whatsapp', 'autopilot', '{}', NULL, true, '2026-10-21 19:39:44.719846+08');
-INSERT INTO public.channels VALUES ('bdb2a0e2-35f3-4f27-a6e8-820ad7b256eb', 'USPIZZA94', 'instagram', 'autopilot', '{}', NULL, true, '2026-10-21 19:39:44.719846+08');
 
 
 --
@@ -1144,10 +1108,6 @@ INSERT INTO public.customers VALUES ('14ac072b-1134-4c58-9ab4-1bf430e2ec11', 'FO
 -- Data for Name: events; Type: TABLE DATA; Schema: public; Owner: jawab
 --
 
-INSERT INTO public.events VALUES (2626, 'USPIZZA94', 'workspace.created', '{}', false, '2026-10-21 19:39:44.719846+08');
-INSERT INTO public.events VALUES (1966, 'USPIZZA87', 'workspace.created', '{}', false, '2026-10-21 19:34:19.669375+08');
-INSERT INTO public.events VALUES (1967, 'USPIZZA42', 'workspace.created', '{}', false, '2026-10-21 19:34:37.625429+08');
-INSERT INTO public.events VALUES (1968, 'USPIZZA79', 'workspace.created', '{}', false, '2026-10-21 19:34:42.934585+08');
 INSERT INTO public.events VALUES (2578, 'FORNO7', 'message.received', '{"topic": "booking", "channel": "whatsapp"}', true, '2026-10-21 15:50:00+08');
 INSERT INTO public.events VALUES (2579, 'FORNO7', 'message.answered', '{"channel": "whatsapp", "outcome": "auto_resolved", "latencyMs": 2713}', true, '2026-10-21 15:50:02.713+08');
 INSERT INTO public.events VALUES (2580, 'FORNO7', 'message.received', '{"topic": "drinks", "channel": "telegram"}', true, '2026-10-21 11:23:00+08');
@@ -1163,7 +1123,6 @@ INSERT INTO public.events VALUES (2589, 'FORNO7', 'message.answered', '{"channel
 INSERT INTO public.events VALUES (2590, 'FORNO7', 'message.received', '{"topic": "menu", "channel": "telegram"}', true, '2026-10-21 11:03:00+08');
 INSERT INTO public.events VALUES (2591, 'FORNO7', 'message.answered', '{"channel": "telegram", "outcome": "auto_resolved", "latencyMs": 3472}', true, '2026-10-21 11:03:03.472+08');
 INSERT INTO public.events VALUES (2592, 'FORNO7', 'message.received', '{"topic": "booking", "channel": "telegram"}', true, '2026-10-21 16:55:00+08');
-INSERT INTO public.events VALUES (1969, 'USPIZZA77', 'workspace.created', '{}', false, '2026-10-21 19:38:03.648181+08');
 INSERT INTO public.events VALUES (2593, 'FORNO7', 'message.answered', '{"channel": "telegram", "outcome": "booked", "latencyMs": 2516}', true, '2026-10-21 16:55:02.516+08');
 INSERT INTO public.events VALUES (2594, 'FORNO7', 'message.received', '{"topic": "menu", "channel": "telegram"}', true, '2026-10-21 12:58:00+08');
 INSERT INTO public.events VALUES (2595, 'FORNO7', 'message.answered', '{"channel": "telegram", "outcome": "auto_resolved", "latencyMs": 3450}', true, '2026-10-21 12:58:03.45+08');
@@ -1773,7 +1732,6 @@ INSERT INTO public.events VALUES (2542, 'FORNO7', 'message.received', '{"topic":
 INSERT INTO public.events VALUES (2543, 'FORNO7', 'message.answered', '{"channel": "instagram", "outcome": "escalated", "latencyMs": 2606}', true, '2026-10-20 19:50:02.606+08');
 INSERT INTO public.events VALUES (2544, 'FORNO7', 'message.received', '{"topic": "menu", "channel": "telegram"}', true, '2026-10-20 09:17:00+08');
 INSERT INTO public.events VALUES (2545, 'FORNO7', 'message.answered', '{"channel": "telegram", "outcome": "auto_resolved", "latencyMs": 3482}', true, '2026-10-20 09:17:03.482+08');
-INSERT INTO public.events VALUES (1309, 'TEST94', 'workspace.created', '{}', false, '2026-10-21 19:17:31.552469+08');
 INSERT INTO public.events VALUES (2546, 'FORNO7', 'message.received', '{"topic": "hours", "channel": "whatsapp"}', true, '2026-10-20 16:03:00+08');
 INSERT INTO public.events VALUES (2547, 'FORNO7', 'message.answered', '{"channel": "whatsapp", "outcome": "auto_resolved", "latencyMs": 2787}', true, '2026-10-20 16:03:02.787+08');
 INSERT INTO public.events VALUES (2548, 'FORNO7', 'message.received', '{"topic": "location", "channel": "telegram"}', true, '2026-10-20 15:44:00+08');
