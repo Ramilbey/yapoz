@@ -32,11 +32,13 @@ export const pickGroq: Picker = (ids, tier) =>
     : ["openai/gpt-oss-20b", "llama-3.1-8b-instant", "openai/gpt-oss-120b"]) ??
   ids.find((id) => /gpt-oss|llama|qwen|kimi/i.test(id) && !NOT_CHAT.test(id));
 
-/** Newest stable "gemini-X-flash", then flash-lite, then any flash model. */
-export const pickGemini: Picker = (ids) => {
+/** Newest stable flash-lite for fast replies (quicker, higher free limits), newest flash for smart, then any flash. */
+export const pickGemini: Picker = (ids, tier) => {
   const version = (id: string) => Number(id.match(/^gemini-(\d+(?:\.\d+)?)/)?.[1] ?? 0);
   const newest = (re: RegExp) => ids.filter((id) => re.test(id)).sort((a, b) => version(b) - version(a))[0];
-  return newest(/^gemini-\d+(\.\d+)?-flash$/) ?? newest(/^gemini-\d+(\.\d+)?-flash-lite$/) ?? newest(/^gemini-.*flash/i);
+  const flash = newest(/^gemini-\d+(\.\d+)?-flash$/);
+  const lite = newest(/^gemini-\d+(\.\d+)?-flash-lite$/);
+  return (tier === "fast" ? lite ?? flash : flash ?? lite) ?? newest(/^gemini-.*flash/i);
 };
 
 export function getProviders(): AIProviderConfig[] {
@@ -64,7 +66,7 @@ export function getProviders(): AIProviderConfig[] {
       type: "openai_compatible",
       apiKey: process.env.GEMINI_API_KEY,
       baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
-      fastModel: process.env.GEMINI_FAST_MODEL || "gemini-2.5-flash",
+      fastModel: process.env.GEMINI_FAST_MODEL || "gemini-2.5-flash-lite",
       smartModel: process.env.GEMINI_SMART_MODEL || "gemini-2.5-flash",
       vision: true,
       pick: pickGemini,
@@ -146,6 +148,8 @@ export type AnthropicMessageParams = {
 };
 
 export type UnifiedMessageResponse = {
+  /** Which provider and model actually answered, e.g. "Groq: openai/gpt-oss-20b". */
+  model?: string;
   content: Array<Anthropic.Messages.ContentBlock>;
   stop_reason: "end_turn" | "tool_use" | "max_tokens" | string;
   usage: {
@@ -335,8 +339,9 @@ async function callOpenAICompatible(
   const client = new OpenAI({
     apiKey: provider.apiKey || "dummy",
     baseURL: provider.baseURL,
-    timeout: 25000,
-    maxRetries: 1,
+    timeout: 20000,
+    // No SDK retries: on a 429 it sleeps out retry-after (often 20s+) while the next provider is ready now.
+    maxRetries: 0,
   });
 
   const modelToUse = await modelFor(provider, tierOf(params.model));
@@ -400,6 +405,7 @@ async function callOpenAICompatible(
   }
 
   return {
+    model: `${provider.name}: ${modelToUse}`,
     content,
     stop_reason: (msg?.tool_calls && msg.tool_calls.length > 0) ? "tool_use" : "end_turn",
     usage: {
@@ -420,8 +426,9 @@ async function callAnthropicNative(
     maxRetries: 1,
   });
 
+  const model = tierOf(params.model) === "smart" ? provider.smartModel : provider.fastModel;
   const res = await client.messages.create({
-    model: tierOf(params.model) === "smart" ? provider.smartModel : provider.fastModel,
+    model,
     max_tokens: params.max_tokens,
     temperature: params.temperature,
     system: params.system as any,
@@ -431,6 +438,7 @@ async function callAnthropicNative(
   });
 
   return {
+    model: `${provider.name}: ${model}`,
     content: res.content as any,
     stop_reason: res.stop_reason as any,
     usage: {
@@ -442,6 +450,15 @@ async function callAnthropicNative(
   };
 }
 
+/** Providers that just answered 429 go to the back of the line until their limit window has passed. */
+const coolingUntil = new Map<string, number>();
+
+function retryAfterMs(err: any): number {
+  const h = err?.headers;
+  const s = Number(typeof h?.get === "function" ? h.get("retry-after") : h?.["retry-after"]);
+  return Number.isFinite(s) && s > 0 ? Math.min(s * 1000, 60_000) : 20_000;
+}
+
 /** Execute with automatic cascading fallback across all configured providers. */
 export async function executeWithFallback(params: AnthropicMessageParams): Promise<UnifiedMessageResponse> {
   let providers = getProviders();
@@ -449,6 +466,9 @@ export async function executeWithFallback(params: AnthropicMessageParams): Promi
   if (providers.length === 0) {
     throw new Error("No AI API keys configured. Please configure GROQ_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY, or ANTHROPIC_API_KEY.");
   }
+  const now = Date.now();
+  const cooling = (p: AIProviderConfig) => (coolingUntil.get(p.name) ?? 0) > now;
+  providers = [...providers.filter((p) => !cooling(p)), ...providers.filter(cooling)];
   // Photos (menus, price boards) go to a model that can see them first.
   if (hasImages(params)) providers = [...providers.filter((p) => p.vision), ...providers.filter((p) => !p.vision)];
 
@@ -466,6 +486,7 @@ export async function executeWithFallback(params: AnthropicMessageParams): Promi
       const msg = err?.message || String(err);
       errors.push(`[${provider.name}]: ${msg}`);
       const isRateLimit = err?.status === 429 || msg.includes("429") || msg.toLowerCase().includes("rate limit");
+      if (isRateLimit) coolingUntil.set(provider.name, Date.now() + retryAfterMs(err));
       const nextProvider = providers[i + 1]?.name;
 
       if (nextProvider) {

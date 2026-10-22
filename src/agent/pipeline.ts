@@ -151,6 +151,8 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
   const latest = inbound.text || "(no text)";
   const recent = historyRows.slice(-5, -1).map((m) => `${m.direction === "in" ? "Customer" : "Us"}: ${m.text}`).join("\n");
   let model = routeModel(latest, historyRows.length, inbound.attachments.length);
+  // The provider and model that actually wrote the reply (the cascade may fall back), for agent_runs.
+  let answeredBy: string | undefined;
   let reply = "";
   let error: string | undefined;
   let cls: Classification | null = null;
@@ -186,6 +188,7 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
           for (let step = 0; step < 6; step++) {
             const res = await claude().messages.create({ model, max_tokens: 800, temperature: 0.3, system, tools: TOOLS, messages });
             addUsage(usage, res.usage);
+            if (res.model) answeredBy = res.model;
             const uses = res.content.filter((b): b is Anthropic.Messages.ToolUseBlock => b.type === "tool_use");
             if (res.stop_reason !== "tool_use" || !uses.length) return textOf(res);
             messages.push({ role: "assistant", content: res.content });
@@ -245,7 +248,7 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
   const [run] = await db
     .insert(t.agentRuns)
     .values({
-      workspaceId: ws.id, threadId, inboundMessageId, channel: thread.channel, model,
+      workspaceId: ws.id, threadId, inboundMessageId, channel: thread.channel, model: answeredBy ?? model,
       intent: cls?.intent ?? null, topic: cls?.topic ?? null, language: cls?.language ?? null, sentiment: cls?.sentiment ?? null, confidence: cls?.confidence ?? null,
       toolCalls: toolLog, latencyMs, firstResponseMs: Date.now() - inbound.createdAt.getTime(),
       inputTokens: usage.input, outputTokens: usage.output, cacheReadTokens: usage.cacheRead, cacheWriteTokens: usage.cacheWrite,
@@ -255,7 +258,7 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
   if (cls?.language) await db.update(t.customers).set({ language: cls.language }).where(eq(t.customers.id, customer.id));
 
   if (newer) {
-    return { skipped: "superseded", runId: run.id, outcome, latencyMs, model };
+    return { skipped: "superseded", runId: run.id, outcome, latencyMs, model: answeredBy ?? model };
   }
 
   const status = mode === "copilot" && !error ? "pending_approval" : "sent";
@@ -263,7 +266,7 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
   await db.insert(t.events).values({ workspaceId: ws.id, type: "message.answered", props: { channel: thread.channel, outcome, latencyMs, threadId }, isDemo: Boolean(opts.isDemo) });
   return {
     reply, status: sent.status, outcome, tools: toolLog, escalated: ctx.escalations.map((e) => ({ category: e.category, summary: e.summary })),
-    booking: ctx.bookings[0] ? { refCode: ctx.bookings[0].refCode } : null, latencyMs, model, runId: run.id, error,
+    booking: ctx.bookings[0] ? { refCode: ctx.bookings[0].refCode } : null, latencyMs, model: answeredBy ?? model, runId: run.id, error,
   };
 }
 

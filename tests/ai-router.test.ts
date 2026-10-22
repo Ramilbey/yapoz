@@ -16,13 +16,15 @@ test("a retired model is swapped for one the provider serves; a served one is ke
   assert.equal(chooseModel(null, "llama-3.1-8b-instant", "fast", pickGroq), "llama-3.1-8b-instant");
 });
 
-test("Gemini: newest stable flash, never preview, image or tts variants", () => {
+test("Gemini: newest stable flash-lite for fast, flash for smart, never preview, image or tts variants", () => {
   const ids = ["gemini-2.5-flash", "gemini-3-flash", "gemini-3-flash-preview", "gemini-2.5-flash-image", "gemini-2.5-flash-preview-tts", "gemini-2.5-pro", "gemini-3-flash-lite"];
-  assert.equal(chooseModel(ids, "gemini-1.5-flash", "fast", pickGemini), "gemini-3-flash");
-  assert.equal(pickGemini(["gemini-2.0-flash-lite", "embedding-001"], "fast"), "gemini-2.0-flash-lite");
+  assert.equal(chooseModel(ids, "gemini-1.5-flash", "fast", pickGemini), "gemini-3-flash-lite");
+  assert.equal(chooseModel(ids, "gemini-1.5-flash", "smart", pickGemini), "gemini-3-flash");
+  assert.equal(pickGemini(["gemini-2.0-flash-lite", "embedding-001"], "smart"), "gemini-2.0-flash-lite");
 });
 
 const calls: { url: string; body: any }[] = [];
+let groqLimited = false;
 const realFetch = globalThis.fetch;
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { "content-type": "application/json" } });
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -30,6 +32,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const body = init?.body ? JSON.parse(String(init.body)) : null;
   calls.push({ url, body });
   if (url.endsWith("/models")) return json({ object: "list", data: (url.includes("groq") ? GROQ : ["models/gemini-2.5-flash"]).map((id) => ({ id, object: "model" })) });
+  if (url.includes("groq") && groqLimited) return new Response(JSON.stringify({ error: { message: "Rate limit reached for model openai/gpt-oss-20b on tokens per minute (TPM)" } }), { status: 429, headers: { "content-type": "application/json", "retry-after": "30" } });
   if (url.includes("groq") && body?.messages?.some((m: any) => Array.isArray(m.content))) return json({ error: { message: "content must be a string" } }, 400);
   return json({
     id: "x", object: "chat.completion", created: 0, model: body?.model,
@@ -57,6 +60,21 @@ test("a forced tool call reaches Groq with a served model, low reasoning effort 
   const category = chat.body.tools[0].function.parameters.properties.category;
   assert.equal(category.type, "string");
   assert.deepEqual(category.enum, ["a", "b"]);
+});
+
+test("a 429 falls through to the next provider at once, and that provider leads until the limit window passes", async () => {
+  calls.length = 0;
+  groqLimited = true;
+  const started = Date.now();
+  const first = await executeWithFallback({ model: "claude-haiku-5-5", max_tokens: 300, messages: [{ role: "user", content: "hi" }] });
+  assert.ok(Date.now() - started < 3000, "no waiting out retry-after");
+  assert.match(first.model ?? "", /^Google Gemini: /);
+  assert.equal(calls.filter((c) => c.url.includes("groq") && c.url.endsWith("/chat/completions")).length, 1, "Groq tried once, not retried");
+  groqLimited = false;
+  calls.length = 0;
+  const second = await executeWithFallback({ model: "claude-haiku-5-5", max_tokens: 300, messages: [{ role: "user", content: "hi" }] });
+  assert.match(second.model ?? "", /^Google Gemini: /, "Groq is cooling down, so Gemini goes first");
+  assert.ok(!calls.some((c) => c.url.includes("groq") && c.url.endsWith("/chat/completions")));
 });
 
 test("a menu photo goes to a model that can see it, as an image part; a PDF arrives as text", async () => {
