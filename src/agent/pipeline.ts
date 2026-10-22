@@ -3,6 +3,7 @@ import { db, t } from "@/db";
 import { and, desc, eq, gt, lte, ne, sql } from "drizzle-orm";
 import { claude, addUsage, textOf, type Usage } from "./claude";
 import { explainAiError } from "./ai-router";
+import { acknowledgement } from "./acknowledge";
 import { knowledge, type Workspace } from "./knowledge";
 import { rules, contextBlock } from "./prompt";
 import { classify, type Classification } from "./classify";
@@ -157,6 +158,8 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
   let answeredBy: string | undefined;
   let reply = "";
   let error: string | undefined;
+  /** The AI failed, but an order or booking it saved is acknowledged from the record: not a failed run for the customer. */
+  let acked = false;
   let cls: Classification | null = null;
 
   if (!env.hasAnthropic) {
@@ -212,6 +215,8 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
       if (cls && !ctx.escalations.length && cls.must_escalate && cls.escalate_category) {
         toolLog.push(await runTool(ctx, "escalate", { category: cls.escalate_category, priority: ["complaint", "refund", "legal", "allergy", "medical", "abuse"].includes(cls.escalate_category) ? "high" : "normal", reason: `Auto: ${cls.escalate_category}`, summary: cls.summary }, latest));
         reply = cls.holding_reply || DEFAULT_HOLD;
+      } else if (!reply && acknowledgement(toolLog)) {
+        reply = acknowledgement(toolLog)!;
       } else if (!reply) {
         if (cls && !ctx.escalations.length && cls.confidence < threshold && cls.intent !== "greeting" && cls.intent !== "off_topic") {
           toolLog.push(await runTool(ctx, "escalate", { category: "low_confidence", priority: "normal", reason: `Low confidence (${cls.confidence.toFixed(2)})`, summary: cls.summary }, latest));
@@ -222,13 +227,17 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
       console.error("[agent] failed", e);
-      reply = DEFAULT_HOLD;
+      const ack = ctx.escalations.length ? null : acknowledgement(toolLog);
+      acked = Boolean(ack);
+      reply = ack ?? DEFAULT_HOLD;
       // The reason goes to staff only (Needs you, Inbox); the customer gets the holding reply above.
-      if (!ctx.escalations.length) toolLog.push(await runTool(ctx, "escalate", { category: "other", priority: "high", reason: "AI error", summary: `AI couldn't answer (${explainAiError(e)}). Customer wrote: ${latest.slice(0, 60)}` }, latest));
+      // An acknowledged order or booking is already in the team's queue, so it doesn't need a second card.
+      if (!ack && !ctx.escalations.length) toolLog.push(await runTool(ctx, "escalate", { category: "other", priority: "high", reason: "AI error", summary: `AI couldn't answer (${explainAiError(e)}). Customer wrote: ${latest.slice(0, 60)}` }, latest));
     }
   }
 
-  const outcome = error
+  const failed = Boolean(error) && !acked;
+  const outcome = failed
     ? "error"
     : ctx.escalations.length
       ? "escalated"
@@ -266,7 +275,7 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
     return { skipped: "superseded", runId: run.id, outcome, latencyMs, model: answeredBy ?? model };
   }
 
-  const status = mode === "copilot" && !error ? "pending_approval" : "sent";
+  const status = mode === "copilot" && !failed ? "pending_approval" : "sent";
   const sent = await deliver(thread, reply, { author: "ai", agentRunId: run.id, status, isDemo: opts.isDemo });
   await db.insert(t.events).values({ workspaceId: ws.id, type: "message.answered", props: { channel: thread.channel, outcome, latencyMs, threadId }, isDemo: Boolean(opts.isDemo) });
   return {

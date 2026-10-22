@@ -10,6 +10,8 @@ import { knowledge } from "../src/agent/knowledge";
 import { runTool, type ToolContext } from "../src/agent/tools";
 import { transitionOrder, orderMessage, loadOrders, placeOrder } from "../src/lib/orders";
 import { ingest, respond } from "../src/agent/pipeline";
+import { acknowledgement } from "../src/agent/acknowledge";
+import { addLocalDays, localDate, localWeekday, zoned } from "../src/lib/time";
 
 const OWNER = "00000000-0000-4000-8000-000000000001";
 
@@ -273,4 +275,82 @@ test("through the agent: a chat order becomes a pending order, the run is 'order
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+/** An AI that saves what the customer asked for with one tool call, then fails on every later call. */
+async function chatWhereAiDiesAfter(tool: string, args: unknown, text: string) {
+  process.env.GROQ_API_KEY = "test-groq";
+  delete process.env.GEMINI_API_KEY;
+  delete process.env.ANTHROPIC_API_KEY;
+  const realFetch = globalThis.fetch;
+  const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { "content-type": "application/json" } });
+  const call = (name: string, a: unknown) => ({ role: "assistant", content: null, tool_calls: [{ id: `call_${name}`, type: "function", function: { name, arguments: JSON.stringify(a) } }] });
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.endsWith("/models")) return new Response("no", { status: 503 });
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (body.tool_choice?.function?.name === "classify") {
+      return json({ id: "x", object: "chat.completion", created: 0, model: "m", choices: [{ index: 0, finish_reason: "tool_calls", message: call("classify", { intent: "order", topic: "order", language: "en", sentiment: "positive", confidence: 0.95, must_escalate: false, escalate_category: null, summary: "s", holding_reply: "One moment" }) }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } });
+    }
+    // After the tool has run, every provider is out of tokens.
+    if (body.messages.at(-1).role === "tool") return json({ error: { message: "Rate limit reached on tokens per minute (TPM)" } }, 429);
+    return json({ id: "x", object: "chat.completion", created: 0, model: "m", choices: [{ index: 0, finish_reason: "tool_calls", message: call(tool, args) }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } });
+  }) as typeof fetch;
+  try {
+    const sid = `acktest${Math.random().toString(36).slice(2, 10)}`;
+    const r = await ingest({ workspaceId: "FORNO7", channel: "simulator", externalThreadId: `sim:${sid}`, customer: { externalId: sid, displayName: "Hana" }, text, attachments: [], receivedAt: new Date() });
+    const out = await respond(r.thread.id, r.messageId);
+    const escalations = await db.select().from(t.escalations).where(eq(t.escalations.threadId, r.thread.id));
+    const [run] = await db.select().from(t.agentRuns).where(eq(t.agentRuns.threadId, r.thread.id));
+    return { out, escalations, run, threadId: r.thread.id };
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
+test("the AI dies after saving an order: the customer is told their order is in, not 'passed to our team'", async () => {
+  const { out, escalations, run, threadId } = await chatWhereAiDiesAfter("create_order", { items: [{ product: "margherita", size: "large", quantity: 1 }], fulfilment: "pickup", customer_name: "Hana" }, "1 large margherita for pickup, I'm Hana");
+  assert.match(out.reply ?? "", /^Got it! Your order ORD-[A-Z0-9]{4} is in:\n• 1 × Large Margherita\nTotal RM 52\. The team will confirm it shortly\.$/);
+  assert.ok(!/passed this to our team/.test(out.reply ?? ""));
+  assert.ok(!/confirmed (and|!)|on its way|paid/i.test(out.reply ?? ""), "never claims more than 'received'");
+  assert.equal(out.outcome, "ordered");
+  assert.equal(out.order?.refCode, (out.reply ?? "").match(/ORD-[A-Z0-9]{4}/)?.[0]);
+  assert.equal(escalations.length, 0, "the order is already in the team's queue; no second card");
+  assert.match(run.error ?? "", /AI generation failed/, "the failure is still recorded on the run");
+  assert.equal(run.outcome, "ordered");
+  const [order] = await db.select().from(t.orders).where(eq(t.orders.threadId, threadId));
+  assert.equal(order.status, "pending");
+});
+
+test("the AI dies after saving a booking: the customer gets the booking and its reference", async () => {
+  const today = localDate(new Date(), "Asia/Kuala_Lumpur");
+  let fri = "";
+  for (let i = 1; i <= 7 && !fri; i++) {
+    const d = addLocalDays(today, i);
+    if (localWeekday(zoned(d, "12:00", "Asia/Kuala_Lumpur"), "Asia/Kuala_Lumpur") === "fri") fri = d;
+  }
+  const { out, escalations, run } = await chatWhereAiDiesAfter("create_booking", { customer_name: "Hana", date: fri, time: "19:00", party_size: 2 }, "table for 2 on friday at 7pm, I'm Hana");
+  assert.match(out.reply ?? "", /^You're booked: .*Your reference is [A-Z0-9]{2}-[A-Z0-9]{4}\.$/);
+  assert.equal(out.outcome, "booked");
+  assert.equal(escalations.length, 0);
+  assert.match(run.error ?? "", /AI generation failed/);
+  await db.delete(t.bookings).where(eq(t.bookings.refCode, out.booking!.refCode));
+});
+
+test("if the AI dies before saving anything, the holding reply and the staff card are unchanged", async () => {
+  const { out, escalations } = await chatWhereAiDiesAfter("search_catalog", { query: "pizza" }, "what pizzas do you have?");
+  assert.match(out.reply ?? "", /passed this to our team/);
+  assert.equal(out.outcome, "error");
+  assert.equal(escalations.length, 1);
+  assert.match(escalations[0].summary, /^AI couldn't answer \(/);
+});
+
+test("acknowledgement(): delivery orders say 'plus delivery', failed tool calls are ignored, nothing saved means null", () => {
+  const log = (name: string, output: unknown, ok = true) => ({ name, input: {}, output, ms: 1, ok, label: "" });
+  assert.equal(acknowledgement([log("check_variant", { found: true })]), null);
+  assert.equal(acknowledgement([log("create_order", { ok: false, problems: ["x"] }, false)]), null);
+  const text = acknowledgement([log("create_order", { refCode: "ORD-AAAA", fulfilment: "delivery", total: "RM 48", items: [{ name: "Small Marinara", quantity: 2, note: "no oregano" }] })])!;
+  assert.match(text, /order ORD-AAAA is in:\n• 2 × Small Marinara \(no oregano\)\nTotal RM 48 plus delivery\. The team will confirm it shortly\./);
+  const both = acknowledgement([log("create_booking", { refCode: "F7-ZZZZ", when: "Fri 24 Oct, 7:00 PM", bookingType: "Table", quantity: 4 }), log("create_order", { refCode: "ORD-BBBB", total: "RM 10", items: [] })])!;
+  assert.match(both, /^You're booked: Table for 4, Fri 24 Oct, 7:00 PM\. Your reference is F7-ZZZZ\.\n\nGot it! Your order ORD-BBBB is in\./);
 });
