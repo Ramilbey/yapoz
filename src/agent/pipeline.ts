@@ -5,6 +5,7 @@ import { claude, addUsage, textOf, type Usage } from "./claude";
 import { explainAiError } from "./ai-router";
 import { acknowledgement } from "./acknowledge";
 import { receiptIntake } from "@/lib/receipts";
+import { gapAction, recordGap } from "@/lib/gaps";
 import { knowledge, type Workspace } from "./knowledge";
 import { rules, contextBlock } from "./prompt";
 import { classify, type Classification } from "./classify";
@@ -248,6 +249,16 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
       // The reason goes to staff only (Needs you, Inbox); the customer gets the holding reply above.
       // An acknowledged order or booking is already in the team's queue, so it doesn't need a second card.
       if (!ack && !ctx.escalations.length) toolLog.push(await runTool(ctx, "escalate", { category: "other", priority: "high", reason: "AI error", summary: `AI couldn't answer (${explainAiError(e)}). Customer wrote: ${latest.slice(0, 60)}` }, latest));
+    }
+  }
+
+  // An unanswered question belongs in Knowledge → Gaps however it reached a person, so the owner answers it once.
+  if (!error) {
+    const action = gapAction({ intent: cls?.intent, escalations: ctx.escalations, reply, failed: false });
+    if (action === "record") {
+      await recordGap({ workspaceId: ws.id, key: cls?.topic ?? null, question: latest, isDemo: opts.isDemo }).catch((e) => console.error("[gaps] couldn't record", e));
+    } else if (action === "escalate") {
+      toolLog.push(await runTool(ctx, "escalate", { category: "knowledge_gap", priority: "low", reason: "Told the customer it would check with the team", summary: cls?.summary ?? latest.slice(0, 200), gap_key: cls?.topic ?? "" }, latest));
     }
   }
 

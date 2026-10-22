@@ -9,6 +9,7 @@ import { addLocalDays, localDate, human, zoned } from "@/lib/time";
 import { checkSlots, createBooking, resolveBookingType, resolveService, bookingTypesOf } from "@/lib/booking";
 import { placeOrder, lineTotal, MAX_LINES, MAX_QTY, type OrderLine } from "@/lib/orders";
 import { paymentInstruction } from "@/lib/receipts";
+import { recordGap } from "@/lib/gaps";
 import type { ToolCallLog } from "@/db/schema";
 
 export const ESCALATION_CATEGORIES = [
@@ -397,18 +398,6 @@ function resolveOrderLines(ctx: ToolContext, raw: unknown): { lines: OrderLine[]
   return { lines, problems };
 }
 
-async function upsertGap(ctx: ToolContext, key: string, question: string) {
-  const k = key.toLowerCase().replace(/[^a-z0-9 \-/]/g, "").replace(/\s+/g, " ").trim().slice(0, 60);
-  if (!k) return;
-  await db
-    .insert(t.knowledgeGaps)
-    .values({ workspaceId: ctx.ws.id, key: k, question: question.slice(0, 140), isDemo: Boolean(ctx.isDemo) })
-    .onConflictDoUpdate({
-      target: [t.knowledgeGaps.workspaceId, t.knowledgeGaps.key],
-      set: { count: sql`${t.knowledgeGaps.count} + 1`, lastAskedAt: new Date(), status: "open", isDemo: sql`${t.knowledgeGaps.isDemo} and ${Boolean(ctx.isDemo)}` },
-    });
-}
-
 async function bookingContext(ctx: ToolContext, input: Record<string, unknown>) {
   const type = await resolveBookingType(ctx.ws.id, (input.booking_type as string) ?? null);
   if (!type) {
@@ -509,7 +498,7 @@ export async function runTool(ctx: ToolContext, name: string, input: Record<stri
           })
           .returning();
         await db.update(t.threads).set({ status: "needs_human" }).where(eq(t.threads.id, ctx.threadId));
-        if (category === "knowledge_gap") await upsertGap(ctx, String(input.gap_key ?? input.reason ?? lastQuestion), lastQuestion);
+        if (category === "knowledge_gap") await recordGap({ workspaceId: ctx.ws.id, key: String(input.gap_key ?? input.reason ?? ""), question: lastQuestion, isDemo: ctx.isDemo });
         ctx.escalations.push({ id: row.id, category, summary: row.summary });
         return done({ ok: true, escalationId: row.id, instruction: "Now send a short holding reply: the team will follow up in this chat. Don't answer the substance." }, `escalated: ${category.replace("_", " ")}`);
       }
