@@ -7,10 +7,23 @@ export type Session = { userId: string; workspaceId: string; role: Role; name: s
 export const SESSION_COOKIE = "jawab_session";
 const enc = (s: string) => new TextEncoder().encode(s);
 
+/**
+ * A secret from the environment. The fallback only lets `next build`, tests and local dev run without one:
+ * it is public (this repo is), so a production server must refuse to run on it rather than accept forged sessions.
+ */
+export function requiredSecret(name: "AUTH_SECRET" | "APP_ENCRYPTION_KEY", minLength: number, fallback: string): string {
+  const v = process.env[name];
+  if (v && v.length >= minLength) return v;
+  if (process.env.NODE_ENV === "production" && process.env.NEXT_PHASE !== "phase-production-build") {
+    throw new Error(`${name} must be set${minLength > 1 ? ` (${minLength}+ characters)` : ""} on this server.`);
+  }
+  return fallback;
+}
+
+export const authSecret = () => requiredSecret("AUTH_SECRET", 32, "default-fallback-secret-for-build-and-demo-32chars");
+
 function secret() {
-  const s = process.env.AUTH_SECRET;
-  if (!s || s.length < 32) return enc("default-fallback-secret-for-build-and-demo-32chars");
-  return enc(s);
+  return enc(authSecret());
 }
 
 export async function signSession(s: Session): Promise<string> {

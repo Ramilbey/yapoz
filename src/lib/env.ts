@@ -1,8 +1,11 @@
 // Central access to configuration. Secrets never leave the server.
+import { authSecret } from "./session";
+
 export const env = {
   get appUrl() {
     if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, "");
-    if (process.env.VERCEL) return "https://yapoz.vercel.app";
+    // Vercel sets this on every deployment (previews too), so webhooks always point at production.
+    if (process.env.VERCEL_PROJECT_PRODUCTION_URL) return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
     return "http://localhost:3000";
   },
   get demoMode() {
@@ -29,9 +32,7 @@ export const env = {
     );
   },
   get authSecret() {
-    const s = process.env.AUTH_SECRET;
-    if (!s || s.length < 32) return "default-fallback-secret-for-build-and-demo-32chars";
-    return s;
+    return authSecret();
   },
   get telegramToken() {
     return process.env.TELEGRAM_BOT_TOKEN ?? "";
