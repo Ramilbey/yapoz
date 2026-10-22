@@ -182,6 +182,54 @@ function Telegram({ s, patch, workspaceId }: { s: ChannelStatus["telegram"]; pat
   );
 }
 
+const when = (iso: string) => new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+
+/** Meta's usual send errors, in the owner's terms. */
+function sendHint(message: string) {
+  if (/131030|allowed list/i.test(message)) return "Meta's test number only messages numbers on its list: WhatsApp → API Setup → To → Manage phone number list.";
+  if (/access token|session has expired|OAuthException|#190/i.test(message)) return "The access token was rejected or expired. Use a permanent System User token, then disconnect and connect again.";
+  if (/131047|24 hours|re-engagement/i.test(message)) return "More than 24 hours since the customer last wrote: only approved templates can be sent.";
+  return null;
+}
+
+/** Where the Meta → Jawab → customer chain breaks, from what the webhook and sender recorded. */
+function WhatsAppHealth({ s }: { s: ChannelStatus["whatsapp"] }) {
+  const err = s.lastSendError;
+  return (
+    <div className="space-y-1.5 pt-1 text-[13px]">
+      {!s.lastWebhookAt ? (
+        <>
+          <p className="text-fg-2">Nothing has arrived from Meta yet. If you&apos;ve sent a message and nothing shows here:</p>
+          <Steps
+            items={[
+              <>In WhatsApp → Configuration → Webhook fields, press Subscribe next to <span className="num">messages</span>, then press Test: this line should change.</>,
+              <>While the Meta app is unpublished, Meta only delivers its Test button&apos;s sample, not real messages. Publish the app (App settings → Basic needs a privacy policy URL: <span className="num">{(s.webhookUrl ?? "").split("/api/")[0]}/privacy</span>).</>,
+              <>Message your test number from a phone on its list (WhatsApp → API Setup → To).</>,
+            ]}
+          />
+        </>
+      ) : s.lastWebhookIssue === "signature" ? (
+        <p className="text-signal-ink">
+          Meta reached Jawab on {when(s.lastWebhookAt)}, but the delivery was rejected: its signature doesn&apos;t match the App secret you saved. Copy the App secret from App settings → Basic of the
+          same app, then disconnect and connect again.
+        </p>
+      ) : s.lastWebhookTest ? (
+        <p className="text-fg-2">
+          Meta&apos;s test webhook arrived on {when(s.lastWebhookAt)}, so the connection works. Real messages appear in Inbox once the app is published and a customer writes to your number.
+        </p>
+      ) : (
+        <p className="text-fg-2">Last message from WhatsApp: {when(s.lastWebhookAt)}.</p>
+      )}
+      {err ? (
+        <p className="text-signal-ink">
+          Last reply failed on {when(err.at)}: {err.message}
+          {sendHint(err.message) ? <span className="block text-fg-2">{sendHint(err.message)}</span> : null}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function WhatsApp({ s, patch }: { s: ChannelStatus["whatsapp"]; patch: Patch }) {
   const [f, setF] = useState({ phoneNumberId: "", accessToken: "", appSecret: "", wabaId: "" });
   const [busy, setBusy] = useState(false);
@@ -202,6 +250,7 @@ function WhatsApp({ s, patch }: { s: ChannelStatus["whatsapp"]; patch: Patch }) 
               </p>
               <CopyField value={s.webhookUrl} label="Callback URL" />
               {s.verifyToken ? <CopyField value={s.verifyToken} label="Verify token" /> : null}
+              <WhatsAppHealth s={s} />
             </div>
           ) : null}
           {s.source === "workspace" ? (

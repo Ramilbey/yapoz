@@ -3,7 +3,7 @@ import type { ChannelAdapter } from ".";
 import { env } from "@/lib/env";
 import { whatsappCreds } from "./connections";
 import { db, t } from "@/db";
-import { and, eq, desc } from "drizzle-orm";
+import { and, eq, desc, sql } from "drizzle-orm";
 import { ingest, respond } from "@/agent/pipeline";
 import type { Attachment } from "@/db/schema";
 
@@ -18,8 +18,22 @@ async function post(workspaceId: string, body: Record<string, unknown>): Promise
     body: JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", ...body }),
   });
   const j = (await res.json().catch(() => ({}))) as { messages?: { id: string }[]; error?: { message?: string; code?: number } };
-  if (!res.ok) throw new Error(`WhatsApp send failed (${res.status}): ${j.error?.message ?? "unknown error"}`);
+  if (!res.ok) {
+    const message = `WhatsApp send failed (${res.status}): ${j.error?.message ?? "unknown error"}${j.error?.code ? ` (#${j.error.code})` : ""}`;
+    if (c.source === "workspace") await noteSend(workspaceId, message);
+    throw new Error(message);
+  }
+  if (c.source === "workspace") await noteSend(workspaceId, null);
   return j.messages?.[0]?.id ?? "";
+}
+
+/** Keeps the last failed send on the channel row so Settings → Channels can say why replies aren't arriving. */
+async function noteSend(workspaceId: string, error: string | null) {
+  const where = and(eq(t.channels.workspaceId, workspaceId), eq(t.channels.type, "whatsapp"));
+  const q = error
+    ? db.update(t.channels).set({ config: sql`${t.channels.config} || ${JSON.stringify({ lastSendError: error, lastSendErrorAt: new Date().toISOString() })}::jsonb` }).where(where)
+    : db.update(t.channels).set({ config: sql`${t.channels.config} - 'lastSendError' - 'lastSendErrorAt'` }).where(and(where, sql`${t.channels.config} ? 'lastSendError'`));
+  await q.catch((e) => console.error("[whatsapp] couldn't record send status", e));
 }
 
 export const digits = (s: string) => s.replace(/\D/g, "");

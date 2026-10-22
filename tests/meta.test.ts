@@ -98,6 +98,26 @@ test("WhatsApp: a business's own webhook URL checks its verify token and app sec
   const sig = "sha256=" + createHmac("sha256", "a".repeat(32)).update(raw).digest("hex");
   const signed = await POST(new Request("http://x", { method: "POST", body: raw, headers: { "x-hub-signature-256": sig } }), params);
   assert.equal(signed.status, 200);
+  // A forged message with no signature is refused, and the owner is told the app secret didn't match.
+  const forged = JSON.stringify({ entry: [{ changes: [{ field: "messages", value: { metadata: { phone_number_id: "2077" }, messages: [{ from: "60111", id: "wamid.F", timestamp: "1760950000", type: "text", text: { body: "free pizza?" } }] } }] }] });
+  assert.equal((await POST(new Request("http://x", { method: "POST", body: forged }), params)).status, 401);
+  assert.equal((await channelStatus("KASIH1")).whatsapp.lastWebhookIssue, "signature");
+});
+
+test("WhatsApp: Meta's Test button sample is recorded as proof the webhook works, but not answered", async () => {
+  const { POST } = await import("../src/app/api/webhooks/whatsapp/[channelId]/route");
+  const params = { params: Promise.resolve({ channelId: salonWaChannel }) };
+  const sample = JSON.stringify({ object: "whatsapp_business_account", entry: [{ id: "0", changes: [{ field: "messages", value: { metadata: { phone_number_id: "123456123" }, messages: [{ from: "16315551181", id: "ABGGFlA5Fpa", timestamp: "1504902988", type: "text", text: { body: "this is a text message" } }] } }] }] });
+  const sig = "sha256=" + createHmac("sha256", "a".repeat(32)).update(sample).digest("hex");
+  const before = await db.select({ id: t.customers.id }).from(t.customers).where(eq(t.customers.externalId, "16315551181"));
+  const res = await POST(new Request("http://x", { method: "POST", body: sample, headers: { "x-hub-signature-256": sig } }), params);
+  assert.equal(res.status, 200);
+  const st = (await channelStatus("KASIH1")).whatsapp;
+  assert.equal(st.lastWebhookTest, true);
+  assert.equal(st.lastWebhookIssue, null);
+  assert.ok(st.lastWebhookAt);
+  const afterRows = await db.select({ id: t.customers.id }).from(t.customers).where(eq(t.customers.externalId, "16315551181"));
+  assert.equal(afterRows.length, before.length, "the sample isn't ingested");
 });
 
 test("Instagram: echoes are dropped, comments become private-reply threads (id or comment_id)", () => {

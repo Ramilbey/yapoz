@@ -11,7 +11,19 @@ export type ChannelStatus = {
     businessConnections: { id: string; canReply: boolean; isEnabled: boolean; updatedAt: string }[];
     connected: boolean;
   };
-  whatsapp: { mode: Mode; connected: boolean; source: "workspace" | "env" | null; displayPhone: string | null; verifiedName: string | null; webhookUrl: string | null; verifyToken: string | null };
+  whatsapp: {
+    mode: Mode;
+    connected: boolean;
+    source: "workspace" | "env" | null;
+    displayPhone: string | null;
+    verifiedName: string | null;
+    webhookUrl: string | null;
+    verifyToken: string | null;
+    lastWebhookAt: string | null;
+    lastWebhookIssue: "signature" | null;
+    lastWebhookTest: boolean;
+    lastSendError: { at: string; message: string } | null;
+  };
   instagram: { mode: Mode; connected: boolean; source: "workspace" | "env" | null; username: string | null; expiresAt: string | null; canConnect: boolean };
   simulator: { mode: Mode; connected: boolean };
 };

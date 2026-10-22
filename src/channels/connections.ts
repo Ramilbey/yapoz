@@ -105,6 +105,11 @@ export async function channelStatus(workspaceId: string) {
       // Shown so the owner can paste them into their Meta app's webhook settings.
       webhookUrl: wa?.source === "workspace" && waRow ? `${env.appUrl}/api/webhooks/whatsapp/${waRow.id}` : wa?.source === "env" ? `${env.appUrl}/api/webhooks/whatsapp` : null,
       verifyToken: wa?.verifyToken ?? null,
+      // Written by the webhook route and the sender, so the owner can see where the chain breaks.
+      lastWebhookAt: (waRow?.config.lastWebhookAt as string) ?? null,
+      lastWebhookIssue: (waRow?.config.lastWebhookIssue as "signature" | null) ?? null,
+      lastWebhookTest: Boolean(waRow?.config.lastWebhookTest),
+      lastSendError: waRow?.config.lastSendError ? { at: String(waRow.config.lastSendErrorAt ?? ""), message: String(waRow.config.lastSendError) } : null,
     },
     instagram: {
       mode: row("instagram")?.mode ?? "autopilot",
