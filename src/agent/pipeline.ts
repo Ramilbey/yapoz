@@ -87,6 +87,7 @@ export type RespondResult = {
   tools?: ToolCallLog[];
   escalated?: { category: string; summary: string }[];
   booking?: { refCode: string } | null;
+  order?: { refCode: string } | null;
   latencyMs?: number;
   model?: string;
   runId?: string;
@@ -146,7 +147,7 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
   const usage: Usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   const ctx: ToolContext = {
     ws, catalog: (await knowledge(ws)).catalog, threadId, customerId: customer.id,
-    customerName: customer.displayName ?? customer.username ?? "", channel: thread.channel, escalations: [], bookings: [], isDemo: opts.isDemo,
+    customerName: customer.displayName ?? customer.username ?? "", channel: thread.channel, escalations: [], bookings: [], orders: [], isDemo: opts.isDemo,
   };
   const toolLog: ToolCallLog[] = [];
   const latest = inbound.text || "(no text)";
@@ -233,11 +234,13 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
       ? "escalated"
       : ctx.bookings.length
         ? "booked"
-        : cls?.intent === "off_topic"
-          ? "declined"
-          : mode === "copilot"
-            ? "drafted"
-            : "auto_resolved";
+        : ctx.orders?.length
+          ? "ordered"
+          : cls?.intent === "off_topic"
+            ? "declined"
+            : mode === "copilot"
+              ? "drafted"
+              : "auto_resolved";
 
   // A newer customer message arrived while we were thinking: let that run answer with full context.
   const [newer] = await db
@@ -268,7 +271,7 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
   await db.insert(t.events).values({ workspaceId: ws.id, type: "message.answered", props: { channel: thread.channel, outcome, latencyMs, threadId }, isDemo: Boolean(opts.isDemo) });
   return {
     reply, status: sent.status, outcome, tools: toolLog, escalated: ctx.escalations.map((e) => ({ category: e.category, summary: e.summary })),
-    booking: ctx.bookings[0] ? { refCode: ctx.bookings[0].refCode } : null, latencyMs, model: answeredBy ?? model, runId: run.id, error,
+    booking: ctx.bookings[0] ? { refCode: ctx.bookings[0].refCode } : null, order: ctx.orders?.[0] ? { refCode: ctx.orders[0].refCode } : null, latencyMs, model: answeredBy ?? model, runId: run.id, error,
   };
 }
 

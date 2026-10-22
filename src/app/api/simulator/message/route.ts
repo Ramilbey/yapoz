@@ -52,6 +52,7 @@ export const POST = handle(async (req: Request) => {
     // Staff-written summaries (and AI error details) stay inside the signed-in desks; the public site only gets the category.
     escalated: (out.escalated ?? []).map((e) => (session ? e : { category: e.category })),
     booking: out.booking ?? null,
+    order: out.order ?? null,
     latencyMs: out.latencyMs ?? null,
     model: out.model ?? null,
     aiConfigured: env.hasAnthropic,

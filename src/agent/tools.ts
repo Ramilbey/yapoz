@@ -7,6 +7,7 @@ import { formatMoney } from "@/lib/money";
 import { hoursForDate, describeDay, openStatus, type HoursData } from "@/lib/hours";
 import { addLocalDays, localDate, human, zoned } from "@/lib/time";
 import { checkSlots, createBooking, resolveBookingType, resolveService, bookingTypesOf } from "@/lib/booking";
+import { placeOrder, lineTotal, MAX_LINES, MAX_QTY, type OrderLine } from "@/lib/orders";
 import type { ToolCallLog } from "@/db/schema";
 
 export const ESCALATION_CATEGORIES = [
@@ -82,6 +83,38 @@ export const TOOLS: Anthropic.Messages.Tool[] = [
     },
   },
   {
+    name: "create_order",
+    description: "Place an order for products (menu items, merchandise...). It prices every line itself from the catalog and checks availability and stock, then saves the order for the team to approve. Call it once the customer has said what they want (each item with its size/option and quantity), pickup or delivery (delivery needs an address) and who it's for. Returns a reference code and the total, or exactly what to fix. The order is NOT confirmed until staff approve it. Services are booked with create_booking, not ordered.",
+    input_schema: {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          description: "One entry per product and option",
+          items: {
+            type: "object",
+            properties: {
+              product: { type: "string", description: "Product name as the customer said it" },
+              size: { type: "string" },
+              color: { type: "string" },
+              option: { type: "string", description: "Any other variant label, e.g. 'double room'" },
+              quantity: { type: "integer", minimum: 1 },
+              note: { type: "string", description: "The customer's request for this item, e.g. 'extra sauce', 'no onions'" },
+            },
+            required: ["product", "quantity"],
+          },
+        },
+        fulfilment: { type: "string", enum: ["pickup", "delivery"] },
+        customer_name: { type: "string" },
+        phone: { type: "string" },
+        address: { type: "string", description: "Delivery address (required for delivery)" },
+        when: { type: "string", description: "When the customer wants it, in their words" },
+        notes: { type: "string", description: "Anything about the whole order" },
+      },
+      required: ["items", "fulfilment"],
+    },
+  },
+  {
     name: "escalate",
     description: "Hand the thread to a human. It lands in the team's 'Needs you' queue with your summary. After calling it, send the customer a short holding reply and do not answer the substance.",
     input_schema: {
@@ -107,6 +140,7 @@ export type ToolContext = {
   channel: "telegram" | "whatsapp" | "instagram" | "simulator";
   escalations: { id: string; category: string; summary: string }[];
   bookings: { refCode: string; id: string }[];
+  orders?: { refCode: string; id: string }[];
   isDemo?: boolean;
 };
 
@@ -210,23 +244,35 @@ function searchCatalog(ctx: ToolContext, query: string) {
   };
 }
 
-function checkVariant(ctx: ToolContext, input: { product: string; size?: string; color?: string; option?: string }) {
-  const item = findProduct(ctx.catalog, input.product);
-  if (!item) {
-    return { output: { found: false, product: input.product, note: "Not in the catalog. Offer search_catalog results or escalate if the customer insists." }, label: `checked: “${input.product}” ✗ not listed`, ok: false };
-  }
+const lc = (s?: string | null) => (s ?? "").trim().toLowerCase();
+
+/** Which of an item's variants a customer's size / colour / option words point at. Shared by check_variant and create_order. */
+function matchVariants(item: Item, input: { size?: string; color?: string; option?: string }) {
   const size = normSize(input.size);
-  const lc = (s?: string | null) => (s ?? "").trim().toLowerCase();
   const colors = [...new Set(item.variants.map((v) => v.color).filter(Boolean))] as string[];
   const color = input.color ? colors.find((c) => lc(c) === lc(input.color) || lc(c).includes(lc(input.color))) ?? null : null;
   const optionWanted = lc(input.option);
   let vs = item.variants;
   if (size) vs = vs.filter((v) => lc(v.size) === lc(size));
   if (color) vs = vs.filter((v) => v.color === color);
+  let optionMatched = false;
   if (optionWanted) {
-    const m = vs.filter((v) => lc(v.option).includes(optionWanted) || optionWanted.includes(lc(v.option)) || lc(v.size).includes(optionWanted));
-    if (m.length) vs = m;
+    // A variant with no option label must not match everything: every string "includes" the empty string.
+    const m = vs.filter((v) => (lc(v.option) && (lc(v.option).includes(optionWanted) || optionWanted.includes(lc(v.option)))) || lc(v.size).includes(optionWanted));
+    if (m.length) {
+      vs = m;
+      optionMatched = true;
+    }
   }
+  return { size, colors, color, vs, optionMatched };
+}
+
+function checkVariant(ctx: ToolContext, input: { product: string; size?: string; color?: string; option?: string }) {
+  const item = findProduct(ctx.catalog, input.product);
+  if (!item) {
+    return { output: { found: false, product: input.product, note: "Not in the catalog. Offer search_catalog results or escalate if the customer insists." }, label: `checked: “${input.product}” ✗ not listed`, ok: false };
+  }
+  const { size, colors, color, vs } = matchVariants(item, input);
   const madeToOrder = item.variants.every((v) => v.stock === null);
   const fmt = (v: Variant) => ({ option: variantLabel(v), price: formatMoney(v.priceMinor, ctx.ws.currency), ...(madeToOrder || v.stock === null ? {} : { stock: v.stock, inStock: (v.stock ?? 0) > 0 }) });
   const out: Record<string, unknown> = {
@@ -282,6 +328,72 @@ function businessInfo(ctx: ToolContext, input: { topic: string; date?: string })
     policies.find((p) => norm(p.body).includes(norm(topic)));
   if (!policy) return { output: { found: false, topic: input.topic, note: "No policy on file. Say you'll check with the team and escalate as knowledge_gap." }, label: `checked ${input.topic} ✗ nothing on file` };
   return { output: { topic: input.topic, title: policy.title, details: policy.body, data: policy.data }, label: `checked ${policy.title.toLowerCase()}` };
+}
+
+/** How a line reads to the customer and staff: "Large Margherita", "Medium Forno Sette T-shirt, Charcoal". */
+function lineName(item: Item, v: Variant) {
+  const size = v.size ? SIZE_LABEL[v.size] ?? v.size : null;
+  const extras = [v.color, v.option].filter(Boolean);
+  return `${[size, item.title].filter(Boolean).join(" ")}${extras.length ? `, ${extras.join(", ")}` : ""}`;
+}
+
+type OrderLineInput = { product?: unknown; size?: unknown; color?: unknown; option?: unknown; quantity?: unknown; note?: unknown };
+
+/** Turn what the model asked for into priced lines, or say everything that has to change first. */
+function resolveOrderLines(ctx: ToolContext, raw: unknown): { lines: OrderLine[]; problems: string[] } {
+  const lines: OrderLine[] = [];
+  const problems: string[] = [];
+  const wanted = Array.isArray(raw) ? (raw as OrderLineInput[]) : [];
+  if (!wanted.length) return { lines, problems: ["No items. Ask what they would like to order."] };
+  if (wanted.length > MAX_LINES) return { lines, problems: [`That is more than ${MAX_LINES} different items. Ask the customer to split it, or escalate.`] };
+  const take = new Map<string, number>();
+  for (const w of wanted) {
+    const name = String(w.product ?? "").trim();
+    const qty = Number(w.quantity ?? 1);
+    if (!name) {
+      problems.push("An item has no product name.");
+      continue;
+    }
+    if (!Number.isInteger(qty) || qty < 1 || qty > MAX_QTY) {
+      problems.push(`${name}: quantity must be a whole number from 1 to ${MAX_QTY}${qty > MAX_QTY ? "; for bigger orders escalate (large_group)" : ""}.`);
+      continue;
+    }
+    const item = findProduct(ctx.catalog, name);
+    if (!item) {
+      problems.push(`“${name}” isn't in the catalog. Use search_catalog to find what they mean, or escalate if it isn't sold.`);
+      continue;
+    }
+    if (item.kind !== "product") {
+      problems.push(`${item.title} is a service: book it with create_booking instead of ordering it.`);
+      continue;
+    }
+    if (!item.available) {
+      problems.push(`${item.title} isn't available today${item.availabilityNote ? `: ${item.availabilityNote}` : ""}. Offer an alternative.`);
+      continue;
+    }
+    const m = matchVariants(item, { size: w.size as string | undefined, color: w.color as string | undefined, option: w.option as string | undefined });
+    const options = item.variants.map((v) => `${variantLabel(v)} ${formatMoney(v.priceMinor, ctx.ws.currency)}`);
+    if (m.vs.length === 0) {
+      problems.push(`${item.title}: no ${[w.size, w.color, w.option].filter(Boolean).join(" / ")} option. Choose from: ${options.join("; ")}.`);
+      continue;
+    }
+    if (m.vs.length > 1) {
+      problems.push(`${item.title}: which option? ${m.vs.map((v) => `${variantLabel(v)} ${formatMoney(v.priceMinor, ctx.ws.currency)}`).join("; ")}.`);
+      continue;
+    }
+    const v = m.vs[0];
+    const used = (take.get(v.id) ?? 0) + qty;
+    if (v.stock !== null && used > v.stock) {
+      problems.push(v.stock <= 0 ? `${item.title} (${variantLabel(v)}) is out of stock.` : `Only ${v.stock} left of ${item.title} (${variantLabel(v)}).`);
+      continue;
+    }
+    take.set(v.id, used);
+    // Words that matched no variant ("extra sauce") are the customer's request for the kitchen, not an option.
+    const unmatched = w.option && !m.optionMatched ? String(w.option).trim() : "";
+    const note = [String(w.note ?? "").trim(), unmatched].filter(Boolean).join(", ").slice(0, 120) || null;
+    lines.push({ itemId: item.id, variantId: v.id, name: lineName(item, v), quantity: qty, unitPriceMinor: v.priceMinor, note });
+  }
+  return { lines, problems };
 }
 
 async function upsertGap(ctx: ToolContext, key: string, question: string) {
@@ -358,6 +470,30 @@ export async function runTool(ctx: ToolContext, name: string, input: Record<stri
           return done(r, `booked: ${r.service ? `${r.service}, ` : ""}${r.when}${bc.type.unit === "party" ? `, ${r.quantity} people` : ""} · ${r.refCode}`);
         }
         return done(r, `booking ✗ ${r.reason}`, false);
+      }
+      case "create_order": {
+        const { lines, problems } = resolveOrderLines(ctx, input.items);
+        const fulfilment = input.fulfilment === "delivery" ? "delivery" : "pickup";
+        const address = String(input.address ?? "").trim();
+        const customerName = String(input.customer_name || ctx.customerName || "").trim();
+        if (fulfilment === "delivery" && !address) problems.push("Delivery needs the customer's address. Ask for it.");
+        if (!customerName) problems.push("Who is the order for? Ask for a name.");
+        if (problems.length) return done({ ok: false, problems, instruction: "Nothing was ordered. Fix these with the customer (ask only for what's missing), then call create_order again." }, `order ✗ ${problems[0].slice(0, 90)}`, false);
+        const r = await placeOrder(ctx.ws, {
+          lines, customerName, phone: (input.phone as string) ?? null, fulfilment, address, wanted: (input.when as string) ?? null, notes: (input.notes as string) ?? null,
+          threadId: ctx.threadId, customerId: ctx.customerId, channel: ctx.channel, isDemo: ctx.isDemo,
+        });
+        (ctx.orders ??= []).push({ refCode: r.order.refCode, id: r.order.id });
+        const money = (m: number) => formatMoney(m, ctx.ws.currency);
+        return done(
+          {
+            ok: true, refCode: r.order.refCode, status: "pending", duplicate: r.duplicate, fulfilment, ...(fulfilment === "delivery" ? { address } : {}),
+            items: r.items.map((i) => ({ name: i.name, quantity: i.quantity, unitPrice: money(i.unitPriceMinor), lineTotal: money(lineTotal(i)), note: i.note })),
+            total: money(r.order.totalMinor), note: fulfilment === "delivery" ? "Total is for the items; the delivery fee is confirmed by the team." : undefined,
+            instruction: `${r.duplicate ? "This exact order was already placed a moment ago, so no second one was made. " : ""}Tell the customer the order is received, with the reference code, the items and the total. Say the team will confirm it shortly. Do NOT say it is confirmed, paid or being prepared.`,
+          },
+          `ordered: ${r.items.reduce((n, i) => n + i.quantity, 0)} item${r.items.reduce((n, i) => n + i.quantity, 0) === 1 ? "" : "s"} · ${money(r.order.totalMinor)} · ${r.order.refCode}${r.duplicate ? " (already placed)" : ""}`,
+        );
       }
       case "escalate": {
         const category = String(input.category ?? "other");

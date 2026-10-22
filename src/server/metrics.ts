@@ -16,7 +16,7 @@ export async function ownerToday(workspaceId: string, timeZone: string, includeD
 
   const [kpi] = await q<{ handled: number; resolved: number; escalated: number; booked: number; median_ms: number | null; demo_share: number | null }>(sql`
     select count(*)::int as handled,
-      count(*) filter (where outcome in ('auto_resolved','booked','declined'))::int as resolved,
+      count(*) filter (where outcome in ('auto_resolved','booked','ordered','declined'))::int as resolved,
       count(*) filter (where outcome = 'escalated')::int as escalated,
       count(*) filter (where outcome = 'booked')::int as booked,
       percentile_cont(0.5) within group (order by first_response_ms)::int as median_ms,
@@ -24,7 +24,7 @@ export async function ownerToday(workspaceId: string, timeZone: string, includeD
     from agent_runs where workspace_id = ${workspaceId} and created_at >= ${dayStart} and ${demo}`);
 
   const [yesterday] = await q<{ handled: number; resolved: number; median_ms: number | null }>(sql`
-    select count(*)::int as handled, count(*) filter (where outcome in ('auto_resolved','booked','declined'))::int as resolved,
+    select count(*)::int as handled, count(*) filter (where outcome in ('auto_resolved','booked','ordered','declined'))::int as resolved,
       percentile_cont(0.5) within group (order by first_response_ms)::int as median_ms
     from agent_runs where workspace_id = ${workspaceId} and created_at >= ${yesterdayStart} and created_at < ${dayStart} and ${demo}`);
 
@@ -36,7 +36,7 @@ export async function ownerToday(workspaceId: string, timeZone: string, includeD
     from escalations where workspace_id = ${workspaceId} and status = 'open' and is_demo = false`);
 
   const topics = await q<{ topic: string; n: number; resolved: number }>(sql`
-    select coalesce(topic, 'other') as topic, count(*)::int as n, count(*) filter (where outcome in ('auto_resolved','booked','declined'))::int as resolved
+    select coalesce(topic, 'other') as topic, count(*)::int as n, count(*) filter (where outcome in ('auto_resolved','booked','ordered','declined'))::int as resolved
     from agent_runs where workspace_id = ${workspaceId} and created_at >= ${weekStart} and ${demo}
     group by 1 order by 2 desc limit 10`);
 

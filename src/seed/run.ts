@@ -5,6 +5,7 @@ import { db, t } from "@/db";
 import { eq } from "drizzle-orm";
 import { WORKSPACE, PIZZAS, SIDES, MERCH, MERCH_COLORS, MERCH_SIZES, HOURS, DELIVERY, POLICIES, FAQS, EXTRAS, SIZES, DISTRICT, BOOKING_TYPES } from "./forno";
 import { seedSalon } from "./kasih";
+import { seedOrders } from "./orders";
 import { CANDIDATES, resumeText, type SeedCandidate } from "./candidates";
 import { weightedLibrary, rng } from "@/demo/library";
 import { insertDemoTurn } from "@/demo/replay";
@@ -201,6 +202,8 @@ export async function seedWorkspace({ withHistory = true, log = (() => {}) as Lo
     log(`demo history: ${count} labeled conversations over the last 7 days`);
   }
   void owner; void service;
+  await seedOrders(ws.id, ws.currency);
+  log("orders: 5 sample orders (2 waiting for approval)");
   await seedSalon(log);
   return { workspaceId: ws.id };
 }
