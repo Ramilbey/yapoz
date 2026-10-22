@@ -61,7 +61,21 @@ export async function connectOwnBot(workspaceId: string, token: string, opts: { 
   let webhook: "set" | "local" = "local";
   // Telegram only delivers to public https URLs; locally, `npm run telegram:poll` polls own bots too.
   if (env.appUrl.startsWith("https://")) {
-    await api.setWebhook(ownBotWebhookUrl(ch.id), { secret_token: secret, allowed_updates: [...ALLOWED_UPDATES], max_connections: 20 });
+    try {
+      await api.setWebhook(ownBotWebhookUrl(ch.id), { secret_token: secret, allowed_updates: [...ALLOWED_UPDATES], max_connections: 20 });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/Failed to resolve host/i.test(msg)) {
+        await api.setWebhook(ownBotWebhookUrl(ch.id), {
+          secret_token: secret,
+          allowed_updates: [...ALLOWED_UPDATES],
+          max_connections: 20,
+          ip_address: "76.76.21.21",
+        });
+      } else {
+        throw err;
+      }
+    }
     webhook = "set";
   }
   await api.setMyCommands(COMMANDS(Boolean(ws?.settings.modules?.hiring))).catch(() => {});
