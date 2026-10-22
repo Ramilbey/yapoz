@@ -2,7 +2,7 @@
 // (images, PDFs, forced tool calls), against a stubbed fetch. No database needed.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { chooseModel, pickGroq, pickGemini, executeWithFallback } from "../src/agent/ai-router";
+import { chooseModel, pickGroq, pickGemini, executeWithFallback, resetAiRouterState } from "../src/agent/ai-router";
 
 // What the Groq account actually served on 22 Oct 2026 (llama-3.1-8b-instant and llama-3.3-70b-versatile were gone).
 const GROQ = ["allam-2-7b", "meta-llama/llama-prompt-guard-2-86m", "openai/gpt-oss-120b", "openai/gpt-oss-20b", "openai/gpt-oss-safeguard-20b", "qwen/qwen3.8-27b", "whisper-large-v3"];
@@ -28,13 +28,17 @@ const calls: { url: string; body: any }[] = [];
 let groqLimited: string[] = [];
 /** What the fake model sends as the tool call's arguments. */
 let toolArgs = '{"ok":true}';
+/** What Google's model list says, and which of those models answer 404 (listed, but not callable by this key). */
+let geminiIds = ["models/gemini-2.5-flash"];
+let gemini404: string[] = [];
 const realFetch = globalThis.fetch;
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { "content-type": "application/json" } });
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = String(input instanceof Request ? input.url : input);
   const body = init?.body ? JSON.parse(String(init.body)) : null;
   calls.push({ url, body });
-  if (url.endsWith("/models")) return json({ object: "list", data: (url.includes("groq") ? GROQ : ["models/gemini-2.5-flash"]).map((id) => ({ id, object: "model" })) });
+  if (url.endsWith("/models")) return json({ object: "list", data: (url.includes("groq") ? GROQ : geminiIds).map((id) => ({ id, object: "model" })) });
+  if (url.includes("generativelanguage") && body?.model && gemini404.includes(body.model)) return json({ error: { message: `models/${body.model} is not found for API version v1main, or is not supported for generateContent.` } }, 404);
   if (url.includes("groq") && body?.model && groqLimited.includes(body.model)) return new Response(JSON.stringify({ error: { message: "Rate limit reached for model openai/gpt-oss-20b on tokens per minute (TPM)" } }), { status: 429, headers: { "content-type": "application/json", "retry-after": "30" } });
   if (url.includes("groq") && body?.messages?.some((m: any) => Array.isArray(m.content))) return json({ error: { message: "content must be a string" } }, 400);
   return json({
@@ -165,3 +169,59 @@ test("values the model does send are kept, including inside a nullable object", 
     toolArgs = '{"ok":true}';
   }
 });
+
+const LISTED = ["models/gemini-2.5-flash", "models/gemini-2.5-flash-lite", "models/gemini-3-flash-preview", "models/gemini-3.1-flash-lite", "models/gemini-3.5-flash-lite", "models/gemini-3.6-flash", "models/gemini-3.7-flash", "models/gemini-3.8-flash", "models/gemini-3.1-flash-tts-preview"];
+const chatModels = () => calls.filter((c) => c.url.includes("generativelanguage") && c.url.endsWith("/chat/completions")).map((c) => c.body.model);
+const ask = (model: string) => executeWithFallback({ model, max_tokens: 300, messages: [{ role: "user", content: "hi" }] });
+
+/** Only Gemini configured, with a clean slate: what Vercel has when Groq is rate limited out. */
+async function onlyGemini(run: () => Promise<void>) {
+  const groqKey = process.env.GROQ_API_KEY;
+  delete process.env.GROQ_API_KEY;
+  process.env.GEMINI_API_KEY = "test-gemini";
+  resetAiRouterState();
+  calls.length = 0;
+  try {
+    await run();
+  } finally {
+    process.env.GROQ_API_KEY = groqKey;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_FAST_MODEL;
+    geminiIds = ["models/gemini-2.5-flash"];
+    gemini404 = [];
+    resetAiRouterState();
+  }
+}
+
+test("Gemini: the newest stable models are used, not a name from the code, even when Google still lists retired ones", () =>
+  onlyGemini(async () => {
+    geminiIds = LISTED;
+    const fast = await ask("claude-haiku-5-5");
+    assert.equal(fast.model, "Google Gemini: gemini-3.5-flash-lite", "fast = newest stable flash-lite; never a preview, tts or 2.5");
+    const smart = await ask("claude-sonnet-5-5");
+    assert.equal(smart.model, "Google Gemini: gemini-3.8-flash");
+    assert.deepEqual(chatModels(), ["gemini-3.5-flash-lite", "gemini-3.8-flash"]);
+  }));
+
+test("Gemini: a model the owner pinned with an env variable is kept while it's served, and replaced when it isn't", () =>
+  onlyGemini(async () => {
+    geminiIds = LISTED;
+    process.env.GEMINI_FAST_MODEL = "gemini-3.1-flash-lite";
+    assert.equal((await ask("claude-haiku-5-5")).model, "Google Gemini: gemini-3.1-flash-lite");
+    resetAiRouterState();
+    process.env.GEMINI_FAST_MODEL = "gemini-1.5-flash";
+    assert.equal((await ask("claude-haiku-5-5")).model, "Google Gemini: gemini-3.5-flash-lite", "a retired pin falls back to the best served model");
+  }));
+
+test("Gemini: a listed model that answers 404 is set aside for an hour and the next one answers at once", () =>
+  onlyGemini(async () => {
+    geminiIds = LISTED;
+    gemini404 = ["gemini-3.5-flash-lite"];
+    const first = await ask("claude-haiku-5-5");
+    assert.equal(first.model, "Google Gemini: gemini-3.8-flash", "the 404 falls through to the other Gemini model within the same reply");
+    assert.deepEqual(chatModels(), ["gemini-3.5-flash-lite", "gemini-3.8-flash"]);
+    calls.length = 0;
+    const second = await ask("claude-haiku-5-5");
+    assert.equal(second.model, "Google Gemini: gemini-3.1-flash-lite", "the next-newest flash-lite takes over");
+    assert.deepEqual(chatModels(), ["gemini-3.1-flash-lite"], "the 404 model isn't tried again, and the first try works");
+  }));

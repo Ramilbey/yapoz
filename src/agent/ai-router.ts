@@ -20,6 +20,8 @@ export type AIProviderConfig = {
   pick?: Picker;
   /** Other served chat models to try after a 429: providers like Groq limit each model separately. */
   spare?: (ids: string[]) => string[];
+  /** A model the owner chose with an env variable: kept as long as the provider serves it. Otherwise the router picks the best served one. */
+  pinned?: { fast: boolean; smart: boolean };
   enabled: boolean;
 };
 
@@ -55,6 +57,7 @@ export function getProviders(): AIProviderConfig[] {
       baseURL: "https://api.groq.com/openai/v1",
       fastModel: process.env.GROQ_FAST_MODEL || "openai/gpt-oss-20b",
       smartModel: process.env.GROQ_SMART_MODEL || "openai/gpt-oss-120b",
+      pinned: { fast: Boolean(process.env.GROQ_FAST_MODEL), smart: Boolean(process.env.GROQ_SMART_MODEL) },
       vision: false,
       pick: pickGroq,
       spare: (ids) => ids.filter((id) => /gpt-oss|llama|qwen|kimi/i.test(id) && !NOT_CHAT.test(id)),
@@ -69,8 +72,10 @@ export function getProviders(): AIProviderConfig[] {
       type: "openai_compatible",
       apiKey: process.env.GEMINI_API_KEY,
       baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
-      fastModel: process.env.GEMINI_FAST_MODEL || "gemini-2.5-flash-lite",
-      smartModel: process.env.GEMINI_SMART_MODEL || "gemini-2.5-flash",
+      // Only used if Google's model list can't be read: gemini-2.5-* is now limited to keys that used it before ("model not found").
+      fastModel: process.env.GEMINI_FAST_MODEL || "gemini-3.5-flash-lite",
+      smartModel: process.env.GEMINI_SMART_MODEL || "gemini-3.8-flash",
+      pinned: { fast: Boolean(process.env.GEMINI_FAST_MODEL), smart: Boolean(process.env.GEMINI_SMART_MODEL) },
       vision: true,
       pick: pickGemini,
       enabled: true,
@@ -172,6 +177,21 @@ function tierOf(model?: string): Tier {
 const MODEL_LIST_TTL = 10 * 60_000;
 const modelLists = new Map<string, { at: number; ids: Promise<string[] | null> }>();
 
+/**
+ * A model that answered 404 is set aside for an hour. Google keeps listing models that a key can no longer call
+ * (gemini-2.5-* after its access was limited), so "it's in the list" doesn't mean "it works".
+ */
+const BAD_MODEL_MS = 60 * 60_000;
+const badModels = new Map<string, number>();
+const isBad = (provider: string, model: string) => (badModels.get(`${provider}:${model}`) ?? 0) > Date.now();
+
+/** For tests: forget cached model lists, cooldowns and set-aside models. */
+export function resetAiRouterState() {
+  modelLists.clear();
+  badModels.clear();
+  coolingUntil.clear();
+}
+
 /** The model ids a provider serves right now (cached), or null when it can't be listed. */
 function availableModels(p: AIProviderConfig): Promise<string[] | null> {
   const hit = modelLists.get(p.name);
@@ -197,8 +217,11 @@ export function chooseModel(ids: string[] | null, wanted: string, tier: Tier, pi
 async function modelFor(p: AIProviderConfig, tier: Tier): Promise<string> {
   const wanted = tier === "smart" ? p.smartModel : p.fastModel;
   if (!p.pick) return wanted;
-  const chosen = chooseModel(await availableModels(p), wanted, tier, p.pick);
-  if (chosen !== wanted) console.warn(`[AI Router] ${p.name} doesn't serve "${wanted}"; using "${chosen}".`);
+  const listed = await availableModels(p);
+  const ids = listed ? listed.filter((id) => !isBad(p.name, id)) : null;
+  // A model the owner pinned stays while it's served; otherwise the best served model wins, not a name written into the code.
+  const chosen = p.pinned?.[tier] ? chooseModel(ids, wanted, tier, p.pick) : ids?.length ? p.pick(ids, tier) ?? wanted : wanted;
+  if (chosen !== wanted) console.warn(`[AI Router] ${p.name}: using "${chosen}" instead of "${wanted}".`);
   return chosen;
 }
 
@@ -208,7 +231,7 @@ async function modelsFor(p: AIProviderConfig, tier: Tier): Promise<string[]> {
   const first = await modelFor(p, tier);
   if (!p.pick) return [first];
   const other = await modelFor(p, tier === "smart" ? "fast" : "smart");
-  return [...new Set([first, other, ...(p.spare?.((await availableModels(p)) ?? []) ?? [])])];
+  return [...new Set([first, other, ...(p.spare?.(((await availableModels(p)) ?? []).filter((id) => !isBad(p.name, id))) ?? [])])].filter((m) => !isBad(p.name, m));
 }
 
 /** Reasoning models spend output tokens thinking before they answer or call a tool. */
@@ -556,6 +579,10 @@ export async function executeWithFallback(params: AnthropicMessageParams): Promi
       errors.push({ provider: p.name, model, status: typeof err?.status === "number" ? err.status : undefined, message: msg });
       const isRateLimit = err?.status === 429 || msg.includes("429") || msg.toLowerCase().includes("rate limit");
       if (isRateLimit) coolingUntil.set(`${p.name}:${model}`, Date.now() + retryAfterMs(err));
+      if (err?.status === 404) {
+        badModels.set(`${p.name}:${model}`, Date.now() + BAD_MODEL_MS);
+        modelLists.delete(p.name);
+      }
       const next = attempts[i + 1];
 
       if (next) {
@@ -574,7 +601,7 @@ export async function probeProviders() {
   const tool = { name: "say", description: "Say one word.", input_schema: { type: "object", properties: { word: { type: "string" } }, required: ["word"] } };
   return Promise.all(
     getProviders().map(async (p) => {
-      const out: Record<string, unknown> = { vision: p.vision, available: p.pick ? await availableModels(p) : undefined };
+      const out: Record<string, unknown> = { vision: p.vision, available: p.pick ? await availableModels(p) : undefined, setAside: [...badModels.keys()].filter((k) => k.startsWith(`${p.name}:`) && (badModels.get(k) ?? 0) > Date.now()).map((k) => k.slice(p.name.length + 1)) };
       for (const tier of ["fast", "smart"] as const) {
         const model = p.type === "anthropic" ? (tier === "smart" ? p.smartModel : p.fastModel) : await modelFor(p, tier);
         const params: AnthropicMessageParams = {
