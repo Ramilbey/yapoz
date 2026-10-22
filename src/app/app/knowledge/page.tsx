@@ -16,7 +16,7 @@ type Item = { id: string; kind: string; category: string; slug: string; title: s
 type Gap = { id: string; key: string; question: string; count: number };
 type BookingType = { id: string; key: string; name: string; unit: "party" | "appointment" | "day"; capacity: number; durationMinutes: number; slotMinutes: number; maxPerBooking: number; leadMinutes: number; notes: string; active: boolean };
 type HoursData = { weekly: Record<string, [string, string][]>; lastOrdersMinutesBeforeClose: number; exceptions: { date: string; hours: [string, string][]; note: string }[] };
-type Data = { items: Item[]; gaps: Gap[]; bookingTypes: BookingType[]; currency: string; canEditBookings: boolean };
+type Data = { items: Item[]; gaps: Gap[]; dismissed: Gap[]; bookingTypes: BookingType[]; currency: string; canEditBookings: boolean };
 
 const TABS = [
   { key: "catalog", label: "Products and services" },
@@ -49,7 +49,7 @@ export default function KnowledgePage() {
       {data && tab === "hours" ? <Hours item={items.find((i) => i.kind === "hours")} onChange={mutate} /> : null}
       {data && tab === "policies" ? <TextItems items={items.filter((i) => i.kind === "policy" || i.kind === "info")} currency={data.currency} onChange={mutate} /> : null}
       {data && tab === "faqs" ? <Faqs items={items.filter((i) => i.kind === "faq")} onChange={mutate} /> : null}
-      {data && tab === "gaps" ? <Gaps gaps={data.gaps} onChange={mutate} /> : null}
+      {data && tab === "gaps" ? <Gaps gaps={data.gaps} dismissed={data.dismissed} onChange={mutate} /> : null}
     </div>
   );
 }
@@ -673,31 +673,59 @@ function FaqRow({ item, save }: { item: Item; save: Save }) {
   );
 }
 
-function Gaps({ gaps, onChange }: { gaps: Gap[]; onChange: () => void }) {
+function Gaps({ gaps, dismissed, onChange }: { gaps: Gap[]; dismissed: Gap[]; onChange: () => void }) {
   const save = useSaver(onChange);
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  if (!gaps.length) return <p className="text-[15px] text-muted">No open gaps. Questions the assistant couldn&apos;t answer show up here, so you can teach it once.</p>;
+  const [showDismissed, setShowDismissed] = useState(false);
   return (
-    <ul className="divide-y divide-line border-y border-line">
-      {gaps.map((g) => (
-        <li key={g.id} className="grid grid-cols-1 gap-3 py-5 md:grid-cols-[260px_1fr_auto] md:items-start">
-          <div>
-            <p className="text-[15px] font-medium">{g.question}</p>
-            <p className="num text-[12px] text-muted">
-              asked {g.count}×, “{g.key}”
-            </p>
-          </div>
-          <Textarea rows={2} value={answers[g.id] ?? ""} onChange={(e) => setAnswers({ ...answers, [g.id]: e.target.value })} placeholder="Your answer" />
-          <div className="flex gap-2">
-            <Button size="sm" variant="brass" disabled={(answers[g.id] ?? "").trim().length < 2} onClick={() => save(`/api/knowledge/gaps/${g.id}`, "POST", { question: g.question, answer: answers[g.id], category: "general" }, "Answer added. Live now.")}>
-              Publish
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => save(`/api/knowledge/gaps/${g.id}`, "DELETE", undefined, "Dismissed.")}>
-              Dismiss
-            </Button>
-          </div>
-        </li>
-      ))}
-    </ul>
+    <div>
+      {!gaps.length ? (
+        <p className="text-[15px] text-muted">No open gaps. Questions the assistant couldn&apos;t answer show up here, so you can teach it once.</p>
+      ) : (
+        <ul className="divide-y divide-line border-y border-line">
+          {gaps.map((g) => (
+            <li key={g.id} className="grid grid-cols-1 gap-3 py-5 md:grid-cols-[260px_1fr_auto] md:items-start">
+              <div>
+                <p className="text-[15px] font-medium">{g.question}</p>
+                <p className="num text-[12px] text-muted">
+                  asked {g.count}×, “{g.key}”
+                </p>
+              </div>
+              <Textarea rows={2} value={answers[g.id] ?? ""} onChange={(e) => setAnswers({ ...answers, [g.id]: e.target.value })} placeholder="Your answer" />
+              <div className="flex gap-2">
+                <Button size="sm" variant="brass" disabled={(answers[g.id] ?? "").trim().length < 2} onClick={() => save(`/api/knowledge/gaps/${g.id}`, "POST", { question: g.question, answer: answers[g.id], category: "general" }, "Answer added. Live now.")}>
+                  Publish
+                </Button>
+                <Button size="sm" variant="ghost" title="Not a real question: remove it from this list" onClick={() => save(`/api/knowledge/gaps/${g.id}`, "DELETE", undefined, "Dismissed. It won't come back, but you can restore it below.")}>
+                  Dismiss
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {dismissed.length ? (
+        <div className="mt-8">
+          <button type="button" className="text-[13px] text-fg-2 underline decoration-brass underline-offset-4" aria-expanded={showDismissed} onClick={() => setShowDismissed((v) => !v)}>
+            {showDismissed ? "Hide" : "Show"} dismissed ({dismissed.length})
+          </button>
+          {showDismissed ? (
+            <ul className="mt-3 divide-y divide-line border-y border-line">
+              {dismissed.map((g) => (
+                <li key={g.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                  <div className="min-w-0">
+                    <p className="text-[14px] text-fg-2">{g.question}</p>
+                    <p className="num text-[12px] text-muted">asked {g.count}×</p>
+                  </div>
+                  <Button size="sm" variant="ghost" onClick={() => save(`/api/knowledge/gaps/${g.id}`, "PATCH", undefined, "Restored.")}>
+                    Restore
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }

@@ -9,7 +9,7 @@ import { getJson } from "./fetcher";
 import { cx } from "../ui/cx";
 import type { Session } from "@/lib/session";
 
-type Item = { href: string; label: string; badge?: "needs" | "drafts" | "approvals" | "orders"; sub?: boolean; hiring?: boolean };
+type Item = { href: string; label: string; badge?: "needs" | "drafts" | "approvals" | "orders" | "gaps"; sub?: boolean; hiring?: boolean };
 export type ShellWorkspace = { id: string; name: string; city: string; hiring: boolean; live: boolean; setupDone: boolean; sample: boolean };
 
 const NAV: Record<Session["role"], Item[]> = {
@@ -18,7 +18,7 @@ const NAV: Record<Session["role"], Item[]> = {
     { href: "/app/inbox", label: "Inbox", badge: "drafts" },
     { href: "/app/needs-you", label: "Needs you", badge: "needs" },
     { href: "/app/orders", label: "Orders", badge: "orders" },
-    { href: "/app/knowledge", label: "Knowledge" },
+    { href: "/app/knowledge", label: "Knowledge", badge: "gaps" },
     { href: "/app/bookings", label: "Bookings" },
     { href: "/app/hiring", label: "Hiring", hiring: true },
     { href: "/app/hiring/approvals", label: "Approvals", badge: "approvals", sub: true, hiring: true },
@@ -30,7 +30,7 @@ const NAV: Record<Session["role"], Item[]> = {
     { href: "/app/inbox", label: "Inbox", badge: "drafts" },
     { href: "/app/needs-you", label: "Needs you", badge: "needs" },
     { href: "/app/orders", label: "Orders", badge: "orders" },
-    { href: "/app/knowledge", label: "Knowledge" },
+    { href: "/app/knowledge", label: "Knowledge", badge: "gaps" },
     { href: "/app/bookings", label: "Bookings" },
   ],
   hr: [
@@ -59,8 +59,8 @@ function ShellInner({ session, workspace, children }: { session: Session; worksp
   const [open, setOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const connected = useLiveStatus();
-  const { data: counts, mutate } = useSWR<{ needs: number; drafts: number; approvals: number; orders: number }>("/api/nav-counts", getJson, { refreshInterval: 30_000 });
-  useLive(["escalations", "messages", "outreach", "orders"], () => mutate());
+  const { data: counts, mutate } = useSWR<{ needs: number; drafts: number; approvals: number; orders: number; gaps: number }>("/api/nav-counts", getJson, { refreshInterval: 30_000 });
+  useLive(["escalations", "messages", "outreach", "orders", "knowledge_gaps"], () => mutate());
 
   useEffect(() => {
     let t: "light" | "dark" = "light";
@@ -128,7 +128,7 @@ function ShellInner({ session, workspace, children }: { session: Session; worksp
                   {it.label}
                 </span>
                 {n > 0 ? (
-                  <span className={cx("num rounded-full px-1.5 text-[11px] leading-[18px]", it.badge === "needs" ? "bg-signal text-ink" : "bg-line text-fg")}>{n}</span>
+                  <span className={cx("num rounded-full px-1.5 text-[11px] leading-[18px]", it.badge === "needs" || it.badge === "gaps" ? "bg-signal text-ink" : "bg-line text-fg")}>{n}</span>
                 ) : null}
               </Link>
             </li>

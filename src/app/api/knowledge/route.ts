@@ -11,9 +11,10 @@ export const GET = handle(async () => {
   const items = await db.select().from(t.kbItems).where(eq(t.kbItems.workspaceId, s.workspaceId)).orderBy(asc(t.kbItems.sort), asc(t.kbItems.title));
   const variants = await db.select().from(t.kbVariants).where(eq(t.kbVariants.workspaceId, s.workspaceId));
   const gaps = await db.select().from(t.knowledgeGaps).where(and(eq(t.knowledgeGaps.workspaceId, s.workspaceId), eq(t.knowledgeGaps.status, "open"))).orderBy(desc(t.knowledgeGaps.count));
+  const dismissed = await db.select().from(t.knowledgeGaps).where(and(eq(t.knowledgeGaps.workspaceId, s.workspaceId), eq(t.knowledgeGaps.status, "dismissed"))).orderBy(desc(t.knowledgeGaps.lastAskedAt)).limit(50);
   const bookingTypes = await db.select().from(t.bookingTypes).where(eq(t.bookingTypes.workspaceId, s.workspaceId)).orderBy(asc(t.bookingTypes.sort));
   const [ws] = await db.select({ currency: t.workspaces.currency }).from(t.workspaces).where(eq(t.workspaces.id, s.workspaceId));
-  return ok({ items: items.map((i) => ({ ...i, variants: variants.filter((v) => v.itemId === i.id) })), gaps, bookingTypes, currency: ws?.currency ?? "MYR", canEditBookings: s.role === "owner" });
+  return ok({ items: items.map((i) => ({ ...i, variants: variants.filter((v) => v.itemId === i.id) })), gaps, dismissed, bookingTypes, currency: ws?.currency ?? "MYR", canEditBookings: s.role === "owner" });
 });
 
 const Create = z.object({

@@ -28,3 +28,16 @@ export const DELETE = handle(async (_req: Request, ctx: { params: Promise<{ id: 
   await db.update(t.knowledgeGaps).set({ status: "dismissed" }).where(and(eq(t.knowledgeGaps.id, id), eq(t.knowledgeGaps.workspaceId, s.workspaceId)));
   return ok({ ok: true });
 });
+
+/** Put a dismissed question back in the list. */
+export const PATCH = handle(async (_req: Request, ctx: { params: Promise<{ id: string }> }) => {
+  const s = await apiSession(["owner", "service"]);
+  const { id } = await ctx.params;
+  const [gap] = await db
+    .update(t.knowledgeGaps)
+    .set({ status: "open" })
+    .where(and(eq(t.knowledgeGaps.id, id), eq(t.knowledgeGaps.workspaceId, s.workspaceId), eq(t.knowledgeGaps.status, "dismissed")))
+    .returning({ id: t.knowledgeGaps.id });
+  if (!gap) throw new HttpError(404, "That question isn't dismissed.");
+  return ok({ ok: true });
+});
