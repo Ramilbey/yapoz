@@ -342,7 +342,7 @@ export async function executeWithFallback(params: AnthropicMessageParams): Promi
     throw new Error("No AI API keys configured. Please configure GROQ_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY, or ANTHROPIC_API_KEY.");
   }
 
-  let lastError: Error | null = null;
+  const errors: string[] = [];
 
   for (let i = 0; i < providers.length; i++) {
     const provider = providers[i];
@@ -353,19 +353,20 @@ export async function executeWithFallback(params: AnthropicMessageParams): Promi
         return await callOpenAICompatible(provider, params);
       }
     } catch (err: any) {
-      lastError = err;
-      const isRateLimit = err?.status === 429 || String(err?.message || "").includes("429") || String(err?.message || "").toLowerCase().includes("rate limit");
+      const msg = err?.message || String(err);
+      errors.push(`[${provider.name}]: ${msg}`);
+      const isRateLimit = err?.status === 429 || msg.includes("429") || msg.toLowerCase().includes("rate limit");
       const nextProvider = providers[i + 1]?.name;
 
       if (nextProvider) {
         console.warn(
-          `[AI Router] Provider "${provider.name}" ${isRateLimit ? "rate limited (429)" : "failed: " + (err?.message || err)}. Automatically falling back to "${nextProvider}"...`
+          `[AI Router] Provider "${provider.name}" ${isRateLimit ? "rate limited (429)" : "failed: " + msg}. Automatically falling back to "${nextProvider}"...`
         );
       } else {
-        console.error(`[AI Router] Provider "${provider.name}" failed: ${err?.message || err}. No more fallback providers available.`);
+        console.error(`[AI Router] Provider "${provider.name}" failed: ${msg}. No more fallback providers available.`);
       }
     }
   }
 
-  throw lastError || new Error("All configured AI providers failed.");
+  throw new Error(`AI generation failed: ${errors.join(" | ")}`);
 }
