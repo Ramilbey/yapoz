@@ -25,13 +25,15 @@ export function LiveProvider({ children }: { children: React.ReactNode }) {
     };
     const open = () => {
       es = new EventSource("/api/stream");
-      es.onopen = () => {
-        setConnected(true);
-        stopPoll();
-      };
+      // An open stream isn't proof that changes arrive (LISTEN through a transaction pooler stays silent),
+      // so keep polling until the first real change comes through it.
+      startPoll();
+      es.onopen = () => setConnected(true);
       es.onmessage = (m) => {
         try {
-          emit(JSON.parse(m.data));
+          const e = JSON.parse(m.data) as LiveEvent;
+          if (e.t !== "hello") stopPoll();
+          emit(e);
         } catch {}
       };
       es.onerror = () => {
