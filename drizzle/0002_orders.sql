@@ -52,7 +52,26 @@ CREATE TABLE IF NOT EXISTS "order_items" (
 CREATE INDEX IF NOT EXISTS "order_items_order" ON "order_items" USING btree ("order_id");--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "orders_ws_ref" ON "orders" USING btree ("workspace_id","ref_code");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "orders_ws_status_created" ON "orders" USING btree ("workspace_id","status","created_at");--> statement-breakpoint
--- Live updates for the Orders page (jawab_notify comes from 0001_realtime).
+-- Live updates for the Orders page. jawab_notify() is the same function 0001_realtime creates; it is defined here too
+-- (CREATE OR REPLACE, identical body) because some databases, like the production Supabase one, never got it.
+CREATE OR REPLACE FUNCTION jawab_notify() RETURNS trigger AS $$
+DECLARE
+  rec jsonb;
+BEGIN
+  IF TG_OP = 'DELETE' THEN rec := to_jsonb(OLD); ELSE rec := to_jsonb(NEW); END IF;
+  PERFORM pg_notify(
+    'ws_' || lower(rec->>'workspace_id'),
+    json_build_object(
+      't', TG_TABLE_NAME,
+      'op', TG_OP,
+      'id', rec->>'id',
+      'thread', rec->>'thread_id',
+      'demo', COALESCE((rec->>'is_demo')::boolean, false)
+    )::text
+  );
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;--> statement-breakpoint
 DROP TRIGGER IF EXISTS "orders_notify" ON "orders";--> statement-breakpoint
 CREATE TRIGGER "orders_notify" AFTER INSERT OR UPDATE OR DELETE ON "orders" FOR EACH ROW EXECUTE FUNCTION jawab_notify();--> statement-breakpoint
 -- Row-level security by workspace_id, like every other table.
