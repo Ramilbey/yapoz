@@ -3,59 +3,124 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { cx } from "../ui/cx";
 
-/** 00: mono counter 000 → 100, ends on a bell ding (if sound is on). Shown once per session. */
-export function Preloader({ onDone, sound }: { onDone: () => void; sound: boolean }) {
-  const [n, setN] = useState(0);
-  const [gone, setGone] = useState(false);
-  const done = useRef(false);
+let loaderPlayed = false;
+
+/** Three customers ask while the page loads; each question turns into an answer when the bell rings. */
+const WARMUP = [
+  { q: "Do you deliver today?", a: "Yes, until 9 pm", at: 3, done: 34, pos: "left-[5%] top-[17%] sm:left-[13%] sm:top-[24%]" },
+  { q: "Can I book for 7 pm?", a: "Booked. See you at 7", at: 30, done: 67, pos: "right-[5%] top-[30%] sm:right-[12%] sm:top-[36%]" },
+  { q: "Is the large in stock?", a: "Yes, 3 left", at: 62, done: 100, pos: "left-[8%] top-[66%] sm:left-[18%] sm:top-[60%]" },
+];
+
+const STATUS = ["Opening the counter", "Polishing the bell", "Learning the questions", "Ready for your customers"];
+
+/**
+ * The loading screen. It really waits: for the fonts and for the 3D bell to be ready (`assetsReady`), with a minimum
+ * of about a second and a hard stop at seven. The bell rings at each third and once more when it's done, answering the
+ * three questions on screen, then the whole screen lifts away. It plays on every full page load but not when you come back
+ * by navigating inside the app, and it's skipped for people who prefer reduced motion.
+ */
+export function Preloader({ onDone, sound, assetsReady }: { onDone: () => void; sound: boolean; assetsReady: boolean }) {
+  const [pct, setPct] = useState(0);
+  const [phase, setPhase] = useState<"load" | "exit" | "gone">("load");
+  const bell = useRef<HTMLDivElement>(null);
+  const ready = useRef(assetsReady);
+  ready.current = assetsReady;
+  const soundRef = useRef(sound);
+  soundRef.current = sound;
+
   useEffect(() => {
-    let seen = false;
-    try {
-      seen = sessionStorage.getItem("yapoz-preloaded") === "1";
-      sessionStorage.setItem("yapoz-preloaded", "1");
-    } catch {}
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (seen || reduce) {
-      setGone(true);
+    if (loaderPlayed || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setPhase("gone");
       onDone();
       return;
     }
+    const html = document.documentElement;
+    const prevOverflow = html.style.overflow;
+    html.style.overflow = "hidden";
     const start = performance.now();
-    const dur = 1300;
     let raf = 0;
-    const tick = (t: number) => {
-      const p = Math.min(1, (t - start) / dur);
-      setN(Math.round((1 - Math.pow(1 - p, 3)) * 100));
-      if (p < 1) raf = requestAnimationFrame(tick);
-      else if (!done.current) {
-        done.current = true;
-        if (sound) import("./sound").then((m) => m.ding(0.45));
-        setTimeout(() => {
-          setGone(true);
-          onDone();
-        }, 360);
+    let value = 0;
+    let ringAt = -10;
+    let milestone = 0;
+    let finished = false;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const tick = (now: number) => {
+      const t = (now - start) / 1000;
+      const target = t > 7 ? 1 : ready.current && t > 1.2 ? 1 : Math.min(0.9, (t / 2.4) * 0.9);
+      value += (target - value) * 0.075;
+      if (target === 1 && value > 0.996) value = 1;
+      setPct(Math.round(value * 100));
+      const m = Math.floor(Math.min(value, 0.999) * 3);
+      if (m > milestone) {
+        milestone = m;
+        ringAt = now;
       }
+      const dt = (now - ringAt) / 1000;
+      if (bell.current) bell.current.style.transform = `rotate(${(dt < 2 ? Math.sin(dt * 34) * Math.exp(-dt * 4.5) * 9 : 0).toFixed(2)}deg)`;
+      if (value >= 1 && !finished) {
+        finished = true;
+        ringAt = now;
+        if (soundRef.current) void import("./sound").then((mod) => mod.ding(0.45));
+        timers.push(
+          setTimeout(() => {
+            loaderPlayed = true;
+            setPhase("exit");
+            onDone();
+            html.style.overflow = prevOverflow;
+          }, 650),
+          setTimeout(() => setPhase("gone"), 650 + 1100),
+        );
+      }
+      raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      timers.forEach(clearTimeout);
+      html.style.overflow = prevOverflow;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  if (gone) return null;
+
+  if (phase === "gone") return null;
+  const status = STATUS[pct >= 100 ? 3 : Math.min(2, Math.floor(pct / 34))];
   return (
-    <div className={cx("fixed inset-0 z-[80] flex flex-col justify-between bg-yp-ink p-6 text-yp-frost transition-opacity duration-300 sm:p-10", n >= 100 && "opacity-0")} aria-hidden>
-      <span className="flex items-center gap-2.5">
-        <BellMark size={26} />
-        <span className="yp-display text-[18px]">Yapoz</span>
-      </span>
-      <div className="flex items-end justify-between">
-        <span className="yp-mono text-[12px] uppercase text-yp-smoke">questions answered</span>
-        <span className="yp-display text-[clamp(72px,16vw,200px)] leading-[0.78]" style={{ fontVariationSettings: '"wdth" 110' }}>
-          {String(n).padStart(3, "0")}
+    <div className="fixed inset-0 z-[80] overflow-hidden bg-yp-ink text-yp-frost" style={{ transform: phase === "exit" ? "translateY(-101%)" : "none", transition: "transform 1.05s cubic-bezier(0.76, 0, 0.24, 1)" }} role="status" aria-label="Loading Yapoz">
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_50%_42%_at_50%_46%,rgba(63,91,255,0.22),transparent_70%)]" aria-hidden />
+      <div className="yp-floor absolute -bottom-[240px] -left-1/3 -right-1/3 h-[560px] opacity-80" aria-hidden />
+      {WARMUP.map((w) => {
+        const shown = pct >= w.at;
+        const answered = pct >= w.done;
+        return (
+          <div key={w.q} className={cx("absolute", w.pos)} aria-hidden style={{ opacity: shown ? 1 : 0, transform: shown ? "none" : "translateY(-60px) scale(0.92)", transition: "opacity 0.5s, transform 0.7s cubic-bezier(0.22, 1, 0.36, 1)" }}>
+            <div className={cx("relative rounded-2xl px-4 py-2.5 text-[14px] font-medium transition-colors duration-300 sm:text-[15px]", answered ? "bg-yp-mint text-yp-ink shadow-[0_0_30px_rgba(44,245,187,0.35)]" : "border border-yp-line2 bg-yp-panel text-yp-frost")}>
+              <span className="invisible block whitespace-nowrap">{w.q.length > w.a.length ? w.q : w.a}</span>
+              <span className="absolute inset-0 grid place-items-center whitespace-nowrap">{answered ? w.a : w.q}</span>
+            </div>
+          </div>
+        );
+      })}
+      <div className="absolute inset-0 flex flex-col items-center justify-center" aria-hidden>
+        <div ref={bell} className="relative" style={{ transformOrigin: "50% 12%" }}>
+          <div className="absolute left-1/2 top-1/2 h-40 w-40 -translate-x-1/2 -translate-y-1/2 rounded-full bg-yp-cobalt/30 blur-3xl" />
+          <BellMark size={112} />
+        </div>
+        <div className="yp-display mt-6 text-[clamp(30px,5vw,44px)]" style={{ fontVariationSettings: '"wdth" 124', letterSpacing: "-0.03em" }}>
+          Yapoz
+        </div>
+        <p className="yp-mono mt-3 h-4 text-[12px] uppercase text-yp-smoke">{status}</p>
+      </div>
+      <div className="absolute inset-x-0 bottom-0 flex items-end justify-between px-6 pb-8 sm:px-10" aria-hidden>
+        <span className="yp-mono text-[11px] uppercase text-yp-smoke">The front desk, opening</span>
+        <span className="yp-display text-[clamp(56px,11vw,140px)] leading-[0.8]" style={{ fontVariationSettings: '"wdth" 110' }}>
+          {String(pct).padStart(3, "0")}
         </span>
       </div>
-      <div className="absolute inset-x-0 bottom-0 h-[3px] bg-yp-line">
-        <div className="h-full origin-left bg-yp-mint" style={{ transform: `scaleX(${n / 100})` }} />
+      <div className="absolute inset-x-0 bottom-0 h-[3px] bg-yp-line" aria-hidden>
+        <div className="h-full origin-left bg-yp-mint shadow-[0_0_18px_2px_rgba(44,245,187,0.6)]" style={{ transform: `scaleX(${pct / 100})` }} />
       </div>
+      <div className="absolute inset-x-0 bottom-0 h-px bg-yp-mint/0" />
     </div>
   );
 }

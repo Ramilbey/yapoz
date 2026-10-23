@@ -301,10 +301,22 @@ function Rig() {
   return null;
 }
 
-class Boundary extends Component<{ children: ReactNode; fallback: ReactNode }, { failed: boolean }> {
+/** Tells the loading screen the bell has really been drawn (shaders compiled, a few frames out). */
+function ReadyAfter({ frames, onReady }: { frames: number; onReady?: () => void }) {
+  const seen = useRef(0);
+  useFrame(() => {
+    if (seen.current < frames && ++seen.current === frames) onReady?.();
+  });
+  return null;
+}
+
+class Boundary extends Component<{ children: ReactNode; fallback: ReactNode; onFail?: () => void }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() {
     return { failed: true };
+  }
+  componentDidCatch() {
+    this.props.onFail?.();
   }
   render() {
     return this.state.failed ? this.props.fallback : this.props.children;
@@ -318,7 +330,7 @@ export default function HeroCanvas({ sound, onReady, active, lite = false }: { s
   // ?fx=low also skips shadows and post-processing (slow GPUs, headless capture).
   const [lowFx] = useState(() => lite || (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("fx") === "low"));
   return (
-    <Boundary fallback={<StaticBell className="absolute right-[-10%] top-[8%] w-[120%] max-w-[760px] sm:right-0 sm:w-[70%]" />}>
+    <Boundary onFail={onReady} fallback={<StaticBell className="absolute right-[-10%] top-[8%] w-[120%] max-w-[760px] sm:right-0 sm:w-[70%]" />}>
       <Canvas
         shadows={!lowFx}
         dpr={lite ? [1, 1.5] : [1, 1.75]}
@@ -330,7 +342,6 @@ export default function HeroCanvas({ sound, onReady, active, lite = false }: { s
           gl.toneMappingExposure = 1.05;
           scene.background = new THREE.Color(INK);
           scene.fog = new THREE.Fog(INK, 8, 18);
-          onReady?.();
         }}
         onPointerDown={() => {
           clicks.current += 1;
@@ -338,6 +349,7 @@ export default function HeroCanvas({ sound, onReady, active, lite = false }: { s
           ring.current.amp = 0.3;
         }}
       >
+        <ReadyAfter frames={4} onReady={onReady} />
         <ambientLight intensity={0.08} />
         <spotLight position={[-0.6, 6.5, 3.2]} angle={0.42} penumbra={0.85} intensity={190} decay={2} distance={20} color={"#dbe6ff"} castShadow={!lowFx} shadow-mapSize={[1024, 1024]} shadow-bias={-0.0004} target-position={[BELL_X, 0, 0]} />
         <pointLight position={[BELL_X + 2.5, 1.4, 2.5]} intensity={5} color={COBALT} />
