@@ -444,7 +444,7 @@ function GoLive({ data }: { data: SetupData }) {
         ))}
       </ul>
       <p className="mt-6 text-[15px] text-fg-2">
-        When you go live, Jawab answers customers on your connected channels. Anything it isn&apos;t sure about, complaints and refunds go to <b>Needs you</b> instead of being guessed. You can switch any channel to Copilot (drafts for approval) or pause everything in Settings.
+        When you go live, Yapoz answers customers on your connected channels. Anything it isn&apos;t sure about, complaints and refunds go to <b>Needs you</b> instead of being guessed. You can switch any channel to Copilot (drafts for approval) or pause everything in Settings.
       </p>
       <div className="mt-6 flex flex-wrap gap-3">
         <Button variant="primary" size="lg" loading={busy === "live"} disabled={!checks[0].ok} onClick={() => finish(true)}>

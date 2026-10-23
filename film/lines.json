@@ -1,0 +1,218 @@
+[
+  {
+    "id": "s1",
+    "at": 0.6,
+    "end": 7.9,
+    "text": "It's eleven forty-eight at night. Your phone hasn't stopped buzzing: three apps, one owner, and nobody to answer.",
+    "caps": [
+      [
+        "It's 11:48 at night.",
+        5
+      ],
+      [
+        "Your phone hasn't stopped buzzing:",
+        5
+      ],
+      [
+        "three apps, one owner,",
+        4
+      ],
+      [
+        "and nobody to answer.",
+        4
+      ]
+    ]
+  },
+  {
+    "id": "s2",
+    "at": 8.1,
+    "end": 16.0,
+    "text": "How much? Are you open? Is it in stock? Every slow reply is a customer who asked someone else, and they rarely come back.",
+    "caps": [
+      [
+        "How much?",
+        2
+      ],
+      [
+        "Are you open?",
+        3
+      ],
+      [
+        "Is it in stock?",
+        4
+      ],
+      [
+        "Every slow reply is a customer",
+        6
+      ],
+      [
+        "who asked someone else,",
+        4
+      ],
+      [
+        "and they rarely come back.",
+        5
+      ]
+    ]
+  },
+  {
+    "id": "s3",
+    "at": 16.5,
+    "end": 24.8,
+    "text": "Meet Yapoz: the front desk that never closes. One assistant for every chat, trained on your business, and only your business.",
+    "caps": [
+      [
+        "Meet Yapoz:",
+        2
+      ],
+      [
+        "the front desk that never closes.",
+        6
+      ],
+      [
+        "One assistant for every chat,",
+        5
+      ],
+      [
+        "trained on your business,",
+        4
+      ],
+      [
+        "and only your business.",
+        4
+      ]
+    ]
+  },
+  {
+    "id": "s4",
+    "at": 25.3,
+    "end": 32.7,
+    "text": "Teach it once. Type it, or snap your menu. Yapoz drafts your prices, hours and rules, and you check each one.",
+    "caps": [
+      [
+        "Teach it once.",
+        3
+      ],
+      [
+        "Type it, or snap your menu.",
+        6
+      ],
+      [
+        "Yapoz drafts your prices,",
+        4
+      ],
+      [
+        "hours and rules,",
+        3
+      ],
+      [
+        "and you check each one.",
+        5
+      ]
+    ]
+  },
+  {
+    "id": "s5",
+    "at": 33.1,
+    "end": 42.5,
+    "text": "Then it answers on WhatsApp, Telegram and Instagram, in seconds. It checks your prices, stock and free slots before it speaks, and never makes things up.",
+    "caps": [
+      [
+        "Then it answers on WhatsApp,",
+        5
+      ],
+      [
+        "Telegram and Instagram,",
+        3
+      ],
+      [
+        "in seconds.",
+        2
+      ],
+      [
+        "It checks your prices,",
+        4
+      ],
+      [
+        "stock and free slots",
+        4
+      ],
+      [
+        "before it speaks,",
+        3
+      ],
+      [
+        "and never makes things up.",
+        5
+      ]
+    ]
+  },
+  {
+    "id": "s6",
+    "at": 42.9,
+    "end": 49.7,
+    "text": "Bookings go into real free slots. Orders wait for your yes, and the customer knows the moment you tap.",
+    "caps": [
+      [
+        "Bookings go into real free slots.",
+        6
+      ],
+      [
+        "Orders wait for your yes,",
+        5
+      ],
+      [
+        "and the customer knows",
+        4
+      ],
+      [
+        "the moment you tap.",
+        4
+      ]
+    ]
+  },
+  {
+    "id": "s7",
+    "at": 50.1,
+    "end": 56.9,
+    "text": "Anything it isn't sure of comes to you, with a holding reply already sent. Nothing is invented.",
+    "caps": [
+      [
+        "Anything it isn't sure of",
+        5
+      ],
+      [
+        "comes to you,",
+        3
+      ],
+      [
+        "with a holding reply already sent.",
+        6
+      ],
+      [
+        "Nothing is invented.",
+        3
+      ]
+    ]
+  },
+  {
+    "id": "s8",
+    "at": 57.1,
+    "end": 59.9,
+    "text": "Yapoz. Every question, answered.",
+    "caps": [
+      [
+        "Yapoz.",
+        1
+      ],
+      [
+        "Every question,",
+        2
+      ],
+      [
+        "answered.",
+        1
+      ]
+    ]
+  }
+]

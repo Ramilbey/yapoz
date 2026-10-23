@@ -47,7 +47,7 @@ const VERDICT: Record<Receipt["verdict"], { label: string; tone: "answered" | "b
 };
 const MARK: Record<Check["level"], string> = { pass: "✓", warn: "!", fail: "✗" };
 
-/** A receipt the customer sent, what Jawab read off it, and each check against the order and your accounts. Advice only. */
+/** A receipt the customer sent, what Yapoz read off it, and each check against the order and your accounts. Advice only. */
 function ReceiptCard({ order, r, tz }: { order: Order; r: Receipt; tz: string }) {
   const v = VERDICT[r.verdict];
   const url = `/api/orders/${order.id}/receipts/${r.id}`;
@@ -149,7 +149,7 @@ export default function OrdersPage() {
     <div>
       <PageHeader
         title="Orders"
-        description="Orders customers place in chat. Jawab checks prices and stock, then waits for you: nothing is promised until you confirm, and the customer hears from you at each step."
+        description="Orders customers place in chat. Yapoz checks prices and stock, then waits for you: nothing is promised until you confirm, and the customer hears from you at each step."
       />
       {!data ? (
         <p className="text-muted">Loading…</p>

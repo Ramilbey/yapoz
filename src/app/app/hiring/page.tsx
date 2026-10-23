@@ -39,7 +39,7 @@ export default function HiringHome() {
     <div>
       <PageHeader
         title="Hiring"
-        description="Describe the role in plain words; Jawab ranks candidates from sources you control and drafts the outreach. Nothing reaches a candidate until you press Approve."
+        description="Describe the role in plain words; Yapoz ranks candidates from sources you control and drafts the outreach. Nothing reaches a candidate until you press Approve."
         actions={
           <>
             <Button variant="secondary" onClick={() => setUpload(true)}>Upload resumes</Button>

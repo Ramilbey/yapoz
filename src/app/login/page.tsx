@@ -17,7 +17,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
     <AuthFrame
       headline={<>One door,<br />every <span className="accent-word text-brass">desk</span>.</>}
       lede="Owners see the whole counter. Service staff get the inbox and the Needs-you queue. HR gets hiring, and nothing else."
-      footer={<>New to Jawab? <Link href="/signup" className="text-paper underline decoration-brass underline-offset-4">Set up your business</Link></>}
+      footer={<>New to Yapoz? <Link href="/signup" className="text-paper underline decoration-brass underline-offset-4">Set up your business</Link></>}
     >
       <LoginForm demo={demo} next={next ?? null} initialWorkspace={ws ?? ""} />
     </AuthFrame>

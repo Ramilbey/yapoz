@@ -7,7 +7,7 @@ export function AuthFrame({ headline, lede, children, footer }: { headline: Reac
       <div className="mx-auto grid min-h-dvh max-w-[1200px] grid-cols-1 gap-12 px-4 py-10 sm:px-8 lg:grid-cols-[1.1fr_1fr] lg:items-center">
         <section>
           <Link href="/" className="inline-flex items-center gap-2 text-[15px] text-paper/80 hover:text-paper">
-            <BellGlyph /> Jawab
+            <BellGlyph /> Yapoz
           </Link>
           <h1 className="font-display mt-10 text-[clamp(44px,7vw,96px)] font-extrabold leading-[0.92]">{headline}</h1>
           <div className="mt-6 max-w-[44ch] text-[17px] leading-relaxed text-paper/70">{lede}</div>

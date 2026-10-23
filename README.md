@@ -1,8 +1,8 @@
-# Jawab
+# Yapoz
 
 The AI front desk for any business on WhatsApp, Telegram and Instagram. An owner signs up, explains their business in
 their own words (or uploads a menu, price list or photo of the price board), checks the draft Claude makes from it,
-connects their own chat accounts and goes live. Jawab then answers customers from that business's prices, stock, hours
+connects their own chat accounts and goes live. Yapoz then answers customers from that business's prices, stock, hours
 and policies, takes bookings (tables, appointments or day bookings), takes orders for the owner to approve, hands anything sensitive to a person, and can run
 hiring with a human **Approve** on every outbound step. One sign-in, three desks: Owner, Service, HR.
 
@@ -53,11 +53,11 @@ Generate secrets with `openssl rand -base64 48` (AUTH_SECRET) and `openssl rand 
 Every business connects its own accounts in Settings → Channels (or setup step 4). Secrets are stored AES-256-GCM
 encrypted on the business's channel row and never sent back to the browser.
 
-- **Telegram, shared Jawab bot** (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`): each business gets a customer link
+- **Telegram, shared Yapoz bot** (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`): each business gets a customer link
   `t.me/<bot>?start=<WORKSPACE>` (and a QR). For **Telegram Business** (replies from the owner's own account) the owner
   taps "Link my Telegram" (a 15-minute one-time `link_<code>`), then adds the bot under Settings → Telegram Business →
   Chatbots. In @BotFather turn on Business Mode for the shared bot.
-- **Telegram, the business's own bot:** paste a @BotFather token. Jawab checks it with `getMe` and sets a webhook to
+- **Telegram, the business's own bot:** paste a @BotFather token. Yapoz checks it with `getMe` and sets a webhook to
   `/api/webhooks/telegram/<channelId>` with its own secret token (or `npm run telegram:poll` picks it up locally).
 - **Meta app, then WhatsApp.** One Meta app serves both WhatsApp and Instagram, so it is saved once, in its own box, apart
   from the number. Five values, each stored in one place:
@@ -75,14 +75,14 @@ encrypted on the business's channel row and never sent back to the browser.
   subscribes the app to the account's webhooks; nothing is saved if any answer is no, and the message says which field to fix.
   The token's expiry is shown, with a warning when it's a temporary one. The App secret signs the webhooks (WhatsApp, and
   Instagram for that business's own account). Connections made before the Meta app box existed keep working, and saving the
-  Meta app replaces the old secret without reconnecting. Jawab then shows
+  Meta app replaces the old secret without reconnecting. Yapoz then shows
   the callback URL `/api/webhooks/whatsapp/<channelId>` and a verify token to paste into the app's webhook settings.
   Embedded Signup (one-click) needs Meta Tech Provider approval; it's the next step, not built.
-- **Instagram:** "Connect Instagram" runs Instagram Login on Jawab's Meta app (`INSTAGRAM_APP_ID`,
+- **Instagram:** "Connect Instagram" runs Instagram Login on Yapoz's Meta app (`INSTAGRAM_APP_ID`,
   `INSTAGRAM_APP_SECRET`), exchanges for a long-lived token (refreshed by the daily sweep), and subscribes the account
   to `messages` and `comments`. Until the app passes App Review, only accounts added as Instagram testers can connect.
   Webhooks for every business arrive at `/api/webhooks/instagram` and are routed by `entry.id`; each entry is accepted only if
-  its signature matches Jawab's own app (`INSTAGRAM_APP_SECRET` / `META_APP_SECRET`) or the Meta app secret of the business that owns that account.
+  its signature matches Yapoz's own app (`INSTAGRAM_APP_SECRET` / `META_APP_SECRET`) or the Meta app secret of the business that owns that account.
 
 Local development, no public URL needed: `npm run telegram:poll` (shared bot plus every connected own bot).
 Production: set `APP_URL` (https) and `TELEGRAM_WEBHOOK_SECRET`, then `npm run telegram:webhook` for the shared bot.
@@ -91,7 +91,7 @@ Production: set `APP_URL` (https) and `TELEGRAM_WEBHOOK_SECRET`, then `npm run t
 
 Create an OAuth web client, add `{APP_URL}/api/integrations/google/callback` as a redirect URI, enable the Calendar API,
 set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, then press "Connect Google Calendar" on the Interviews page.
-Without it, Jawab uses its built-in calendar and Jitsi links for video interviews.
+Without it, Yapoz uses its built-in calendar and Jitsi links for video interviews.
 
 ## Deploy
 
@@ -107,10 +107,10 @@ and retention. The live stream sets `X-Accel-Buffering: no`, so Nginx doesn't bu
 ## The demo
 
 Before you go on stage: Settings → Reset sample data on the Forno Sette owner desk (or `POST /api/demo/reset` with
-`Authorization: Bearer $DEMO_RESET_TOKEN`). Keep the site's "Ring the bell" simulator open as the fallback if any
+`Authorization: Bearer $DEMO_RESET_TOKEN`). Keep the site's live demo ("Ring the bell") open as the fallback if any
 webhook misbehaves: it goes through the exact same pipeline.
 
-1. **The pitch in one minute.** Landing page → "Get started" → sign up a new business → paste a short brief (or upload
+1. **The pitch in one minute.** Landing page → "Sign up free" → sign up a new business → paste a short brief (or upload
    a menu photo) → Draft my assistant → fix one price in Review → Save → Try it: ask a price and book for tomorrow.
 2. **Any business.** On the site, switch the simulator between the pizzeria and the salon and ask each the same kind of
    question; the salon books by service length, the pizzeria by headcount.
@@ -120,6 +120,15 @@ webhook misbehaves: it goes through the exact same pipeline.
    Draft invite → Approve → the candidate picks a time in Telegram → the Interviews calendar updates live.
 
 Turn on **Demo traffic** (Owner → Today, sample businesses only) if you want the charts to move during the pitch.
+
+### The film
+
+The 60-second film on the landing page (`public/film/`) is rendered from code: `film/film.html` and `film/*.mjs` are the
+animation (three.js, one deterministic scene, rendered frame by frame with motion blur), `film/lines.json` the voice-over
+and captions. After changing either, regenerate the voice with `python3 film/voice.py` (needs `pip install edge-tts`), then
+run `node film/render.mjs` (needs ffmpeg and Google Chrome; about 10 minutes with a GPU). `node film/render.mjs --stills 5,17,43`
+saves single frames to `film/out/stills/` for a quick check. Keep `FILM_CHAPTERS` in `src/components/site/film-player.tsx`
+in step with the scene start times.
 
 ## How it's built
 
@@ -134,7 +143,7 @@ Turn on **Demo traffic** (Owner → Today, sample businesses only) if you want t
 - Orders (`src/lib/orders.ts`, `/app/orders`): `create_order` prices every line from the catalog, checks availability, stock, size
   and delivery address, and saves a **pending** order. Nothing is promised until an owner or service user presses **Confirm**:
   that takes the stock off, tells the customer in their chat, and is logged to `events`. Ready, completed, cancelled (stock goes
-  back) and paid follow; the customer hears about confirmed, ready and cancelled. The delivery fee is agreed by the team; Jawab
+  back) and paid follow; the customer hears about confirmed, ready and cancelled. The delivery fee is agreed by the team; Yapoz
   takes no payments.
 - Setup: `src/setup/*` (website reader with a public-address check, Claude draft, importer).
 - Channels: `src/channels/connections.ts` resolves each business's credentials and routes webhooks to the right business.
@@ -145,7 +154,7 @@ Turn on **Demo traffic** (Owner → Today, sample businesses only) if you want t
 
 ### Where this differs from the original brief (`PROMPT.md`)
 
-- **One business → any business.** The brief described a single demo business; Jawab is now multi-business with
+- **One business → any business.** The brief described a single demo business; Yapoz is now multi-business with
   sign-up, a setup wizard and per-business channel connections. Forno Sette stays as a sample.
 - **Supabase Auth, Realtime and Storage** are replaced by our own sign-in (email + password, Workspace ID only when
   needed, signed cookie), Postgres LISTEN/NOTIFY for the live inbox, and files stored in Postgres.

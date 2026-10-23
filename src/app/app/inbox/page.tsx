@@ -342,7 +342,7 @@ function MessageRow({ m, busy, onApprove, onDiscard }: { m: Msg; busy: boolean; 
   const [val, setVal] = useState(m.text);
   const inbound = m.direction === "in";
   const draft = m.status === "pending_approval";
-  const who = inbound ? null : m.author === "ai" ? "Jawab" : m.authorName ?? "Staff";
+  const who = inbound ? null : m.author === "ai" ? "Yapoz" : m.authorName ?? "Staff";
   return (
     <div className={cx("flex", inbound ? "justify-start" : "justify-end")}>
       <div className={cx("max-w-[min(560px,85%)]", inbound ? "" : "text-right")}>

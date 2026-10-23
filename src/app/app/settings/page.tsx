@@ -186,7 +186,7 @@ export default function SettingsPage() {
           {data.demoMode && st.sample ? (
             <section id="demo" className="scroll-mt-6">
               <h2 className="font-display text-[22px] font-bold">Sample business</h2>
-              <p className="mt-1 text-[14px] text-muted">This is a sample workspace for trying Jawab.</p>
+              <p className="mt-1 text-[14px] text-muted">This is a sample workspace for trying Yapoz.</p>
               <label className="mt-4 flex items-center gap-3 text-[14px]">
                 <Switch checked={st.demoTraffic} onCheckedChange={(v) => quiet("/api/settings", { demoTraffic: v }, "Saved.")} label="Demo traffic" />
                 Demo traffic (replays sample conversations while Today is open)

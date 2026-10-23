@@ -5,9 +5,9 @@ import "@fontsource-variable/jetbrains-mono";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Jawab: every question, answered",
-  description: "Jawab is the AI front desk for any business: it answers your customers on WhatsApp, Telegram and Instagram from your own prices, stock and calendar, takes bookings, and hands the tricky ones to you.",
-  icons: { icon: "/bell.svg" },
+  title: "Yapoz: every question, answered",
+  description: "Yapoz is the AI front desk for any business: it answers your customers on WhatsApp, Telegram and Instagram from your own prices, stock and calendar, takes bookings, and hands the tricky ones to you.",
+  icons: { icon: "/yapoz.svg" },
 };
 
 export const viewport: Viewport = { themeColor: "#0E0D0B", width: "device-width", initialScale: 1 };

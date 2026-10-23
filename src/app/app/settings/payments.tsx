@@ -43,7 +43,7 @@ export function Payments({ initial, patch }: { initial: PaymentSettings | undefi
     <section id="payments" className="scroll-mt-6">
       <h2 className="font-display text-[22px] font-bold">Payments</h2>
       <p className="mt-1 max-w-[70ch] text-[14px] text-muted">
-        Where customers pay for orders. After they order, the assistant gives them these details and asks for the payment receipt. Jawab reads each receipt and checks it against the order and these accounts. It can&apos;t see your bank,
+        Where customers pay for orders. After they order, the assistant gives them these details and asks for the payment receipt. Yapoz reads each receipt and checks it against the order and these accounts. It can&apos;t see your bank,
         so it only advises: you decide whether to confirm.
       </p>
       <div className="mt-4 flex flex-wrap items-start justify-between gap-4 rounded-2xl border border-line p-5">

@@ -13,7 +13,7 @@ export default async function HiringLayout({ children }: { children: React.React
   if (ws?.settings.modules?.hiring) return <>{children}</>;
   return (
     <div>
-      <PageHeader title="Hiring" description="Optional. Post a role, collect applications through your Telegram bot or uploaded CVs, and let Jawab shortlist and book interviews." />
+      <PageHeader title="Hiring" description="Optional. Post a role, collect applications through your Telegram bot or uploaded CVs, and let Yapoz shortlist and book interviews." />
       <div className="max-w-[60ch] space-y-4 text-[15px]">
         <p>Hiring is switched off for this business.</p>
         <ul className="list-disc space-y-1 pl-5 text-fg-2">

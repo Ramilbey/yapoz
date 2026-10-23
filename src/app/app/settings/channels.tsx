@@ -83,7 +83,7 @@ function Telegram({ s, patch, workspaceId }: { s: ChannelStatus["telegram"]; pat
       <div className="grid gap-8 lg:grid-cols-2">
         <div>
           <p className="text-[14px] font-medium">Reply from your own Telegram account</p>
-          <p className="mt-0.5 text-[13px] text-muted">Needs Telegram Business (part of Telegram Premium). Customers message you as usual and Jawab answers for you.</p>
+          <p className="mt-0.5 text-[13px] text-muted">Needs Telegram Business (part of Telegram Premium). Customers message you as usual and Yapoz answers for you.</p>
           {s.sharedBot ? (
             <>
               <Steps
@@ -108,7 +108,7 @@ function Telegram({ s, patch, workspaceId }: { s: ChannelStatus["telegram"]; pat
               {link ? <CopyField className="mt-2" value={link.url} label="Telegram link" /> : null}
             </>
           ) : (
-            <p className="mt-2 text-[13px] text-muted">The shared Jawab bot isn&apos;t set up on this server. Connect your own bot instead.</p>
+            <p className="mt-2 text-[13px] text-muted">The shared Yapoz bot isn&apos;t set up on this server. Connect your own bot instead.</p>
           )}
           {s.businessConnections.length ? (
             <ul className="mt-3 space-y-1.5">
@@ -192,7 +192,7 @@ function sendHint(message: string) {
   return null;
 }
 
-/** Where the Meta → Jawab → customer chain breaks, from what the webhook and sender recorded. */
+/** Where the Meta → Yapoz → customer chain breaks, from what the webhook and sender recorded. */
 function WhatsAppHealth({ s }: { s: ChannelStatus["whatsapp"] }) {
   const err = s.lastSendError;
   return (
@@ -210,7 +210,7 @@ function WhatsAppHealth({ s }: { s: ChannelStatus["whatsapp"] }) {
         </>
       ) : s.lastWebhookIssue === "signature" ? (
         <p className="text-signal-ink">
-          Meta reached Jawab on {when(s.lastWebhookAt)}, but the delivery was rejected: its signature doesn&apos;t match the App secret saved in the Meta app box above. Copy the App secret from App settings → Basic of the
+          Meta reached Yapoz on {when(s.lastWebhookAt)}, but the delivery was rejected: its signature doesn&apos;t match the App secret saved in the Meta app box above. Copy the App secret from App settings → Basic of the
           app that owns this WhatsApp number, and save it there again. No need to reconnect the number.
         </p>
       ) : s.lastWebhookTest ? (
@@ -247,7 +247,7 @@ const soon = (iso: string) => new Date(iso).getTime() - Date.now() < 3 * 24 * 60
 
 /**
  * The business's Meta app, saved once and shared by WhatsApp and Instagram: Meta App ID + App secret.
- * Jawab asks Meta whether the two belong together before saving, and later uses the secret to check that
+ * Yapoz asks Meta whether the two belong together before saving, and later uses the secret to check that
  * webhooks really come from Meta.
  */
 function MetaApp({ s, needsMetaApp, patch }: { s: ChannelStatus["metaApp"]; needsMetaApp: boolean; patch: Patch }) {
@@ -260,7 +260,7 @@ function MetaApp({ s, needsMetaApp, patch }: { s: ChannelStatus["metaApp"]; need
   return (
     <Plain title="Meta app" status={s.connected ? <Chip tone="answered">{s.appName ?? `App ${s.appId ?? ""}`}</Chip> : <Chip>Not set</Chip>}>
       <p className="max-w-[72ch] text-[13.5px] text-fg-2">
-        One Meta app serves both WhatsApp and Instagram, so you save it once, here, apart from your WhatsApp number. Jawab checks the App ID and secret with Meta before saving, stores the secret encrypted, and uses it to confirm that messages really come from Meta.
+        One Meta app serves both WhatsApp and Instagram, so you save it once, here, apart from your WhatsApp number. Yapoz checks the App ID and secret with Meta before saving, stores the secret encrypted, and uses it to confirm that messages really come from Meta.
       </p>
       {needsMetaApp && !s.connected ? (
         <p className="mt-2 max-w-[72ch] text-[13px] text-signal-ink">
@@ -393,7 +393,7 @@ function WhatsApp({ s, meta, patch }: { s: ChannelStatus["whatsapp"]; meta: Chan
         </div>
       ) : !meta.connected ? (
         <p className="max-w-[72ch] text-[13.5px] text-fg-2">
-          Save your <b>Meta app</b> in the box above first. WhatsApp needs it so Jawab can check your access token with Meta and trust the messages that arrive.
+          Save your <b>Meta app</b> in the box above first. WhatsApp needs it so Yapoz can check your access token with Meta and trust the messages that arrive.
         </p>
       ) : (
         <form
@@ -411,7 +411,7 @@ function WhatsApp({ s, meta, patch }: { s: ChannelStatus["whatsapp"]; meta: Chan
           className="max-w-[720px]"
         >
           <p className="text-[13.5px] text-fg-2">
-            The number you want customers to message, on Meta app <span className="num">{meta.appId}</span>. Jawab asks Meta whether the token belongs to that app, may use WhatsApp, and whether the number is on that Business Account, before saving anything.
+            The number you want customers to message, on Meta app <span className="num">{meta.appId}</span>. Yapoz asks Meta whether the token belongs to that app, may use WhatsApp, and whether the number is on that Business Account, before saving anything.
           </p>
           <button type="button" onClick={() => setHelp((v) => !v)} className="mt-1 text-[13px] font-medium underline decoration-brass underline-offset-4" aria-expanded={help}>
             {help ? "Hide the steps" : "Where do I find these?"}
@@ -426,7 +426,7 @@ function WhatsApp({ s, meta, patch }: { s: ChannelStatus["whatsapp"]; meta: Chan
                   Business Settings → <b>System users</b>: create one, assign it your app and WhatsApp account, and generate a token with <span className="num">whatsapp_business_messaging</span> and <span className="num">whatsapp_business_management</span>. Choose <b>Never</b> for expiry. That&apos;s the <b>access token</b>.
                 </>,
                 <>
-                  The temporary token on the API Setup page stops working after 24 hours. Jawab accepts it but tells you when it will expire.
+                  The temporary token on the API Setup page stops working after 24 hours. Yapoz accepts it but tells you when it will expire.
                 </>,
               ]}
             />
@@ -479,7 +479,7 @@ function Instagram({ s, patch }: { s: ChannelStatus["instagram"]; patch: Patch }
           <a href="/api/channels/instagram/start" className="inline-flex h-10 items-center rounded-[10px] bg-brass px-4 text-sm font-medium text-ink hover:brightness-105">
             Connect Instagram
           </a>
-          <p className="mt-2 text-[12.5px] text-muted">Until Jawab&apos;s Meta app passes review, only accounts added as Instagram testers on the app can connect.</p>
+          <p className="mt-2 text-[12.5px] text-muted">Until Yapoz&apos;s Meta app passes review, only accounts added as Instagram testers on the app can connect.</p>
         </div>
       ) : (
         <p className="mt-2 text-[13px] text-muted">Instagram isn&apos;t set up on this server yet (INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET).</p>

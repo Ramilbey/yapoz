@@ -116,13 +116,13 @@ export default function RequisitionPage({ params }: { params: Promise<{ id: stri
       {criteria ? (
         <section className="mt-6 rounded-2xl border border-line bg-panel p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-[14px] text-fg-2">Criteria Jawab is ranking on. Click any chip to change it.</h2>
+            <h2 className="text-[14px] text-fg-2">Criteria Yapoz is ranking on. Click any chip to change it.</h2>
             {dirty ? <Button size="sm" variant="brass" loading={phase === "rank"} onClick={rerank}>Re-rank with these</Button> : null}
           </div>
           <CriteriaEditor c={criteria} onChange={edit} />
           {req.fairnessNotice || criteria.ignored.length ? (
             <p className="mt-4 border-t border-line pt-3 text-[14px] text-fg-2">
-              <span className="font-medium text-fg">Ranked on skills and availability only.</span> Jawab never filters or scores on gender, age, religion, ethnicity, marital status or photos, and removes names and personal details before ranking.
+              <span className="font-medium text-fg">Ranked on skills and availability only.</span> Yapoz never filters or scores on gender, age, religion, ethnicity, marital status or photos, and removes names and personal details before ranking.
               {criteria.ignored.length ? <span className="text-muted"> Left out of this search: {criteria.ignored.join(", ")}.</span> : null}
             </p>
           ) : (
@@ -151,7 +151,7 @@ export default function RequisitionPage({ params }: { params: Promise<{ id: stri
           {req.rankedAt ? <span className="num text-[12px] text-muted">ranked {new Date(req.rankedAt).toLocaleTimeString("en-MY", { hour: "numeric", minute: "2-digit" })}</span> : null}
         </div>
         {ranked.length === 0 ? (
-          <p className="max-w-[60ch] text-[15px] text-muted">Describe the role above and Jawab ranks the {data.matches.length} candidates from your own sources: the jobs channel, people who applied through the bot, and uploads.</p>
+          <p className="max-w-[60ch] text-[15px] text-muted">Describe the role above and Yapoz ranks the {data.matches.length} candidates from your own sources: the jobs channel, people who applied through the bot, and uploads.</p>
         ) : (
           <ol className="divide-y divide-line border-y border-line">
             {ranked.map((m, i) => (

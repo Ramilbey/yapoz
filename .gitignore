@@ -11,3 +11,6 @@ next-env.d.ts
 !/public/fonts/general-sans/.gitkeep
 /test-results
 /scratch
+
+# Film render scratch (frames, stills, audio bed)
+/film/out

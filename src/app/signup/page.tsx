@@ -5,7 +5,7 @@ import { AuthFrame } from "@/components/auth/frame";
 import { SignupForm } from "./form";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Set up your business · Jawab" };
+export const metadata = { title: "Set up your business · Yapoz" };
 
 export default async function SignupPage() {
   const s = await getSession();
@@ -17,7 +17,7 @@ export default async function SignupPage() {
         <ol className="space-y-3">
           {[
             ["Sign up", "your business and your owner account."],
-            ["Explain your business", "in your own words, or upload your menu or price list. Jawab drafts the rest."],
+            ["Explain your business", "in your own words, or upload your menu or price list. Yapoz drafts the rest."],
             ["Connect", "Telegram, WhatsApp and Instagram."],
             ["Go live.", "Customers get answers, bookings land in your diary, anything tricky comes to you."],
           ].map(([a, b], i) => (
@@ -28,7 +28,7 @@ export default async function SignupPage() {
           ))}
         </ol>
       }
-      footer={<>Already on Jawab? <Link href="/login" className="text-paper underline decoration-brass underline-offset-4">Sign in</Link></>}
+      footer={<>Already on Yapoz? <Link href="/login" className="text-paper underline decoration-brass underline-offset-4">Sign in</Link></>}
     >
       <SignupForm />
     </AuthFrame>

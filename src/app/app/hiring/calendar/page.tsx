@@ -72,7 +72,7 @@ function CalendarInner() {
     <div>
       <PageHeader
         title="Interviews"
-        description="HR's week. Jawab only offers times that are free here; held slots stay blocked until the candidate picks one."
+        description="HR's week. Yapoz only offers times that are free here; held slots stay blocked until the candidate picks one."
         actions={
           <>
             {data?.google.connected ? <Chip tone="answered">Google Calendar connected</Chip> : data?.google.configured ? <a href="/api/integrations/google/start" className="inline-flex h-10 items-center rounded-[10px] border border-line-strong px-4 text-sm hover:bg-raised">Connect Google Calendar</a> : <Chip>Built-in calendar</Chip>}

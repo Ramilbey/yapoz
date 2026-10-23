@@ -99,7 +99,7 @@ function ShellInner({ session, workspace, children }: { session: Session; worksp
             <path d="M16 7.2a1.7 1.7 0 0 1 1.7 1.7v.6c4.3.8 7.3 4.6 7.3 9.2v1.1H7v-1.1c0-4.6 3-8.4 7.3-9.2v-.6A1.7 1.7 0 0 1 16 7.2Z" fill="var(--color-brass)" />
             <rect x="5" y="21.2" width="22" height="3.2" rx="1.6" fill="var(--color-brass)" />
           </svg>
-          <span className="font-display text-[22px] font-extrabold">Jawab</span>
+          <span className="font-display text-[22px] font-extrabold">Yapoz</span>
         </Link>
         <div className="mt-5 rounded-xl border border-line px-3 py-2.5">
           <div className="text-[14px] font-medium leading-tight">{workspace.name}</div>
@@ -162,7 +162,7 @@ function ShellInner({ session, workspace, children }: { session: Session; worksp
     <div className="min-h-dvh bg-bg text-fg">
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-[248px] border-r border-line bg-panel lg:block">{rail}</aside>
       <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-line bg-panel px-4 lg:hidden">
-        <span className="font-display text-[20px] font-extrabold">Jawab</span>
+        <span className="font-display text-[20px] font-extrabold">Yapoz</span>
         <button onClick={() => setOpen((v) => !v)} className="h-9 rounded-lg border border-line px-3 text-[13px]" aria-expanded={open}>
           {open ? "Close" : "Menu"}
         </button>

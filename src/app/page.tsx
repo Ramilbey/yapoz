@@ -2,7 +2,13 @@ import { db } from "@/db";
 import { sql } from "drizzle-orm";
 import { env } from "@/lib/env";
 import { sampleWorkspaces } from "@/lib/samples";
+import { Anybody, Familjen_Grotesk, Martian_Mono } from "next/font/google";
 import { Site, type SiteStats } from "@/components/site/site";
+
+// Anybody is a variable font with a width axis: expanded for headlines, squeezed and slanted for the accent word.
+const anybody = Anybody({ subsets: ["latin"], axes: ["wdth"], style: ["normal", "italic"], variable: "--font-anybody", display: "swap" });
+const familjen = Familjen_Grotesk({ subsets: ["latin"], variable: "--font-familjen", display: "swap" });
+const martian = Martian_Mono({ subsets: ["latin"], axes: ["wdth"], variable: "--font-martian", display: "swap" });
 
 export const dynamic = "force-dynamic";
 
@@ -28,5 +34,9 @@ async function stats(): Promise<SiteStats> {
 }
 
 export default async function Home() {
-  return <Site stats={await stats()} />;
+  return (
+    <div className={`${anybody.variable} ${familjen.variable} ${martian.variable}`}>
+      <Site stats={await stats()} />
+    </div>
+  );
 }

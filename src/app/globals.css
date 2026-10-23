@@ -168,3 +168,84 @@ body {
   scrollbar-width: thin;
   scrollbar-color: var(--line-strong) transparent;
 }
+
+/* Landing page (Yapoz). Scoped to .yp so the dashboard keeps its own palette. */
+@theme {
+  --color-yp-ink: #06080e;
+  --color-yp-panel: #0c111c;
+  --color-yp-raised: #141b2b;
+  --color-yp-line: #1f2840;
+  --color-yp-line2: #2c3752;
+  --color-yp-frost: #eaf0fb;
+  --color-yp-fog: #b3bdd2;
+  --color-yp-smoke: #8591ac;
+  --color-yp-cobalt: #3f5bff;
+  --color-yp-ice: #8da0ff;
+  --color-yp-mint: #2cf5bb;
+  --color-yp-pink: #ff4da6;
+}
+.yp {
+  background: var(--color-yp-ink);
+  color: var(--color-yp-frost);
+  font-family: var(--font-familjen), ui-sans-serif, sans-serif;
+  font-size: 16px;
+  font-feature-settings: normal;
+}
+.yp ::selection {
+  background: color-mix(in oklab, var(--color-yp-cobalt) 60%, transparent);
+}
+.yp :focus-visible {
+  outline: 2px solid var(--color-yp-mint);
+  outline-offset: 3px;
+}
+.yp-display {
+  font-family: var(--font-anybody), ui-sans-serif, sans-serif;
+  font-variation-settings: "wdth" 128;
+  font-weight: 850;
+  letter-spacing: -0.035em;
+}
+/* The accent word: the same family squeezed to its narrowest, slanted. Width contrast does the work, not a second typeface. */
+.yp-accent {
+  font-family: var(--font-anybody), ui-sans-serif, sans-serif;
+  font-style: italic;
+  font-variation-settings: "wdth" 52;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--color-yp-mint);
+}
+.yp-mono {
+  font-family: var(--font-martian), ui-monospace, monospace;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.yp-h2 {
+  font-size: clamp(40px, 6.4vw, 104px);
+  line-height: 0.9;
+}
+.yp-floor {
+  background-image: linear-gradient(#18203a 1px, transparent 1px), linear-gradient(90deg, #18203a 1px, transparent 1px);
+  background-size: 72px 72px;
+  transform: perspective(900px) rotateX(74deg);
+  transform-origin: 50% 0%;
+  mask-image: linear-gradient(to bottom, transparent, #000 30%, #000 70%, transparent);
+}
+@keyframes yp-lane {
+  from { transform: translateX(-120%); }
+  to { transform: translateX(110vw); }
+}
+@keyframes yp-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+@keyframes yp-typing {
+  0%, 60%, 100% { opacity: 0.35; transform: none; }
+  30% { opacity: 1; transform: translateY(-2px); }
+}
+.yp-typing i { animation: yp-typing 1.2s ease-in-out infinite; }
+.yp-typing i:nth-child(2) { animation-delay: 0.15s; }
+.yp-typing i:nth-child(3) { animation-delay: 0.3s; }
+@media (prefers-reduced-motion: reduce) {
+  .yp-typing i, .yp-marquee-track { animation: none !important; }
+}
+.yp-no-scrollbar { scrollbar-width: none; }
+.yp-no-scrollbar::-webkit-scrollbar { display: none; }

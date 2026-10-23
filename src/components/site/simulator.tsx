@@ -1,10 +1,11 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { cx } from "../ui/cx";
+import { Phone } from "./phones";
 
 type Accent = "telegram" | "whatsapp" | "instagram";
 type Tool = { name: string; label: string; ok: boolean; ms: number };
-type Msg = { id: string; from: "me" | "them" | "staff"; text: string; tools?: Tool[]; meta?: string; escalated?: { category: string; summary?: string }[]; pending?: boolean };
+type Msg = { id: string; from: "me" | "them" | "staff"; text: string; at: string; tools?: Tool[]; meta?: string; escalated?: { category: string; summary?: string }[]; pending?: boolean };
 
 export type SampleBusiness = { id: string; name: string; type: string | null };
 
@@ -29,18 +30,19 @@ const SUGGESTIONS: Record<string, string[]> = {
 };
 const GENERIC = ["what do you sell?", "open on sunday?", "how much?", "can I book for tomorrow?", "I want to make a complaint"];
 
-const ACCENTS: { key: Accent; label: string }[] = [
-  { key: "telegram", label: "Telegram" },
-  { key: "whatsapp", label: "WhatsApp" },
-  { key: "instagram", label: "Instagram" },
-];
-
 const CATEGORY: Record<string, string> = { partnership: "partnership", wholesale: "wholesale", complaint: "complaint", refund: "refund", allergy: "allergy", negotiation: "price negotiation", knowledge_gap: "question it couldn't answer", other: "needs a person", low_confidence: "unsure", legal: "legal", abuse: "abusive message", events_lead: "event lead", large_group: "large group" };
+
+/** The chat window dresses itself as the app you pick, so what you see is what a customer would see. */
+const SKIN: Record<Accent, { label: string; bg: string; head: string; ink: string; sub: string; me: string; biz: string; staff: string; input: string; accent: string; meR: string; bizR: string; glow: string }> = {
+  whatsapp: { label: "WhatsApp", bg: "#0B141A", head: "#1F2C34", ink: "#E9EDEF", sub: "#8696A0", me: "#005C4B", biz: "#202C33", staff: "#2A3942", input: "#1F2C34", accent: "#00A884", meR: "rounded-[10px] rounded-tr-[2px]", bizR: "rounded-[10px] rounded-tl-[2px]", glow: "rgba(37,211,102,0.2)" },
+  telegram: { label: "Telegram", bg: "#0E1621", head: "#17212B", ink: "#F5F5F5", sub: "#6D7F8F", me: "#2B5278", biz: "#182533", staff: "#22313F", input: "#17212B", accent: "#6AB2F2", meR: "rounded-[16px] rounded-br-[4px]", bizR: "rounded-[16px] rounded-bl-[4px]", glow: "rgba(106,178,242,0.22)" },
+  instagram: { label: "Instagram", bg: "#000000", head: "#000000", ink: "#FFFFFF", sub: "#A8A8A8", me: "linear-gradient(180deg,#7B3FF2,#3B82F6)", biz: "#262626", staff: "#363636", input: "#000000", accent: "#3B82F6", meR: "rounded-[22px]", bizR: "rounded-[22px]", glow: "rgba(160,90,255,0.22)" },
+};
 
 function sessionId(ws: string) {
   const make = () => `web_${Math.random().toString(36).slice(2, 12)}${Date.now().toString(36)}`;
   try {
-    const k = `jawab-sim-${ws}`;
+    const k = `yapoz-sim-${ws}`;
     const v = sessionStorage.getItem(k) ?? make();
     sessionStorage.setItem(k, v);
     return v;
@@ -50,9 +52,27 @@ function sessionId(ws: string) {
 }
 
 const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+const clock = () => new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 
-export function Simulator({ compact = false, samples = [] }: { compact?: boolean; samples?: SampleBusiness[] }) {
-  const [accent, setAccent] = useState<Accent>("telegram");
+const Icon = ({ k }: { k: Accent }) =>
+  k === "whatsapp" ? (
+    <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" aria-hidden>
+      <path d="M8 1.8 A6.2 6.2 0 1 1 3 12.4 L1.8 14.2 L2.4 11.4 A6.2 6.2 0 0 1 8 1.8 Z" />
+    </svg>
+  ) : k === "telegram" ? (
+    <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" aria-hidden>
+      <path d="M14 2 L2 7.2 L6.5 8.8 L8.2 13.5 Z M6.5 8.8 L14 2" />
+    </svg>
+  ) : (
+    <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
+      <rect x="2" y="2" width="12" height="12" rx="3.5" />
+      <circle cx="8" cy="8" r="2.8" />
+      <circle cx="11.4" cy="4.6" r="0.8" fill="currentColor" stroke="none" />
+    </svg>
+  );
+
+export function Simulator({ samples = [] }: { compact?: boolean; samples?: SampleBusiness[] }) {
+  const [accent, setAccent] = useState<Accent>("whatsapp");
   const [biz, setBiz] = useState<SampleBusiness>(samples[0] ?? { id: "FORNO7", name: "Forno Sette", type: "pizzeria" });
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [text, setText] = useState("");
@@ -61,6 +81,7 @@ export function Simulator({ compact = false, samples = [] }: { compact?: boolean
   const [sid, setSid] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const lastCount = useRef(0);
+  const skin = SKIN[accent];
 
   useEffect(() => {
     setSid(sessionId(biz.id));
@@ -85,7 +106,7 @@ export function Simulator({ compact = false, samples = [] }: { compact?: boolean
         if (staff.length > lastCount.current) {
           const fresh = staff.slice(lastCount.current);
           lastCount.current = staff.length;
-          setMsgs((m) => [...m, ...fresh.map((s) => ({ id: s.id, from: "staff" as const, text: s.text }))]);
+          setMsgs((m) => [...m, ...fresh.map((s) => ({ id: s.id, from: "staff" as const, text: s.text, at: clock() }))]);
         }
       } catch {}
     }, 4000);
@@ -97,8 +118,7 @@ export function Simulator({ compact = false, samples = [] }: { compact?: boolean
     if (!body || busy || !sid) return;
     setText("");
     setNotice(null);
-    const mine: Msg = { id: `m${Date.now()}`, from: "me", text: body };
-    setMsgs((m) => [...m, mine]);
+    setMsgs((m) => [...m, { id: `m${Date.now()}`, from: "me", text: body, at: clock() }]);
     setBusy(true);
     try {
       const res = await fetch("/api/simulator/message", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId: sid, text: body, accent, workspace: biz.id }) });
@@ -107,13 +127,13 @@ export function Simulator({ compact = false, samples = [] }: { compact?: boolean
         setNotice(j.error ?? "No answer this time. Try again.");
         return;
       }
-      if (!j.aiConfigured) setNotice("The AI isn't configured on this server yet, so every message goes to the team.");
+      if (!j.aiConfigured) setNotice("This server has no AI key yet, so every message is passed to the team. Add GROQ_API_KEY or GEMINI_API_KEY to .env.local and restart to see real answers.");
       if (j.skipped === "takeover") {
         setNotice("A team member has taken over this chat; their reply will appear here.");
         return;
       }
-      const meta = [j.latencyMs != null ? `${(j.latencyMs / 1000).toFixed(1)}s` : null, j.model && j.model !== "none" ? j.model.replace("claude-", "") : null].filter(Boolean).join(", ");
-      setMsgs((m) => [...m, { id: `r${Date.now()}`, from: "them", text: j.reply ?? "", tools: j.tools, meta, escalated: j.escalated, pending: j.status === "pending_approval" }]);
+      const meta = [j.latencyMs != null ? `${(j.latencyMs / 1000).toFixed(1)}s` : null, j.model && j.model !== "none" ? j.model.replace("claude-", "") : null].filter(Boolean).join(" · ");
+      setMsgs((m) => [...m, { id: `r${Date.now()}`, from: "them", text: j.reply ?? "", at: clock(), tools: j.tools, meta, escalated: j.escalated, pending: j.status === "pending_approval" }]);
     } catch {
       setNotice("Couldn't reach the server. Check your connection and try again.");
     } finally {
@@ -121,57 +141,81 @@ export function Simulator({ compact = false, samples = [] }: { compact?: boolean
     }
   }
 
-  const bubbleShape = {
-    telegram: { me: "rounded-[18px] rounded-br-[6px]", them: "rounded-[18px] rounded-bl-[6px]" },
-    whatsapp: { me: "rounded-[10px] rounded-tr-[2px]", them: "rounded-[10px] rounded-tl-[2px]" },
-    instagram: { me: "rounded-[22px]", them: "rounded-[22px]" },
-  }[accent];
+  const bubbleStyle = (who: Msg["from"]) => ({ background: who === "me" ? skin.me : who === "staff" ? skin.staff : skin.biz, color: skin.ink });
 
   return (
-    <div className={cx("grid gap-6", compact ? "" : "lg:grid-cols-[minmax(320px,400px)_1fr]")}>
-      <div className="mx-auto w-full max-w-[400px] rounded-[38px] border border-paper/15 bg-[#151411] p-2.5 shadow-[0_40px_120px_-40px_rgba(200,160,72,0.25)]">
-        <div className="flex h-[620px] max-h-[78vh] flex-col overflow-hidden rounded-[30px] bg-ink">
-          <div className="flex items-center gap-3 border-b border-paper/10 px-4 py-3">
-            <span className="grid h-9 w-9 place-items-center rounded-full bg-brass font-display text-[15px] font-extrabold text-ink">{initials(biz.name)}</span>
-            <div className="min-w-0 flex-1">
-              <div className="text-[15px] font-medium text-paper">{biz.name}</div>
-              <div className="text-[12px] text-paper/50">{busy ? "typing…" : `Simulator, shown as ${ACCENTS.find((a) => a.key === accent)?.label}`}</div>
-            </div>
+    <div className="grid items-start gap-10 lg:grid-cols-[auto_1fr] lg:gap-16">
+      <div className="mx-auto">
+        <Phone className="w-[min(360px,88vw)]" glow={skin.glow}>
+          <div className="flex items-center gap-2.5 px-4 pb-2.5 pt-9" style={{ background: skin.head, color: skin.ink, borderBottom: accent === "instagram" ? "1px solid #262626" : undefined }}>
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-yp-cobalt text-[13px] font-bold text-white">{initials(biz.name)}</span>
+            <span className="min-w-0 flex-1 leading-tight">
+              <span className="block truncate text-[15px] font-medium">{accent === "instagram" ? biz.name.toLowerCase().replace(/\s+/g, ".") : biz.name}</span>
+              <span className="block text-[12px]" style={{ color: busy ? skin.accent : skin.sub }}>
+                {busy ? "typing…" : accent === "telegram" ? "bot" : accent === "instagram" ? "Active now" : "online"}
+              </span>
+            </span>
+            <span className="text-[11px] uppercase tracking-wide" style={{ color: skin.sub }}>
+              {skin.label}
+            </span>
           </div>
-          <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto px-3 py-4 scrollbar-thin" aria-live="polite">
+
+          <div ref={listRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-3 scrollbar-thin" style={{ background: skin.bg }} aria-live="polite">
             {msgs.length === 0 ? (
-              <p className="mx-auto mt-10 max-w-[30ch] text-center text-[13px] text-paper/45">Ask {biz.name} anything a customer would. Pick a suggestion below or type your own.</p>
+              <p className="mx-auto mt-16 max-w-[26ch] text-center text-[14px] leading-relaxed" style={{ color: skin.sub }}>
+                Ask {biz.name} anything a customer would. Tap a suggestion below, or type your own.
+              </p>
             ) : null}
             {msgs.map((m) => (
               <div key={m.id} className={cx("flex flex-col", m.from === "me" ? "items-end" : "items-start")}>
-                <div className={cx("max-w-[85%] whitespace-pre-wrap px-3.5 py-2 text-[14.5px] leading-snug", m.from === "me" ? `bg-paper text-ink ${bubbleShape.me}` : m.from === "staff" ? `border border-paper/30 text-paper ${bubbleShape.them}` : `bg-[#24221d] text-paper ${bubbleShape.them}`)}>
+                <div className={cx("max-w-[86%] whitespace-pre-wrap px-3 py-2 text-[14.5px] leading-snug", m.from === "me" ? skin.meR : skin.bizR)} style={bubbleStyle(m.from)}>
                   {m.text}
+                  <span className="float-right ml-3 mt-1.5 text-[10px]" style={{ color: skin.sub }}>
+                    {m.at}
+                  </span>
                 </div>
-                {m.from === "staff" ? <span className="mt-1 text-[11px] text-paper/45">a person from the team</span> : null}
+                {m.from === "staff" ? (
+                  <span className="mt-1 text-[11px]" style={{ color: skin.sub }}>
+                    a person from the team
+                  </span>
+                ) : null}
                 {m.tools?.length ? (
                   <ul className="mt-1.5 space-y-0.5 pl-1">
                     {m.tools.map((t, i) => (
-                      <li key={i} className={cx("font-mono text-[11px]", t.ok ? "text-answered/85" : "text-signal")}>{t.label}</li>
+                      <li key={i} className={cx("yp-mono text-[10.5px]", t.ok ? "text-yp-mint" : "text-yp-pink")}>
+                        {t.label}
+                      </li>
                     ))}
                   </ul>
                 ) : null}
-                {m.escalated?.length ? <span className="mt-1 pl-1 text-[11px] text-signal">Handed to the team: {CATEGORY[m.escalated[0].category] ?? m.escalated[0].category}</span> : null}
-                {m.pending ? <span className="mt-1 pl-1 text-[11px] text-brass">Copilot mode: drafted, waiting for staff approval</span> : null}
-                {m.meta ? <span className="mt-0.5 pl-1 font-mono text-[10.5px] text-paper/35">{m.meta}</span> : null}
+                {m.escalated?.length ? <span className="mt-1 pl-1 text-[11px] text-yp-pink">Handed to the team: {CATEGORY[m.escalated[0].category] ?? m.escalated[0].category}</span> : null}
+                {m.pending ? <span className="mt-1 pl-1 text-[11px] text-yp-ice">Copilot mode: drafted, waiting for staff approval</span> : null}
+                {m.meta ? (
+                  <span className="yp-mono mt-0.5 pl-1 text-[10px]" style={{ color: skin.sub }}>
+                    {m.meta}
+                  </span>
+                ) : null}
               </div>
             ))}
             {busy ? (
-              <div className="flex items-center gap-1 pl-2" aria-label={`${biz.name} is typing`}>
-                {[0, 1, 2].map((i) => (
-                  <span key={i} className="h-1.5 w-1.5 animate-bounce rounded-full bg-paper/50" style={{ animationDelay: `${i * 120}ms` }} />
-                ))}
+              <div className="flex">
+                <span className={cx("yp-typing inline-flex gap-1 px-3.5 py-3", skin.bizR)} style={{ background: skin.biz }} aria-label={`${biz.name} is typing`}>
+                  {[0, 1, 2].map((i) => (
+                    <i key={i} className="block h-1.5 w-1.5 rounded-full" style={{ background: skin.sub }} />
+                  ))}
+                </span>
               </div>
             ) : null}
           </div>
-          {notice ? <p className="border-t border-paper/10 px-4 py-2 text-[12px] text-brass">{notice}</p> : null}
-          <div className="flex gap-1.5 overflow-x-auto border-t border-paper/10 px-3 py-2 scrollbar-thin">
+
+          {notice ? (
+            <p className="px-3 py-2 text-[11.5px] leading-snug" style={{ background: skin.bg, color: "#8DA0FF", borderTop: `1px solid ${skin.head}` }}>
+              {notice}
+            </p>
+          ) : null}
+          <div className="yp-no-scrollbar flex gap-1.5 overflow-x-auto px-3 py-2" style={{ background: skin.bg, borderTop: `1px solid ${skin.head}` }}>
             {suggestions.map((s) => (
-              <button key={s} disabled={busy} onClick={() => sendMsg(s)} className="shrink-0 rounded-full border border-paper/15 px-3 py-1.5 text-[12px] text-paper/80 hover:border-brass hover:text-paper disabled:opacity-40" data-cursor>
+              <button key={s} disabled={busy} onClick={() => sendMsg(s)} className="shrink-0 rounded-full border px-3 py-1.5 text-[12px] transition hover:brightness-125 disabled:opacity-40" style={{ borderColor: skin.sub + "66", color: skin.ink }}>
                 {s.length > 34 ? s.slice(0, 32) + "…" : s}
               </button>
             ))}
@@ -181,45 +225,60 @@ export function Simulator({ compact = false, samples = [] }: { compact?: boolean
               e.preventDefault();
               void sendMsg(text);
             }}
-            className="flex items-center gap-2 border-t border-paper/10 p-2.5"
+            className="flex items-center gap-2 px-2.5 pb-5 pt-2"
+            style={{ background: skin.bg }}
           >
-            <input value={text} onChange={(e) => setText(e.target.value)} maxLength={500} placeholder="Message" aria-label={`Message ${biz.name}`} className="h-10 flex-1 rounded-full bg-[#1d1b17] px-4 text-[14px] text-paper placeholder:text-paper/35 focus:outline-none focus:ring-1 focus:ring-brass" />
-            <button disabled={busy || !text.trim()} className="h-10 rounded-full bg-signal px-4 text-[14px] font-semibold text-ink disabled:opacity-40" data-cursor>
+            <input value={text} onChange={(e) => setText(e.target.value)} maxLength={500} placeholder={accent === "instagram" ? "Message..." : "Message"} aria-label={`Message ${biz.name}`} className="h-10 min-w-0 flex-1 rounded-full px-4 text-[14px] focus:outline-none focus:ring-1" style={{ background: skin.input, color: skin.ink, border: accent === "instagram" ? "1px solid #363636" : "none", ["--tw-ring-color" as string]: skin.accent }} />
+            <button disabled={busy || !text.trim()} className="grid h-10 shrink-0 place-items-center rounded-full px-4 text-[14px] font-semibold text-white transition disabled:opacity-40" style={{ background: skin.accent }} aria-label="Send">
               Send
             </button>
           </form>
-        </div>
+        </Phone>
       </div>
-      {!compact ? (
-        <div className="self-center">
-          {samples.length > 1 ? (
-            <div className="mb-6">
-              <p className="mb-2 text-[13px] text-paper/50">Sample business</p>
-              <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Sample business">
-                {samples.map((b) => (
-                  <button key={b.id} role="radio" aria-checked={biz.id === b.id} onClick={() => setBiz(b)} className={cx("rounded-2xl border px-4 py-3 text-left transition", biz.id === b.id ? "border-brass bg-brass/10" : "border-paper/15 hover:border-paper/40")} data-cursor>
-                    <span className="block text-[15px] text-paper">{b.name}</span>
-                    <span className="block text-[12.5px] capitalize text-paper/55">{b.type ?? "business"}</span>
-                  </button>
-                ))}
-              </div>
+
+      <div className="flex flex-col gap-8 self-center">
+        {samples.length > 1 ? (
+          <div>
+            <p className="yp-mono mb-3 text-[11px] uppercase text-yp-smoke">1 · Pick a business</p>
+            <div className="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Sample business">
+              {samples.map((b) => (
+                <button key={b.id} role="radio" aria-checked={biz.id === b.id} onClick={() => setBiz(b)} className={cx("flex items-center gap-3 rounded-2xl border px-4 py-3.5 text-left transition", biz.id === b.id ? "border-yp-mint bg-yp-mint/10" : "border-yp-line2 hover:border-yp-smoke")}>
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-yp-cobalt text-[13px] font-bold text-white">{initials(b.name)}</span>
+                  <span>
+                    <span className="block text-[16px] text-yp-frost">{b.name}</span>
+                    <span className="block text-[13px] capitalize text-yp-smoke">{b.type ?? "business"}</span>
+                  </span>
+                </button>
+              ))}
             </div>
-          ) : null}
-          <p className="mb-2 text-[13px] text-paper/50">Shown as</p>
-          <div className="flex gap-1 rounded-full border border-paper/15 p-1" role="radiogroup" aria-label="Show the simulator as">
-            {ACCENTS.map((a) => (
-              <button key={a.key} role="radio" aria-checked={accent === a.key} onClick={() => setAccent(a.key)} className={cx("h-9 flex-1 rounded-full px-4 text-[13px]", accent === a.key ? "bg-paper text-ink" : "text-paper/70 hover:text-paper")} data-cursor>
-                {a.label}
+          </div>
+        ) : null}
+
+        <div>
+          <p className="yp-mono mb-3 text-[11px] uppercase text-yp-smoke">2 · See it as your customer would</p>
+          <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Show the chat as">
+            {(Object.keys(SKIN) as Accent[]).map((k) => (
+              <button key={k} role="radio" aria-checked={accent === k} onClick={() => setAccent(k)} className={cx("flex h-12 items-center justify-center gap-2 rounded-2xl border text-[14px] transition", accent === k ? "border-yp-frost bg-yp-frost font-medium text-yp-ink" : "border-yp-line2 text-yp-fog hover:border-yp-smoke hover:text-yp-frost")}>
+                <Icon k={k} />
+                {SKIN[k].label}
               </button>
             ))}
           </div>
-          <ul className="mt-8 space-y-5 text-[16px] leading-relaxed text-paper/75">
-            <li><span className="text-paper">This is the real assistant.</span> Same pipeline, tools and knowledge as on Telegram, WhatsApp and Instagram; only the window is different.</li>
-            <li><span className="text-paper">Every fact is checked.</span> The lines under each reply are the lookups it made: prices, stock, free slots, hours.</li>
-            <li><span className="text-paper">It stays on topic.</span> Ask it for an essay and it politely declines. Complain, and it hands you to a person.</li>
-          </ul>
         </div>
-      ) : null}
+
+        <ul className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
+          {[
+            ["This is the real assistant.", "Same pipeline, tools and knowledge as on WhatsApp, Telegram and Instagram. Only the window is different."],
+            ["Every fact is checked.", "The green lines under each reply are the lookups it made: prices, stock, free slots, hours."],
+            ["It stays on topic.", "Ask it for an essay and it politely declines. Complain, and it hands you to a person."],
+          ].map(([t, d]) => (
+            <li key={t} className="rounded-2xl border border-yp-line bg-yp-panel px-4 py-3.5">
+              <p className="text-[15px] font-medium text-yp-frost">{t}</p>
+              <p className="mt-1 text-[14px] leading-relaxed text-yp-fog">{d}</p>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }

@@ -18,7 +18,7 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
   return (
     <AuthFrame
       headline={inv ? <>Join<br /><span className="accent-word text-brass">{inv.ws}</span>.</> : <>This link<br />has <span className="accent-word text-brass">expired</span>.</>}
-      lede={inv ? <>You&apos;ve been invited to {DESK[inv.role]} on Jawab.</> : "Invites last 7 days and work once. Ask the owner for a new link."}
+      lede={inv ? <>You&apos;ve been invited to {DESK[inv.role]} on Yapoz.</> : "Invites last 7 days and work once. Ask the owner for a new link."}
       footer={<Link href="/login" className="underline decoration-brass underline-offset-4">Sign in instead</Link>}
     >
       {inv ? <AcceptForm token={token} email={inv.email} workspaceId={inv.wsId} /> : <p className="text-paper/70">Nothing to do here.</p>}
