@@ -23,10 +23,10 @@ export type SiteStats = { channels: { channel: string; n: number }[]; days: numb
 type Mode = "full" | "touch" | "lite";
 
 const STEPS = [
-  { n: "01", t: "Sign up", d: "Your business name and an owner login. Two minutes, no card." },
-  { n: "02", t: "Explain your business", d: "Describe it in your own words, the way you would brief a new hire, or upload a menu, a price list or a photo of the board. Claude drafts your products, prices, hours, booking rules and FAQs; you check each one." },
-  { n: "03", t: "Connect your chats", d: "Telegram in one tap, WhatsApp with your Business Platform number, Instagram by signing in. Customers keep using the apps they already use." },
-  { n: "04", t: "Go live", d: "Replies in seconds, bookings into free slots, orders held for your yes, and anything it isn't sure of handed to a person." },
+  { n: "01", t: "Sign up", min: 2, d: "Your business name and an owner login. Two minutes, no card." },
+  { n: "02", t: "Explain your business", min: 5, d: "Describe it in your own words, the way you would brief a new hire, or upload a menu, a price list or a photo of the board. Claude drafts your products, prices, hours, booking rules and FAQs; you check each one." },
+  { n: "03", t: "Connect your chats", min: 3, d: "Telegram in one tap, WhatsApp with your Business Platform number, Instagram by signing in. Customers keep using the apps they already use." },
+  { n: "04", t: "Go live", min: 0, d: "Replies in seconds, bookings into free slots, orders held for your yes, and anything it isn't sure of handed to a person." },
 ];
 
 const KINDS = [
@@ -203,12 +203,31 @@ export function Site({ stats }: { stats: SiteStats }) {
         "+=130%",
       );
 
-      // 04: how it works. The four steps rise in once, fully visible, and stay put (no scrubbing back and forth).
+      // 04: how it works. Once, and it stays: the steps rise in one by one while a clock runs from 00:00 to 10:00.
       {
         const tl = gsap.timeline({ paused: true });
-        tl.from(q(".how-step"), { opacity: 0, y: 46, rotateX: -16, transformPerspective: 900, transformOrigin: "50% 100%", stagger: 0.14, duration: 0.85, ease: "power3.out" }, 0);
-        tl.fromTo(q(".how-bar"), { scaleX: 0 }, { scaleX: 1, stagger: 0.14, duration: 0.9, ease: "power2.out" }, 0.15);
-        ScrollTrigger.create({ trigger: "#how-steps", start: "top 82%", once: true, onEnter: () => void tl.play() });
+        const clock = q(".how-clock")[0];
+        const face = q(".how-time")[0];
+        const steps = q(".how-step");
+        const mins = STEPS.map((x) => x.min);
+        const o = { v: 0 };
+        const show = () => {
+          const sec = Math.round(o.v * 60);
+          if (face) face.textContent = `${String(Math.floor(sec / 60)).padStart(2, "0")}:${String(sec % 60).padStart(2, "0")}`;
+        };
+        let at = 0;
+        let total = 0;
+        steps.forEach((el, i) => {
+          total += mins[i];
+          tl.from(el, { opacity: 0, y: 54, rotateX: -18, transformPerspective: 900, transformOrigin: "50% 100%", duration: 0.8, ease: "power3.out" }, at);
+          tl.fromTo(el.querySelector(".how-bar"), { scaleX: 0 }, { scaleX: 1, duration: 0.9, ease: "power2.out" }, at + 0.1);
+          tl.fromTo(el.querySelector(".how-chip"), { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: 0.4, ease: "back.out(2.4)" }, at + 0.5);
+          if (mins[i] > 0) tl.to(o, { v: total, duration: 0.9, ease: "power2.inOut", onUpdate: show }, at + 0.1);
+          at += 1.0;
+        });
+        tl.fromTo(clock, { scale: 1 }, { scale: 1.06, duration: 0.18, yoyo: true, repeat: 1, ease: "power2.out" }, at - 0.1);
+        tl.to(face, { color: "#2CF5BB", duration: 0.3 }, at - 0.1);
+        ScrollTrigger.create({ trigger: "#how-steps", start: "top 85%", once: true, onEnter: () => void tl.play() });
       }
 
       // 05: teach it once (horizontal on desktop; swipeable on phones).
@@ -243,8 +262,7 @@ export function Site({ stats }: { stats: SiteStats }) {
       };
       if (full) {
         const ev = gsap.timeline({ scrollTrigger: { trigger: "#everywhere", start: "top top", end: "+=220%", scrub: 0.7, pin: true, pinSpacing: true, invalidateOnRefresh: true } });
-        ev.fromTo(q(".ph"), { y: 420, rotateX: 40, opacity: 0, transformPerspective: 1700 }, { y: 0, rotateX: 0, opacity: 1, stagger: 0.12, duration: 0.55, ease: "power3.out" }, 0);
-        ev.fromTo(q(".phones-stage"), { rotateY: 12 }, { rotateY: -12, duration: 5.2, ease: "none" }, 0);
+        ev.fromTo(q(".ph"), { y: 420, opacity: 0 }, { y: 0, opacity: 1, stagger: 0.12, duration: 0.55, ease: "power3.out" }, 0);
         typeChat(ev, ".ph-wa", 0.6);
         typeChat(ev, ".ph-tg", 1.0);
         typeChat(ev, ".ph-ig", 1.4);
@@ -322,6 +340,15 @@ export function Site({ stats }: { stats: SiteStats }) {
             el.removeEventListener("pointerleave", leave);
           });
         });
+      }
+
+      // The wordmark in the footer rises letter by letter, once.
+      {
+        const word = q(".footer-word")[0];
+        if (word) {
+          const split = SplitText.create(word, { type: "chars", mask: "chars" });
+          gsap.from(split.chars, { yPercent: 105, duration: 1.1, ease: "expo.out", stagger: 0.08, scrollTrigger: { trigger: ".footer-word-wrap", start: "top 92%", once: true } });
+        }
       }
 
       // Section titles: words rise once on entry. Created after the pins so their positions include pin spacing.
@@ -472,17 +499,30 @@ export function Site({ stats }: { stats: SiteStats }) {
       {/* 04 HOW IT WORKS */}
       <section id="how" className="relative overflow-hidden border-t border-yp-line px-4 py-24 sm:px-8">
         <div className="mx-auto w-full max-w-[1280px]">
-          <H2>
-            Open in <span className="yp-accent text-[1.12em]">ten minutes</span>.
-          </H2>
-          <Lede>No flows to build, no bot to train. You explain your business once, the way you would brief a new hire.</Lede>
+          <div className="flex flex-wrap items-end justify-between gap-x-12 gap-y-8">
+            <div>
+              <H2>
+                Open in <span className="yp-accent text-[1.12em]">ten minutes</span>.
+              </H2>
+              <Lede>No flows to build, no bot to train. You explain your business once, the way you would brief a new hire.</Lede>
+            </div>
+            <div className="how-clock rounded-3xl border border-yp-line2 bg-yp-panel px-6 py-4 text-right" aria-label="Setup takes about ten minutes">
+              <div className="yp-mono text-[11px] uppercase text-yp-smoke">From sign-up to live</div>
+              <div className="how-time yp-display text-[clamp(48px,6vw,84px)] leading-none" style={{ fontVariationSettings: '"wdth" 100', fontWeight: 800 }}>
+                {lite ? "10:00" : "00:00"}
+              </div>
+            </div>
+          </div>
           <ol id="how-steps" className="mt-14 grid grid-cols-1 gap-8 md:grid-cols-2 xl:grid-cols-4">
             {STEPS.map((s) => (
               <li key={s.n} className="how-step">
                 <div className="relative h-[3px] rounded-full bg-yp-line2">
                   <div className="how-bar absolute inset-0 origin-left rounded-full bg-yp-mint" />
                 </div>
-                <div className="yp-mono mt-5 text-[12px] text-yp-mint">{s.n}</div>
+                <div className="mt-5 flex items-center justify-between">
+                  <span className="yp-mono text-[12px] text-yp-mint">{s.n}</span>
+                  <span className="how-chip yp-mono rounded-full border border-yp-line2 px-2.5 py-1 text-[11px] uppercase text-yp-fog">{s.min ? `${s.min} min` : "Live"}</span>
+                </div>
                 <h3 className="yp-display mt-1 text-[28px] leading-tight" style={{ fontVariationSettings: '"wdth" 105', fontWeight: 800 }}>
                   {s.t}
                 </h3>
@@ -627,8 +667,8 @@ export function Site({ stats }: { stats: SiteStats }) {
           </div>
 
           {full ? (
-            <div className="relative" style={{ perspective: 1900 }}>
-              <div className="phones-stage mx-auto flex items-start justify-center gap-10 [transform-style:preserve-3d]">
+            <div className="relative">
+              <div className="phones-stage mx-auto flex items-start justify-center gap-10">
                 {(
                   [
                     ["tg", "telegram", <TelegramChat key="tg" className={phoneW} />],
@@ -636,7 +676,7 @@ export function Site({ stats }: { stats: SiteStats }) {
                     ["ig", "instagram", <InstagramChat key="ig" className={phoneW} />],
                   ] as const
                 ).map(([cls, key, phone]) => (
-                  <div key={cls} className={`ph ph-${cls} flex flex-col items-center gap-4 [transform-style:preserve-3d]`}>
+                  <div key={cls} className={`ph ph-${cls} flex flex-col items-center gap-4`}>
                     {phone}
                     <div className="flex flex-col items-center gap-1 text-center">
                       <div className="flex items-center gap-2.5">
@@ -863,22 +903,84 @@ export function Site({ stats }: { stats: SiteStats }) {
             </div>
           </div>
         </div>
-        <footer className="relative mx-auto mt-24 flex max-w-[1280px] flex-col gap-3 border-t border-yp-line pt-6 text-[13px] text-yp-smoke sm:flex-row sm:justify-between">
-          <span className="flex items-center gap-2">
-            <BellMark size={18} /> Yapoz only talks about your business.
-          </span>
-          <span>{sampleNames.length ? `${sampleNames.join(" and ")} ${sampleNames.length > 1 ? "are fictional businesses" : "is a fictional business"} made for this demo.` : "Sample businesses are fictional."}</span>
-          <span className="flex gap-4">
-            <Link href="/privacy" className="text-yp-fog hover:text-yp-frost">
-              Privacy
-            </Link>
-            <Link href="/login" className="text-yp-fog hover:text-yp-frost">
-              Log in
-            </Link>
-            <Link href="/signup" className="text-yp-fog hover:text-yp-frost">
-              Sign up
-            </Link>
-          </span>
+        <footer className="relative mx-auto mt-28 max-w-[1280px]">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-10 border-t border-yp-line pt-12 lg:grid-cols-[1.5fr_1fr_1fr_1fr]">
+            <div className="col-span-2 max-w-[34ch] lg:col-span-1">
+              <a href="#top" className="flex items-center gap-2.5" aria-label="Yapoz, back to the top">
+                <BellMark size={30} />
+                <span className="yp-display text-[24px]" style={{ fontVariationSettings: '"wdth" 120', letterSpacing: "-0.02em" }}>
+                  Yapoz
+                </span>
+              </a>
+              <p className="mt-4 text-[15px] leading-relaxed text-yp-fog">The front desk for your business on WhatsApp, Telegram and Instagram. It only ever talks about your business.</p>
+              <a href="https://github.com/gameelacademy/yapoz" target="_blank" rel="noreferrer" className="mt-5 inline-flex items-center gap-2 rounded-full border border-yp-line2 px-3.5 py-2 text-[13px] text-yp-fog transition hover:border-yp-ice hover:text-yp-frost">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
+                  <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
+                </svg>
+                Open source · Apache 2.0
+              </a>
+            </div>
+            <nav aria-label="Explore">
+              <p className="yp-mono mb-4 text-[11px] uppercase text-yp-smoke">Explore</p>
+              <ul className="space-y-2.5 text-[15px]">
+                {[["#film", "The film"], ["#how", "How it works"], ["#everywhere", "Channels"], ["#ring", "Live demo"]].map(([href, label]) => (
+                  <li key={href}>
+                    <a href={href} className="text-yp-fog transition hover:text-yp-mint">
+                      {label}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+            <nav aria-label="Account">
+              <p className="yp-mono mb-4 text-[11px] uppercase text-yp-smoke">Your desk</p>
+              <ul className="space-y-2.5 text-[15px]">
+                <li>
+                  <Link href="/signup" className="text-yp-fog transition hover:text-yp-mint">
+                    Sign up free
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/login" className="text-yp-fog transition hover:text-yp-mint">
+                    Log in
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/privacy" className="text-yp-fog transition hover:text-yp-mint">
+                    Privacy
+                  </Link>
+                </li>
+              </ul>
+            </nav>
+            <div className="col-span-2 lg:col-span-1">
+              <p className="yp-mono mb-4 text-[11px] uppercase text-yp-smoke">Works with</p>
+              <ul className="space-y-3 text-[15px]">
+                {CHANNELS.map((c) => (
+                  <li key={c.key} className="flex items-center gap-2.5 text-yp-fog">
+                    <AppIcon k={c.key} size={26} />
+                    {c.label}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          <div className="footer-word-wrap pointer-events-none relative mt-16 overflow-hidden select-none" aria-hidden style={{ WebkitMaskImage: "linear-gradient(to bottom, #000 35%, transparent 96%)", maskImage: "linear-gradient(to bottom, #000 35%, transparent 96%)" }}>
+            <div className="footer-word yp-display whitespace-nowrap text-center leading-[0.82] text-yp-frost/90" style={{ fontSize: "clamp(56px, 19vw, 290px)", fontVariationSettings: '"wdth" 128', letterSpacing: "-0.04em" }}>
+              YAPOZ
+            </div>
+          </div>
+
+          <div className="relative flex flex-col gap-3 border-t border-yp-line pt-5 text-[13px] text-yp-smoke sm:flex-row sm:items-center sm:justify-between">
+            <span>© 2026 Yapoz</span>
+            <span className="max-w-[60ch] sm:text-center">{sampleNames.length ? `${sampleNames.join(" and ")} ${sampleNames.length > 1 ? "are fictional businesses" : "is a fictional business"} made for this demo.` : "Sample businesses are fictional."}</span>
+            <a href="#top" className="inline-flex items-center gap-2 text-yp-fog transition hover:text-yp-frost">
+              Back to top
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M7 12V2M3 6l4-4 4 4" />
+              </svg>
+            </a>
+          </div>
         </footer>
       </section>
     </div>
