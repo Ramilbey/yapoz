@@ -197,89 +197,36 @@ export function Site({ stats }: { stats: SiteStats }) {
         }
       });
 
-      // 03: the film. On desktop a tilted screen rises out of the floor, flattens and grows until it fills the view while the
-      // title leaves upward; the chapters ride along under it. On touch screens it simply rises into place once.
-      if (full) {
-        const sec = q("#film")[0] as HTMLElement;
-        const wrap = q(".film-wrap")[0] as HTMLElement;
-        const vh = () => window.innerHeight;
-        const fitFilm = () => {
-          const top = document.querySelector("header")?.getBoundingClientRect().bottom ?? 0;
-          wrap.style.paddingTop = `${top}px`;
-          const room = window.innerHeight - top - 44;
-          sec.style.setProperty("--film-w", `${Math.max(480, Math.min(1480, window.innerWidth - 48, (room - 88) / 0.5625))}px`);
-        };
-        fitFilm();
-        ScrollTrigger.addEventListener("refreshInit", fitFilm);
-        cleanups.push(() => {
-          ScrollTrigger.removeEventListener("refreshInit", fitFilm);
-          wrap.style.paddingTop = "";
-          sec.style.removeProperty("--film-w");
-        });
-        const tl = gsap.timeline({ defaults: { ease: "none" }, scrollTrigger: { trigger: sec, start: "top top", end: "+=260%", scrub: 0.6, pin: true, anticipatePin: 1, invalidateOnRefresh: true } });
-        tl.fromTo(q(".film-glow"), { scale: 0.45 }, { scale: 1.35, duration: 2 }, 0);
-        tl.fromTo(q(".film-stage"), { y: () => vh() * 0.46, scale: 0.46, rotateX: 58, rotateY: -8, transformPerspective: 1700 }, { y: () => vh() * 0.1, scale: 0.62, rotateX: 0, rotateY: 0, duration: 1, ease: "power2.out" }, 0);
-        tl.to(q(".film-stage"), { y: 0, scale: 1, duration: 0.9, ease: "power2.inOut" }, 1);
-        tl.fromTo(q(".film-head"), { y: 0 }, { y: () => -vh() * 0.14, duration: 1 }, 0);
-        tl.to(q(".film-head"), { y: () => -vh() * 0.75, duration: 0.9, ease: "power2.in" }, 1);
-        tl.to({}, { duration: 0.4 });
-      } else {
-        scene("#film", (tl) => {
+      // 03: the film grows out of the dark.
+      scene(
+        "#film",
+        (tl) => {
           tl.fromTo(q(".film-head > *"), { y: 40, opacity: 0 }, { y: 0, opacity: 1, stagger: 0.1, duration: 0.4, ease: "power2.out" }, 0);
           tl.fromTo(q(".film-glow"), { scale: 0.4, opacity: 0 }, { scale: 1.3, opacity: 1, duration: 1, ease: "power1.out" }, 0);
-          tl.fromTo(q(".film-stage"), { scale: 0.92, rotateX: 10, y: 40, opacity: 0.2, transformPerspective: 1700 }, { scale: 1, rotateX: 0, y: 0, opacity: 1, duration: 1, ease: "power2.out" }, 0);
-        });
-      }
+          tl.fromTo(q(".film-stage"), { scale: full ? 0.55 : 0.92, rotateX: full ? 24 : 10, rotateY: full ? -16 : 0, y: full ? 120 : 40, opacity: 0.2, transformPerspective: 1700 }, { scale: 1, rotateX: 0, rotateY: 0, y: 0, opacity: 1, duration: 1, ease: "power2.out" }, 0);
+          if (full) tl.to({}, { duration: 0.6 });
+        },
+        "+=130%",
+      );
 
-      // 04: how it works. Driven by the scroll position and nothing else: each step's bar fills while its title and text rise
-      // through a mask and its chip lights up. On desktop the block holds still while that happens; on phones it follows the list.
-      // Everything is worked out from the scroll progress on every update, so it can never be left half done.
+      // 04: how it works. Scrubbed to the scroll position: each step's bar fills while its title and text rise through a mask,
+      // and its chip lights up. On desktop the block holds still while that happens; on phones it follows the list.
       {
-        const parts = q(".how-step").map((el) => ({
-          bar: el.querySelector(".how-bar") as HTMLElement,
-          num: el.querySelector(".how-num") as HTMLElement,
-          title: el.querySelector(".how-title") as HTMLElement,
-          text: el.querySelector(".how-text") as HTMLElement,
-          chip: el.querySelector(".how-chip") as HTMLElement,
-        }));
-        const STEP = 1.15;
-        const total = parts.length * STEP + 0.5;
-        const unit = gsap.utils.clamp(0, 1);
-        const rise = gsap.parseEase("power2.out");
-        const mix = gsap.utils.interpolate;
-        const apply = (progress: number) => {
-          const t = progress * total;
-          parts.forEach((o, i) => {
-            const at = i * STEP;
-            o.bar.style.transform = `scaleX(${unit(t - at)})`;
-            o.num.style.color = mix("#8591ac", "#2cf5bb", unit((t - at) / 0.2));
-            o.title.style.transform = `translateY(${(1 - rise(unit((t - at - 0.05) / 0.35))) * 115}%)`;
-            o.text.style.transform = `translateY(${(1 - rise(unit((t - at - 0.25) / 0.5))) * 115}%)`;
-            const lit = unit((t - at - 0.75) / 0.25);
-            o.chip.style.backgroundColor = mix("rgba(44,245,187,0)", "rgba(44,245,187,1)", lit);
-            o.chip.style.borderColor = mix("#2c3752", "#2cf5bb", lit);
-            o.chip.style.color = mix("#b3bdd2", "#06080e", lit);
-          });
-        };
-        const smooth = { p: 0 };
-        apply(0);
-        ScrollTrigger.create({
-          trigger: full ? ".how-pin" : "#how-steps",
-          start: full ? "center center" : "top 78%",
-          end: full ? "+=170%" : "bottom 52%",
-          pin: full,
-          anticipatePin: 1,
-          invalidateOnRefresh: true,
-          onUpdate: (self) => void gsap.to(smooth, { p: self.progress, duration: 0.5, ease: "power3.out", overwrite: true, onUpdate: () => apply(smooth.p) }),
-          onRefresh: (self) => {
-            smooth.p = self.progress;
-            apply(smooth.p);
-          },
+        const steps = q(".how-step");
+        const tl = gsap.timeline({
+          defaults: { ease: "none" },
+          scrollTrigger: full
+            ? { trigger: ".how-pin", start: "center center", end: "+=170%", pin: true, scrub: 0.6, anticipatePin: 1, invalidateOnRefresh: true }
+            : { trigger: "#how-steps", start: "top 78%", end: "bottom 52%", scrub: 0.5 },
         });
-        cleanups.push(() => {
-          gsap.killTweensOf(smooth);
-          parts.forEach((o) => [o.bar, o.num, o.title, o.text, o.chip].forEach((e) => e.removeAttribute("style")));
+        let at = 0;
+        steps.forEach((el) => {
+          tl.fromTo(el.querySelector(".how-bar"), { scaleX: 0 }, { scaleX: 1, duration: 1 }, at);
+          tl.fromTo(el.querySelector(".how-num"), { color: "#8591ac" }, { color: "#2cf5bb", duration: 0.2 }, at);
+          tl.fromTo(el.querySelector(".how-chip"), { backgroundColor: "rgba(44,245,187,0)", borderColor: "#2c3752", color: "#b3bdd2" }, { backgroundColor: "#2cf5bb", borderColor: "#2cf5bb", color: "#06080e", duration: 0.25 }, at + 0.75);
+          at += 1.15;
         });
+        tl.to({}, { duration: 0.5 });
       }
 
       // 05 + 06: teach it once (horizontal on desktop; swipeable on phones). When the cards have flown into the bell, the
@@ -289,24 +236,22 @@ export function Site({ stats }: { stats: SiteStats }) {
         const dist = () => track.scrollWidth - window.innerWidth + 48;
         const PHASE_ONE = 1.7;
         const teach = gsap.timeline({ defaults: { ease: "none" } });
-        teach.fromTo(track, { x: 0 }, { x: () => -dist(), duration: 1 });
+        teach.to(track, { x: () => -dist(), duration: 1 });
         teach.fromTo(q(".teach-card"), { rotateY: 0 }, { rotateY: -14, stagger: 0.02, duration: 0.5 }, 0);
         teach.to(q(".teach-card"), { x: () => window.innerWidth * 0.18, y: 40, scale: 0.12, opacity: 0, rotate: () => gsap.utils.random(-25, 25), stagger: 0.03, ease: "power2.in", duration: 0.5 }, 0.95);
         teach.fromTo(q(".teach-bell"), { scale: 0.8 }, { scale: 1.25, ease: "back.out(3)", duration: 0.25 }, 1.35);
         teach.from(q(".teach-done"), { opacity: 0, y: 20, duration: 0.25 }, 1.45);
-        // The "whatever you sell" words and cards sit one screen to the right on the same strip. Once the cards have flown into
-        // the bell, everything moves left together: the teach page leaves, the next one is pulled in behind it.
-        const body = q(".pull-body")[0] as HTMLElement;
+        // The tab on the sheet's edge slides into view first, so there is something to pull.
+        // The sheet has to fit the screen: it sits under the header and the content is scaled down on short windows.
         const sheet = q("#any")[0] as HTMLElement;
-        let k = 1;
-        const shift = () => window.innerWidth + 160;
+        const body = q(".pull-body")[0] as HTMLElement;
         const fit = () => {
           const top = document.querySelector("header")?.getBoundingClientRect().bottom ?? 0;
           sheet.style.paddingTop = `${top}px`;
           sheet.style.paddingBottom = "20px";
           gsap.set(body, { scale: 1, marginBottom: 0 });
           const h = body.offsetHeight;
-          k = Math.min(1, (window.innerHeight - top - 40) / h);
+          const k = Math.min(1, (window.innerHeight - top - 40) / h);
           gsap.set(body, { scale: k, transformOrigin: "50% 0%", marginBottom: -h * (1 - k) });
         };
         fit();
@@ -316,14 +261,13 @@ export function Site({ stats }: { stats: SiteStats }) {
           sheet.style.paddingTop = "";
           sheet.style.paddingBottom = "";
         });
-        const P = 2.0;
-        const D = 0.95;
-        const lock = "power2.inOut";
-        teach.fromTo(track, { x: () => -dist() }, { x: () => -dist() - shift(), duration: D, ease: lock, immediateRender: false }, P);
-        teach.fromTo(q(".teach-head"), { x: 0 }, { x: () => -shift(), duration: D, ease: lock, immediateRender: false }, P);
-        teach.fromTo(q(".pull-head"), { x: () => shift() / k }, { x: 0, duration: D, ease: lock }, P);
-        teach.fromTo(q(".kind"), { x: (i) => (shift() + i * 70) / k }, { x: 0, duration: D, ease: lock }, P);
-        teach.to({}, { duration: 0.15 });
+        const P = 1.9;
+        teach.fromTo(q("#any"), { xPercent: 100 }, { xPercent: 0, duration: 0.6, ease: "power2.inOut" }, P);
+        teach.fromTo(q("#teach"), { xPercent: 0, scale: 1 }, { xPercent: -16, scale: 0.93, transformOrigin: "0% 50%", duration: 0.6, ease: "power2.inOut" }, P);
+        teach.fromTo(q(".pull-dim"), { opacity: 0 }, { opacity: 0.8, duration: 0.6 }, P);
+        teach.fromTo(q(".pull-head"), { x: 220 }, { x: 0, duration: 0.45, ease: "power3.out" }, P + 0.12);
+        teach.fromTo(q(".kind"), { x: 340 }, { x: 0, stagger: 0.03, duration: 0.4, ease: "power3.out" }, P + 0.15);
+        teach.to({}, { duration: 0.1 });
         ScrollTrigger.create({
           animation: teach,
           trigger: "#pull",
@@ -578,38 +522,21 @@ export function Site({ stats }: { stats: SiteStats }) {
       </section>
 
       {/* 03 THE FILM */}
-      <section id="film" className={cx("relative overflow-hidden border-t border-yp-line", full ? "h-dvh" : "flex min-h-dvh items-center px-4 py-20 sm:px-8")}>
+      <section id="film" className="relative flex min-h-dvh items-center overflow-hidden border-t border-yp-line px-4 py-20 sm:px-8">
         <div className="film-glow pointer-events-none absolute left-1/2 top-1/2 h-[90vmin] w-[140vmin] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(closest-side,rgba(63,91,255,0.28),rgba(44,245,187,0.06)_55%,transparent)]" aria-hidden />
-        {full ? (
-          <>
-            <div className="yp-floor pointer-events-none absolute -bottom-[260px] -left-1/3 -right-1/3 h-[560px] opacity-60" aria-hidden />
-            <div className="film-head absolute inset-x-0 top-[30dvh] -translate-y-1/2 px-8 text-center">
-              <H2 className="mx-auto max-w-[18ch] !text-[clamp(40px,min(6.4vw,11dvh),104px)]">
+        <div className="relative mx-auto w-full max-w-[1100px]">
+          <div className="film-head mb-8 flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <H2 className="max-w-[16ch]">
                 See it in <span className="yp-accent text-[1.12em]">sixty</span> seconds.
               </H2>
-              <p className="mx-auto mt-5 max-w-[46ch] text-[17px] leading-relaxed text-yp-fog">The problem, the setup and a real conversation, start to finish. Pick a chapter, or watch it through.</p>
             </div>
-            <div className="film-wrap pointer-events-none absolute inset-0 flex items-center justify-center">
-              <div className="film-stage pointer-events-auto relative z-10 rounded-[28px]" style={{ width: "var(--film-w, min(1000px, 92vw))" }}>
-                <FilmPlayer className="[&>div:first-child]:rounded-[24px] [&>div:first-child]:border [&>div:first-child]:border-yp-line2" />
-              </div>
-            </div>
-          </>
-        ) : (
-          <div className="relative mx-auto w-full max-w-[1100px]">
-            <div className="film-head mb-8 flex flex-wrap items-end justify-between gap-4">
-              <div>
-                <H2 className="max-w-[16ch]">
-                  See it in <span className="yp-accent text-[1.12em]">sixty</span> seconds.
-                </H2>
-              </div>
-              <p className="max-w-[34ch] text-[16px] leading-relaxed text-yp-fog">The problem, the setup and a real conversation, start to finish. Pick a chapter, or watch it through.</p>
-            </div>
-            <div className="film-stage mx-auto w-full max-w-[min(1000px,calc((100dvh_-_320px)*1.78))] min-w-[min(100%,300px)] rounded-[28px]">
-              <FilmPlayer className="[&>div:first-child]:rounded-[24px] [&>div:first-child]:border [&>div:first-child]:border-yp-line2" />
-            </div>
+            <p className="max-w-[34ch] text-[16px] leading-relaxed text-yp-fog">The problem, the setup and a real conversation, start to finish. Pick a chapter, or watch it through.</p>
           </div>
-        )}
+          <div className="film-stage mx-auto w-full max-w-[min(1000px,calc((100dvh_-_320px)*1.78))] min-w-[min(100%,300px)] rounded-[28px]">
+            <FilmPlayer className="[&>div:first-child]:rounded-[24px] [&>div:first-child]:border [&>div:first-child]:border-yp-line2" />
+          </div>
+        </div>
       </section>
 
       {/* 04 HOW IT WORKS */}
@@ -632,14 +559,10 @@ export function Site({ stats }: { stats: SiteStats }) {
                     <span className="how-num yp-mono text-[12px] text-yp-mint">{s.n}</span>
                     <span className="how-chip yp-mono rounded-full border border-yp-line2 px-2.5 py-1 text-[11px] uppercase text-yp-fog">{s.min ? `${s.min} min` : "Live"}</span>
                   </div>
-                  <div className="mt-1 overflow-hidden pb-1.5">
-                    <h3 className="how-title yp-display text-[28px] leading-tight" style={{ fontVariationSettings: '"wdth" 105', fontWeight: 800 }}>
-                      {s.t}
-                    </h3>
-                  </div>
-                  <div className="mt-2 overflow-hidden pb-1">
-                    <p className="how-text text-[15.5px] leading-relaxed text-yp-fog">{s.d}</p>
-                  </div>
+                  <h3 className="yp-display mt-1 text-[28px] leading-tight" style={{ fontVariationSettings: '"wdth" 105', fontWeight: 800 }}>
+                    {s.t}
+                  </h3>
+                  <p className="mt-3 text-[15.5px] leading-relaxed text-yp-fog">{s.d}</p>
                 </li>
               ))}
             </ol>
@@ -658,7 +581,7 @@ export function Site({ stats }: { stats: SiteStats }) {
       {/* 05 TEACH IT ONCE, and 06 ANY BUSINESS: on desktop the second page is pulled in from the right once the first has run its course. */}
       <div id="pull" className={cx("relative", full && "h-dvh overflow-hidden")}>
         <section id="teach" className={cx("flex flex-col justify-center overflow-hidden border-t border-yp-line py-20", full ? "absolute inset-0" : "relative min-h-dvh")}>
-          <div className="teach-head px-4 sm:px-8">
+          <div className="px-4 sm:px-8">
             <div className="mx-auto max-w-[1280px]">
               <H2>
                 Teach it <span className="yp-accent text-[1.12em]">once</span>.
@@ -740,9 +663,10 @@ export function Site({ stats }: { stats: SiteStats }) {
             </div>
           </div>
           {!full ? <p className="yp-mono mt-2 px-4 text-[11px] uppercase text-yp-smoke">Swipe →</p> : null}
+          {full ? <div className="pull-dim pointer-events-none absolute inset-0 bg-yp-ink opacity-0" aria-hidden /> : null}
         </section>
 
-        <section id="any" className={cx("px-4 sm:px-8", full ? "pointer-events-none absolute inset-0 z-10 flex flex-col justify-center" : "relative border-t border-yp-line py-24")}>
+        <section id="any" className={cx("border-t border-yp-line px-4 sm:px-8", full ? "absolute inset-0 z-10 flex flex-col justify-center bg-yp-ink" : "relative py-24")}>
           <div className="pull-body mx-auto w-full max-w-[1280px]">
             <div className="pull-head">
               <H2 className="!text-[clamp(36px,min(6.4vw,10vh),104px)]">
@@ -752,7 +676,7 @@ export function Site({ stats }: { stats: SiteStats }) {
             </div>
             <ul className="mt-[clamp(20px,4.5vh,56px)] grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {KINDS.map((k) => (
-                <li key={k.t} className={cx("kind", full && "pointer-events-auto")}>
+                <li key={k.t} className="kind">
                   {/* The CSS transition sits on this inner card: GSAP animates the <li>, and a transition there would make it read the wrong end values. */}
                   <div className="h-full rounded-3xl border border-yp-line bg-yp-panel p-6 transition duration-300 hover:-translate-y-1 hover:border-yp-ice/60 [@media(min-width:1024px)_and_(max-height:820px)]:p-4">
                     <h3 className="yp-display text-[22px]" style={{ fontVariationSettings: '"wdth" 105', fontWeight: 800 }}>
