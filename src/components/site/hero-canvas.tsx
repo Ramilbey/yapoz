@@ -148,12 +148,13 @@ function Bell({ ring }: { ring: React.RefObject<RingState> }) {
   );
 }
 
-function Capsules({ ring, sound, count }: { ring: React.RefObject<RingState>; sound: boolean; count: number }) {
+function Capsules({ ring, sound, count, clicks }: { ring: React.RefObject<RingState>; sound: boolean; count: number; clicks: React.RefObject<number> }) {
   const { viewport, size } = useThree();
   const meshes = useRef<(THREE.Group | null)[]>([]);
   const caps = useRef<Cap[]>(Array.from({ length: count }, () => ({ kind: "q", active: false, pos: new THREE.Vector3(), vel: new THREE.Vector3(), rot: 0, spin: 0, scale: 1, pair: 0, dying: 0 })));
   const [textures, setTextures] = useState<{ q: THREE.Texture[]; a: THREE.Texture[] } | null>(null);
   const spawnClock = useRef(0.6);
+  const handled = useRef(0);
   const next = useRef(0);
   const soundRef = useRef(sound);
   soundRef.current = sound;
@@ -171,7 +172,7 @@ function Capsules({ ring, sound, count }: { ring: React.RefObject<RingState>; so
     };
   }, []);
 
-  function spawn(kind: "q" | "a", pair: number, at?: THREE.Vector3) {
+  function spawn(kind: "q" | "a", pair: number, at?: THREE.Vector3, fast = false) {
     const c = caps.current.find((x) => !x.active);
     if (!c) return;
     c.active = true;
@@ -181,7 +182,7 @@ function Capsules({ ring, sound, count }: { ring: React.RefObject<RingState>; so
     c.scale = kind === "a" ? 0.3 : 1;
     if (kind === "q") {
       c.pos.set(BELL_X + (Math.random() - 0.5) * 0.7, 3.05 + Math.random() * 0.2, (Math.random() - 0.5) * 0.4);
-      c.vel.set((Math.random() - 0.5) * 0.1, -0.35, 0);
+      c.vel.set((Math.random() - 0.5) * 0.1, fast ? -2.8 : -0.35, 0);
       c.rot = (Math.random() - 0.5) * 0.7;
       c.spin = (Math.random() - 0.5) * 1.2;
     } else {
@@ -197,6 +198,12 @@ function Capsules({ ring, sound, count }: { ring: React.RefObject<RingState>; so
   useFrame((_, rawDt) => {
     if (!textures) return;
     const dt = Math.min(rawDt, 1 / 30);
+    // A click on the bell sends a question down from the top right away; it rings the bell when it lands.
+    while (handled.current < (clicks.current ?? 0)) {
+      handled.current++;
+      spawn("q", next.current++ % PAIRS.length, undefined, true);
+      spawnClock.current = Math.max(spawnClock.current, 1.9);
+    }
     spawnClock.current -= dt;
     if (spawnClock.current <= 0) {
       spawn("q", next.current++ % PAIRS.length);
@@ -307,6 +314,7 @@ class Boundary extends Component<{ children: ReactNode; fallback: ReactNode }, {
 /** `lite` is for phones and weak GPUs: no shadows, no post-processing, fewer capsules, lower pixel ratio. */
 export default function HeroCanvas({ sound, onReady, active, lite = false }: { sound: boolean; onReady?: () => void; active: boolean; lite?: boolean }) {
   const ring = useRef<RingState>({ t: 10, amp: 0 });
+  const clicks = useRef(0);
   // ?fx=low also skips shadows and post-processing (slow GPUs, headless capture).
   const [lowFx] = useState(() => lite || (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("fx") === "low"));
   return (
@@ -325,9 +333,9 @@ export default function HeroCanvas({ sound, onReady, active, lite = false }: { s
           onReady?.();
         }}
         onPointerDown={() => {
+          clicks.current += 1;
           ring.current.t = 0;
-          ring.current.amp = 1.2;
-          if (sound) ding(0.5);
+          ring.current.amp = 0.3;
         }}
       >
         <ambientLight intensity={0.08} />
@@ -344,7 +352,7 @@ export default function HeroCanvas({ sound, onReady, active, lite = false }: { s
         </Environment>
         <Counter />
         <Bell ring={ring} />
-        <Capsules ring={ring} sound={sound} count={lite ? 8 : 12} />
+        <Capsules ring={ring} sound={sound} count={lite ? 8 : 12} clicks={clicks} />
         <Rig />
         {lowFx ? null : (
           <EffectComposer multisampling={0}>

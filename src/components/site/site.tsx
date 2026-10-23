@@ -9,7 +9,7 @@ import { useGSAP } from "@gsap/react";
 import Lenis from "lenis";
 import { Preloader, ScrollProgress, SiteHeader, BellMark, StaticBell } from "./chrome";
 import { Simulator, type SampleBusiness } from "./simulator";
-import { ChatList, InstagramChat, TelegramChat, WhatsAppChat, type Chat } from "./phones";
+import { AppIcon, ChatList, InstagramChat, TelegramChat, WhatsAppChat, type Chat } from "./phones";
 import { FilmPlayer } from "./film-player";
 import { cx } from "../ui/cx";
 
@@ -361,7 +361,7 @@ export function Site({ stats }: { stats: SiteStats }) {
   const sampleNames = stats.samples.map((s) => s.name);
   const lite = mode === "lite";
   const full = mode === "full";
-  const phoneW = "w-[min(280px,calc((100dvh_-_420px)/2.07))]";
+  const phoneW = "w-[clamp(190px,calc((100dvh_-_420px)/2.07),280px)]";
 
   return (
     <div ref={root} data-theme="dark" className="yp relative overflow-x-clip">
@@ -615,13 +615,13 @@ export function Site({ stats }: { stats: SiteStats }) {
       </section>
 
       {/* 07 ANSWERED EVERYWHERE */}
-      <section id="everywhere" className="relative flex min-h-dvh items-center overflow-hidden border-t border-yp-line px-4 py-20 sm:px-8">
+      <section id="everywhere" className="relative flex min-h-dvh items-center overflow-hidden border-t border-yp-line px-4 py-20 sm:px-8 [@media(min-width:1024px)_and_(max-height:820px)]:py-14">
         <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-8 lg:gap-6">
           <div className="flex flex-wrap items-end justify-between gap-x-12 gap-y-4">
-            <H2>
+            <H2 className="!text-[clamp(36px,5vw,76px)]">
               Answered <span className="yp-accent text-[1.12em]">everywhere</span>.
             </H2>
-            <p className="max-w-[44ch] text-[16px] leading-relaxed text-yp-fog sm:text-[17px]">
+            <p className="max-w-[40ch] text-[16px] leading-relaxed text-yp-fog sm:text-[17px]">
               WhatsApp through your Business Platform number, with a live “typing…” while it writes. Telegram as a bot, or from your own account with Telegram Business. Instagram DMs and comments. One assistant, the same facts behind each.
             </p>
           </div>
@@ -638,11 +638,14 @@ export function Site({ stats }: { stats: SiteStats }) {
                 ).map(([cls, key, phone]) => (
                   <div key={cls} className={`ph ph-${cls} flex flex-col items-center gap-4 [transform-style:preserve-3d]`}>
                     {phone}
-                    <div className="text-center">
-                      <div className="yp-display text-[20px]" style={{ fontVariationSettings: '"wdth" 105', fontWeight: 800 }}>
-                        {CHANNELS.find((c) => c.key === key)!.label}
+                    <div className="flex flex-col items-center gap-1 text-center">
+                      <div className="flex items-center gap-2.5">
+                        <AppIcon k={key} size={32} />
+                        <span className="yp-display text-[20px]" style={{ fontVariationSettings: '"wdth" 105', fontWeight: 800 }}>
+                          {CHANNELS.find((c) => c.key === key)!.label}
+                        </span>
                       </div>
-                      <div className="mt-1 flex items-baseline justify-center gap-2">
+                      <div className="flex items-baseline justify-center gap-2">
                         <span className="lane-count yp-mono text-[26px] leading-none" data-n={lane(key)}>
                           0
                         </span>
@@ -657,7 +660,8 @@ export function Site({ stats }: { stats: SiteStats }) {
             <div>
               <div role="tablist" aria-label="Channel" className="mx-auto mb-6 flex w-fit gap-1 rounded-full border border-yp-line2 p-1">
                 {CHANNELS.map((c) => (
-                  <button key={c.key} role="tab" aria-selected={tab === c.key} onClick={() => setTab(c.key)} className={cx("h-10 rounded-full px-4 text-[14px] transition", tab === c.key ? "bg-yp-frost font-medium text-yp-ink" : "text-yp-fog hover:text-yp-frost")}>
+                  <button key={c.key} role="tab" aria-selected={tab === c.key} onClick={() => setTab(c.key)} className={cx("flex h-10 items-center gap-2 rounded-full pl-2 pr-4 text-[14px] transition", tab === c.key ? "bg-yp-frost font-medium text-yp-ink" : "text-yp-fog hover:text-yp-frost")}>
+                    <AppIcon k={c.key} size={24} />
                     {c.label}
                   </button>
                 ))}
@@ -673,13 +677,16 @@ export function Site({ stats }: { stats: SiteStats }) {
                     <div className="lane-count yp-mono text-[22px] leading-none" data-n={lane(c.key)}>
                       {lite ? lane(c.key).toLocaleString("en") : "0"}
                     </div>
-                    <div className="mt-1.5 text-[12px] text-yp-smoke">{c.label}</div>
+                    <div className="mt-2 flex items-center justify-center gap-1.5 text-[12px] text-yp-smoke">
+                      <AppIcon k={c.key} size={16} />
+                      {c.label}
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
           )}
-          <p className="mx-auto max-w-[70ch] text-center text-[12.5px] leading-relaxed text-yp-smoke">
+          <p className="mx-auto max-w-[70ch] text-center text-[12.5px] leading-relaxed text-yp-smoke [@media(min-width:1024px)_and_(max-height:820px)]:hidden">
             Counts are live from the sample businesses{sampleNames.length ? ` (${sampleNames.join(" and ")})` : ""} over the last {stats.days} days: {total.toLocaleString("en")} answers{stats.demoShare > 0 ? `, ${Math.round(stats.demoShare * 100)}% of them seeded demo data` : ""}. Conversations shown are illustrations.
           </p>
         </div>

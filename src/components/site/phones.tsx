@@ -73,7 +73,7 @@ const StatusBar = ({ tone = "#E9EDEF" }: { tone?: string }) => (
 /** The device: a rounded body, a thin bezel and a pill camera. Children are the screen. Callers set the width. */
 export function Phone({ children, className, glow }: { children: ReactNode; className?: string; glow?: string }) {
   return (
-    <div className={cx("relative aspect-[9/18.6] shrink-0 rounded-[40px] border border-[#2c3752] bg-[#05070c] p-[7px] shadow-[0_50px_120px_-30px_rgba(0,0,0,0.9)]", className)} style={glow ? { boxShadow: `0 50px 120px -30px rgba(0,0,0,.9), 0 0 80px -20px ${glow}` } : undefined}>
+    <div className={cx("relative aspect-[9/18.6] shrink-0 overflow-hidden rounded-[40px] border border-[#2c3752] bg-[#05070c] p-[7px] shadow-[0_50px_120px_-30px_rgba(0,0,0,0.9)]", className)} style={glow ? { boxShadow: `0 50px 120px -30px rgba(0,0,0,.9), 0 0 80px -20px ${glow}` } : undefined}>
       <div className="relative flex h-full flex-col overflow-hidden rounded-[33px] bg-black">
         <div className="absolute left-1/2 top-[7px] z-10 h-[15px] w-[74px] -translate-x-1/2 rounded-full bg-black" aria-hidden />
         {children}
@@ -310,5 +310,30 @@ export function ChatList({ className, lite }: { className?: string; lite?: boole
         ))}
       </ul>
     </Phone>
+  );
+}
+
+/** The app's own icon: a rounded square in its brand colour, with a plain white glyph. */
+export function AppIcon({ k, size = 28, className }: { k: Chat; size?: number; className?: string }) {
+  const bg = k === "whatsapp" ? "#25D366" : k === "telegram" ? "#2AABEE" : "linear-gradient(45deg,#F5A623,#D62976 45%,#7B3FF2)";
+  return (
+    <span className={cx("grid shrink-0 place-items-center", className)} style={{ width: size, height: size, borderRadius: size * 0.26, background: bg }} aria-hidden>
+      <svg width={size * 0.64} height={size * 0.64} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+        {k === "whatsapp" ? (
+          <>
+            <path d="M12 3.8a8.2 8.2 0 0 0-7 12.4L3.8 20.2l4.1-1.1A8.2 8.2 0 1 0 12 3.8z" />
+            <path d="M9.3 8.6c.1 2.3 2.2 5 5 5.9l1.3-1.4-1.8-1.1-.9.7c-.8-.4-1.5-1.1-1.9-1.9l.7-.9-1.1-1.8z" fill="#fff" strokeWidth="0.6" />
+          </>
+        ) : k === "telegram" ? (
+          <path d="M20.2 4.6 3.6 11.1l4.5 1.7 1.6 5.2 2.6-3.3 3.8 2.9L20.2 4.6zM8.1 12.8l8.2-5.2" />
+        ) : (
+          <>
+            <rect x="4" y="4" width="16" height="16" rx="4.8" />
+            <circle cx="12" cy="12" r="3.7" />
+            <circle cx="16.6" cy="7.4" r="0.6" fill="#fff" />
+          </>
+        )}
+      </svg>
+    </span>
   );
 }
