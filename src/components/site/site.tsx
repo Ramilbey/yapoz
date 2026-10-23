@@ -209,79 +209,33 @@ export function Site({ stats }: { stats: SiteStats }) {
         "+=130%",
       );
 
-      // 04: how it works. Scrubbed to the scroll position: each step's bar fills while its title and text rise through a mask,
-      // and its chip lights up. On desktop the block holds still while that happens; on phones it follows the list.
+      // 04: how it works. Once, and it stays: the steps rise in one by one as the list comes into view.
       {
-        const steps = q(".how-step");
-        const tl = gsap.timeline({
-          defaults: { ease: "none" },
-          scrollTrigger: full
-            ? { trigger: ".how-pin", start: "center center", end: "+=170%", pin: true, scrub: 0.6, anticipatePin: 1, invalidateOnRefresh: true }
-            : { trigger: "#how-steps", start: "top 78%", end: "bottom 52%", scrub: 0.5 },
-        });
+        const tl = gsap.timeline({ paused: true });
         let at = 0;
-        steps.forEach((el) => {
-          tl.fromTo(el.querySelector(".how-bar"), { scaleX: 0 }, { scaleX: 1, duration: 1 }, at);
-          tl.fromTo(el.querySelector(".how-num"), { color: "#8591ac" }, { color: "#2cf5bb", duration: 0.2 }, at);
-          tl.fromTo(el.querySelector(".how-chip"), { backgroundColor: "rgba(44,245,187,0)", borderColor: "#2c3752", color: "#b3bdd2" }, { backgroundColor: "#2cf5bb", borderColor: "#2cf5bb", color: "#06080e", duration: 0.25 }, at + 0.75);
-          at += 1.15;
+        q(".how-step").forEach((el) => {
+          tl.from(el, { opacity: 0, y: 54, rotateX: -18, transformPerspective: 900, transformOrigin: "50% 100%", duration: 0.8, ease: "power3.out" }, at);
+          tl.fromTo(el.querySelector(".how-bar"), { scaleX: 0 }, { scaleX: 1, duration: 0.9, ease: "power2.out" }, at + 0.1);
+          tl.fromTo(el.querySelector(".how-chip"), { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: 0.4, ease: "back.out(2.4)" }, at + 0.5);
+          at += 1.0;
         });
-        tl.to({}, { duration: 0.5 });
+        ScrollTrigger.create({ trigger: "#how-steps", start: "top 85%", once: true, onEnter: () => void tl.play() });
       }
 
-      // 05 + 06: teach it once (horizontal on desktop; swipeable on phones). When the cards have flown into the bell, the
-      // "whatever you sell" page is pulled in from the right like a sheet, the first page sliding back and going dark under it.
+      // 05: teach it once (horizontal on desktop; swipeable on phones).
       const track = q(".teach-track")[0] as HTMLElement | undefined;
       if (track && full) {
         const dist = () => track.scrollWidth - window.innerWidth + 48;
-        const PHASE_ONE = 1.7;
-        const teach = gsap.timeline({ defaults: { ease: "none" } });
-        teach.to(track, { x: () => -dist(), duration: 1 });
-        teach.fromTo(q(".teach-card"), { rotateY: 0 }, { rotateY: -14, stagger: 0.02, duration: 0.5 }, 0);
+        const teach = gsap.timeline({ scrollTrigger: { trigger: "#teach", start: "top top", end: () => `+=${dist() + window.innerHeight * 0.9}`, scrub: 0.7, pin: true, pinSpacing: true, invalidateOnRefresh: true } });
+        teach.to(track, { x: () => -dist(), ease: "none", duration: 1 });
+        teach.fromTo(q(".teach-card"), { rotateY: 0 }, { rotateY: -14, stagger: 0.02, duration: 0.5, ease: "none" }, 0);
         teach.to(q(".teach-card"), { x: () => window.innerWidth * 0.18, y: 40, scale: 0.12, opacity: 0, rotate: () => gsap.utils.random(-25, 25), stagger: 0.03, ease: "power2.in", duration: 0.5 }, 0.95);
         teach.fromTo(q(".teach-bell"), { scale: 0.8 }, { scale: 1.25, ease: "back.out(3)", duration: 0.25 }, 1.35);
         teach.from(q(".teach-done"), { opacity: 0, y: 20, duration: 0.25 }, 1.45);
-        // The tab on the sheet's edge slides into view first, so there is something to pull.
-        // The sheet has to fit the screen: it sits under the header and the content is scaled down on short windows.
-        const sheet = q("#any")[0] as HTMLElement;
-        const body = q(".pull-body")[0] as HTMLElement;
-        const fit = () => {
-          const top = document.querySelector("header")?.getBoundingClientRect().bottom ?? 0;
-          sheet.style.paddingTop = `${top}px`;
-          sheet.style.paddingBottom = "20px";
-          gsap.set(body, { scale: 1, marginBottom: 0 });
-          const h = body.offsetHeight;
-          const k = Math.min(1, (window.innerHeight - top - 40) / h);
-          gsap.set(body, { scale: k, transformOrigin: "50% 0%", marginBottom: -h * (1 - k) });
-        };
-        fit();
-        ScrollTrigger.addEventListener("refreshInit", fit);
-        cleanups.push(() => {
-          ScrollTrigger.removeEventListener("refreshInit", fit);
-          sheet.style.paddingTop = "";
-          sheet.style.paddingBottom = "";
-        });
-        const P = 1.9;
-        teach.fromTo(q("#any"), { xPercent: 100 }, { xPercent: 0, duration: 0.6, ease: "power2.inOut" }, P);
-        teach.fromTo(q("#teach"), { xPercent: 0, scale: 1 }, { xPercent: -16, scale: 0.93, transformOrigin: "0% 50%", duration: 0.6, ease: "power2.inOut" }, P);
-        teach.fromTo(q(".pull-dim"), { opacity: 0 }, { opacity: 0.8, duration: 0.6 }, P);
-        teach.fromTo(q(".pull-head"), { x: 220 }, { x: 0, duration: 0.45, ease: "power3.out" }, P + 0.12);
-        teach.fromTo(q(".kind"), { x: 340 }, { x: 0, stagger: 0.03, duration: 0.4, ease: "power3.out" }, P + 0.15);
-        teach.to({}, { duration: 0.1 });
-        ScrollTrigger.create({
-          animation: teach,
-          trigger: "#pull",
-          start: "top top",
-          end: () => `+=${((dist() + window.innerHeight * 0.9) / PHASE_ONE) * teach.duration()}`,
-          scrub: 0.7,
-          pin: true,
-          pinSpacing: true,
-          invalidateOnRefresh: true,
-        });
       }
 
-      // 06: any business, when it is not part of the pull above.
-      if (!full) gsap.from(q(".kind"), { opacity: 0, y: 60, rotateX: 38, transformPerspective: 900, transformOrigin: "50% 100%", stagger: 0.08, duration: 0.8, ease: "power3.out", scrollTrigger: { trigger: "#any", start: "top 68%" } });
+      // 06: any business.
+      gsap.from(q(".kind"), { opacity: 0, y: 60, rotateX: 38, transformPerspective: 900, transformOrigin: "50% 100%", stagger: 0.08, duration: 0.8, ease: "power3.out", scrollTrigger: { trigger: "#any", start: "top 68%" } });
 
       // 07: answered everywhere. Three phones fill with real-looking chats while the page is pinned.
       const typeChat = (tl: gsap.core.Timeline, sel: string, start: number) => {
@@ -395,7 +349,6 @@ export function Site({ stats }: { stats: SiteStats }) {
 
       // Section titles: words rise once on entry. Created after the pins so their positions include pin spacing.
       q(".kinetic").forEach((el) => {
-        if (full && el.closest("#any")) return;
         const s = SplitText.create(el, { type: "words", mask: "words" });
         gsap.from(s.words, { yPercent: 108, rotate: 4, duration: 0.95, ease: "expo.out", stagger: 0.045, scrollTrigger: { trigger: el, start: "top 86%" } });
       });
@@ -578,122 +531,118 @@ export function Site({ stats }: { stats: SiteStats }) {
         </div>
       </section>
 
-      {/* 05 TEACH IT ONCE, and 06 ANY BUSINESS: on desktop the second page is pulled in from the right once the first has run its course. */}
-      <div id="pull" className={cx("relative", full && "h-dvh overflow-hidden")}>
-        <section id="teach" className={cx("flex flex-col justify-center overflow-hidden border-t border-yp-line py-20", full ? "absolute inset-0" : "relative min-h-dvh")}>
-          <div className="px-4 sm:px-8">
-            <div className="mx-auto max-w-[1280px]">
-              <H2>
-                Teach it <span className="yp-accent text-[1.12em]">once</span>.
-              </H2>
-              <Lede>Type it, or upload the menu, the price list or a photo of the board. Claude turns it into prices, options, stock, hours, booking rules and FAQs. Change anything later and the next answer already knows.</Lede>
-            </div>
+      {/* 05 TEACH IT ONCE */}
+      <section id="teach" className="relative flex min-h-dvh flex-col justify-center overflow-hidden border-t border-yp-line py-20">
+        <div className="px-4 sm:px-8">
+          <div className="mx-auto max-w-[1280px]">
+            <H2>
+              Teach it <span className="yp-accent text-[1.12em]">once</span>.
+            </H2>
+            <Lede>Type it, or upload the menu, the price list or a photo of the board. Claude turns it into prices, options, stock, hours, booking rules and FAQs. Change anything later and the next answer already knows.</Lede>
           </div>
-          <div className={cx("relative mt-12", !full && "yp-no-scrollbar snap-x snap-mandatory overflow-x-auto pb-4")}>
-            <div className="teach-track flex w-max gap-5 px-4 sm:px-8">
-              <TeachCard title="A voice-note style brief">
-                <p className="text-[15px] leading-relaxed text-yp-frost/90">
-                  “We&apos;re a small salon in Mont Kiara, three stylists. Women&apos;s cut and blow-dry RM 85 short, RM 110 long. Closed Mondays. Book at least 2 hours ahead, free cancellation up to 24 hours…”
-                </p>
-              </TeachCard>
-              <TeachCard title="Price list, from a photo">
-                <table className="w-full text-[14px]">
-                  <thead>
-                    <tr className="text-left text-[12px] text-yp-smoke">
-                      <th className="font-normal">Service</th>
-                      <th className="text-right font-normal">Short</th>
-                      <th className="text-right font-normal">Long</th>
+        </div>
+        <div className={cx("relative mt-12", !full && "yp-no-scrollbar snap-x snap-mandatory overflow-x-auto pb-4")}>
+          <div className="teach-track flex w-max gap-5 px-4 sm:px-8">
+            <TeachCard title="A voice-note style brief">
+              <p className="text-[15px] leading-relaxed text-yp-frost/90">
+                “We&apos;re a small salon in Mont Kiara, three stylists. Women&apos;s cut and blow-dry RM 85 short, RM 110 long. Closed Mondays. Book at least 2 hours ahead, free cancellation up to 24 hours…”
+              </p>
+            </TeachCard>
+            <TeachCard title="Price list, from a photo">
+              <table className="w-full text-[14px]">
+                <thead>
+                  <tr className="text-left text-[12px] text-yp-smoke">
+                    <th className="font-normal">Service</th>
+                    <th className="text-right font-normal">Short</th>
+                    <th className="text-right font-normal">Long</th>
+                  </tr>
+                </thead>
+                <tbody className="yp-mono">
+                  {[["Cut and blow-dry", 85, 110], ["Full colour", 180, 260], ["Keratin", 350, 420], ["Blow-dry", 50, 70]].map(([n, a, b]) => (
+                    <tr key={n as string} className="border-t border-yp-line">
+                      <td className="py-1.5 font-[family-name:var(--font-familjen)] tracking-normal">{n}</td>
+                      <td className="text-right">{a}</td>
+                      <td className="text-right">{b}</td>
                     </tr>
-                  </thead>
-                  <tbody className="yp-mono">
-                    {[["Cut and blow-dry", 85, 110], ["Full colour", 180, 260], ["Keratin", 350, 420], ["Blow-dry", 50, 70]].map(([n, a, b]) => (
-                      <tr key={n as string} className="border-t border-yp-line">
-                        <td className="py-1.5 font-[family-name:var(--font-familjen)] tracking-normal">{n}</td>
-                        <td className="text-right">{a}</td>
-                        <td className="text-right">{b}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </TeachCard>
-              <TeachCard title="Stock by size and colour">
-                <div className="space-y-2.5 text-[14px]">
-                  {[["Charcoal", "#1c2233", [4, 9, 7, 3]], ["Ultramarine", "#3F5BFF", [2, 6, 5, 1]], ["Mint", "#2CF5BB", [0, 3, 4, 2]]].map(([c, hex, st]) => (
-                    <div key={c as string} className="flex items-center gap-3">
-                      <span className="h-5 w-5 rounded-full border border-yp-frost/30" style={{ background: hex as string }} />
-                      <span className="w-24">{c}</span>
-                      <span className="yp-mono flex gap-3 text-yp-fog">
-                        {(st as number[]).map((n, i) => (
-                          <span key={i} className={n === 0 ? "text-yp-pink" : ""}>
-                            {["S", "M", "L", "XL"][i]}
-                            {n}
-                          </span>
-                        ))}
-                      </span>
-                    </div>
                   ))}
-                </div>
-              </TeachCard>
-              <TeachCard title="Hours and bookings">
-                <dl className="yp-mono space-y-1 text-[13px]">
-                  {[["Mon", "closed"], ["Tue–Fri", "10:00–19:00"], ["Sat", "09:00–19:00"], ["Sun", "10:00–17:00"], ["Capacity", "3 stylists at once"], ["Notice", "2 hours ahead"]].map(([d, h]) => (
-                    <div key={d} className="flex justify-between gap-6">
-                      <dt className="font-[family-name:var(--font-familjen)] tracking-normal text-yp-smoke">{d}</dt>
-                      <dd>{h}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </TeachCard>
-              <TeachCard title="House rules">
-                <p className="text-[15px] leading-relaxed text-yp-frost/90">Free cancellation up to 24 hours. Patch test 48 hours before first colour. Basement parking free for 2 hours. Refunds are decided by the owner only.</p>
-              </TeachCard>
-              <TeachCard title="FAQ, as customers type it">
-                <p className="text-[15px] text-yp-fog">“how much for long hair cut ah”</p>
-                <p className="mt-1 text-[15px] text-yp-fog">“got slot this sat?”</p>
-                <p className="mt-1 text-[15px] text-yp-fog">“can pay tng?”</p>
-              </TeachCard>
-              <div className="flex w-[280px] shrink-0 snap-center items-center justify-center">
-                <div className="text-center">
-                  <div className="teach-bell inline-block">
-                    <BellMark size={120} />
+                </tbody>
+              </table>
+            </TeachCard>
+            <TeachCard title="Stock by size and colour">
+              <div className="space-y-2.5 text-[14px]">
+                {[["Charcoal", "#1c2233", [4, 9, 7, 3]], ["Ultramarine", "#3F5BFF", [2, 6, 5, 1]], ["Mint", "#2CF5BB", [0, 3, 4, 2]]].map(([c, hex, st]) => (
+                  <div key={c as string} className="flex items-center gap-3">
+                    <span className="h-5 w-5 rounded-full border border-yp-frost/30" style={{ background: hex as string }} />
+                    <span className="w-24">{c}</span>
+                    <span className="yp-mono flex gap-3 text-yp-fog">
+                      {(st as number[]).map((n, i) => (
+                        <span key={i} className={n === 0 ? "text-yp-pink" : ""}>
+                          {["S", "M", "L", "XL"][i]}
+                          {n}
+                        </span>
+                      ))}
+                    </span>
                   </div>
-                  <p className="teach-done mt-4 max-w-[26ch] text-[16px] text-yp-fog">Now it answers from your facts, and only your facts.</p>
+                ))}
+              </div>
+            </TeachCard>
+            <TeachCard title="Hours and bookings">
+              <dl className="yp-mono space-y-1 text-[13px]">
+                {[["Mon", "closed"], ["Tue–Fri", "10:00–19:00"], ["Sat", "09:00–19:00"], ["Sun", "10:00–17:00"], ["Capacity", "3 stylists at once"], ["Notice", "2 hours ahead"]].map(([d, h]) => (
+                  <div key={d} className="flex justify-between gap-6">
+                    <dt className="font-[family-name:var(--font-familjen)] tracking-normal text-yp-smoke">{d}</dt>
+                    <dd>{h}</dd>
+                  </div>
+                ))}
+              </dl>
+            </TeachCard>
+            <TeachCard title="House rules">
+              <p className="text-[15px] leading-relaxed text-yp-frost/90">Free cancellation up to 24 hours. Patch test 48 hours before first colour. Basement parking free for 2 hours. Refunds are decided by the owner only.</p>
+            </TeachCard>
+            <TeachCard title="FAQ, as customers type it">
+              <p className="text-[15px] text-yp-fog">“how much for long hair cut ah”</p>
+              <p className="mt-1 text-[15px] text-yp-fog">“got slot this sat?”</p>
+              <p className="mt-1 text-[15px] text-yp-fog">“can pay tng?”</p>
+            </TeachCard>
+            <div className="flex w-[280px] shrink-0 snap-center items-center justify-center">
+              <div className="text-center">
+                <div className="teach-bell inline-block">
+                  <BellMark size={120} />
                 </div>
+                <p className="teach-done mt-4 max-w-[26ch] text-[16px] text-yp-fog">Now it answers from your facts, and only your facts.</p>
               </div>
             </div>
           </div>
-          {!full ? <p className="yp-mono mt-2 px-4 text-[11px] uppercase text-yp-smoke">Swipe →</p> : null}
-          {full ? <div className="pull-dim pointer-events-none absolute inset-0 bg-yp-ink opacity-0" aria-hidden /> : null}
-        </section>
+        </div>
+        {!full ? <p className="yp-mono mt-2 px-4 text-[11px] uppercase text-yp-smoke">Swipe →</p> : null}
+      </section>
 
-        <section id="any" className={cx("border-t border-yp-line px-4 sm:px-8", full ? "absolute inset-0 z-10 flex flex-col justify-center bg-yp-ink" : "relative py-24")}>
-          <div className="pull-body mx-auto w-full max-w-[1280px]">
-            <div className="pull-head">
-              <H2 className="!text-[clamp(36px,min(6.4vw,10vh),104px)]">
-                Whatever you <span className="yp-accent text-[1.12em]">sell</span>.
-              </H2>
-              <Lede className="!mt-4">Tables, appointments, rooms or stock on a shelf: you describe how bookings work and Yapoz checks real availability before it promises anything.</Lede>
-            </div>
-            <ul className="mt-[clamp(20px,4.5vh,56px)] grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {KINDS.map((k) => (
-                <li key={k.t} className="kind">
-                  {/* The CSS transition sits on this inner card: GSAP animates the <li>, and a transition there would make it read the wrong end values. */}
-                  <div className="h-full rounded-3xl border border-yp-line bg-yp-panel p-6 transition duration-300 hover:-translate-y-1 hover:border-yp-ice/60 [@media(min-width:1024px)_and_(max-height:820px)]:p-4">
-                    <h3 className="yp-display text-[22px]" style={{ fontVariationSettings: '"wdth" 105', fontWeight: 800 }}>
-                      {k.t}
-                    </h3>
-                    <div className="mt-4 space-y-2">
-                      <p className="w-fit max-w-[90%] rounded-2xl rounded-bl-md bg-yp-raised px-3.5 py-2 text-[14px]">{k.q}</p>
-                      <p className="ml-auto w-fit max-w-[90%] rounded-2xl rounded-br-md bg-yp-mint px-3.5 py-2 text-[14px] font-medium text-yp-ink">{k.a}</p>
-                    </div>
-                    <p className="mt-4 text-[13px] text-yp-smoke">{k.how}</p>
+      {/* 06 ANY BUSINESS */}
+      <section id="any" className="relative border-t border-yp-line px-4 py-24 sm:px-8">
+        <div className="mx-auto max-w-[1280px]">
+          <H2>
+            Whatever you <span className="yp-accent text-[1.12em]">sell</span>.
+          </H2>
+          <Lede>Tables, appointments, rooms or stock on a shelf: you describe how bookings work and Yapoz checks real availability before it promises anything.</Lede>
+          <ul className="mt-14 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {KINDS.map((k) => (
+              <li key={k.t} className="kind">
+                {/* The CSS transition sits on this inner card: GSAP animates the <li>, and a transition there would make it read the wrong end values. */}
+                <div className="h-full rounded-3xl border border-yp-line bg-yp-panel p-6 transition duration-300 hover:-translate-y-1 hover:border-yp-ice/60">
+                  <h3 className="yp-display text-[22px]" style={{ fontVariationSettings: '"wdth" 105', fontWeight: 800 }}>
+                    {k.t}
+                  </h3>
+                  <div className="mt-5 space-y-2">
+                    <p className="w-fit max-w-[90%] rounded-2xl rounded-bl-md bg-yp-raised px-3.5 py-2 text-[14px]">{k.q}</p>
+                    <p className="ml-auto w-fit max-w-[90%] rounded-2xl rounded-br-md bg-yp-mint px-3.5 py-2 text-[14px] font-medium text-yp-ink">{k.a}</p>
                   </div>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </section>
-      </div>
+                  <p className="mt-5 text-[13px] text-yp-smoke">{k.how}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
 
       {/* 07 ANSWERED EVERYWHERE */}
       <section id="everywhere" className="relative flex min-h-dvh items-center overflow-hidden border-t border-yp-line px-4 py-20 sm:px-8 [@media(min-width:1024px)_and_(max-height:820px)]:py-14">
