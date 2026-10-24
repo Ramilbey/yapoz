@@ -168,11 +168,18 @@ Review the findings, then use **Confirm order** on an appropriate pending sample
 
 These are pre-seeded synthetic examples, not the order just created in the simulator or a newly executed receipt-extraction test. The demo workspace is shared, so another reviewer may have already changed an example's status. Existing timelines remain available for inspection.
 
-#### WhatsApp and external channels
+#### Judge access and WhatsApp restrictions
 
-Our WhatsApp test connection is restricted to authorised test numbers. We demonstrate the connected workflow in our [pitch video](https://youtu.be/2q-eszpy0OI). Reviewers can use the website simulator and dashboard without sharing private messaging credentials or obtaining WhatsApp access.
+**Our WhatsApp test number is restricted to team-authorised accounts and is not available for independent judging. Judges do not need WhatsApp access.**
 
-Use synthetic data only. Do not make a real payment, even if an example conversation displays payment instructions. Receipt submission through a connected channel uses synthetic receipts.
+1. Open [the login page](https://yapoz.vercel.app/login) and choose the **Owner** or **Service** demo account shown there. Use the Forno Sette workspace (`FORNO7`) if prompted.
+2. Open **Inbox** and **Orders** to inspect synthetic conversations, order details, receipt advice, staff approval actions and activity records.
+3. To submit a new customer text request, open [“Ring the bell” on the homepage](https://yapoz.vercel.app/#ring) in a second tab and select **Forno Sette**, then return to the dashboard to review the result.
+4. For receipt review and approval, follow the seeded sample-order instructions above. The homepage simulator accepts text only; it does not upload receipts.
+
+Our personal WhatsApp test conversations and numbers are kept separate from the judges' demo workspace. The demonstration records available to judges are synthetic. The [pitch video](https://youtu.be/2q-eszpy0OI) demonstrates our connected WhatsApp workflow.
+
+Please use only made-up information when testing. No real payment is required or processed.
 
 #### Troubleshooting
 
@@ -251,7 +258,7 @@ Some tests write to the database. Do not run them against the shared judging dep
 
 We used **Replit Agent to create the initial application structure and base code**. After our available credits were exhausted, we continued development using Claude/Claude Code and Codex, with the code maintained in GitHub and deployed on Vercel.
 
-Our [proof-of-use screenshot](submission/replit-usage.png) shows the Gameelacademy account, the **WhatsApp SME Order Desk** project and the exhausted-credit notice. Replit was our initial development platform; Vercel hosts the submitted application.
+Our [proof of use](submission/Replit%20Usage%20Proof.pdf) shows the Gameelacademy account, the **WhatsApp SME Order Desk** project and the exhausted-credit notice. Replit was our initial development platform; Vercel hosts the submitted application.
 
 ## How We Use RunPod
 
@@ -309,7 +316,7 @@ Our submission comprises the source repository, live prototype, slide deck, prel
 | `SDC2026_Yaponomics_Preliminary_Submission.pdf` | Official preliminary proposal |
 | `SDC2026_Yaponomics_Technical Tools Declaration.pdf` | Technical stack, APIs, tools and resource declarations |
 | `Yapoz-Pitch Slide Deck.pdf` | Presentation slides |
-| `replit-usage.png` | Replit proof of use |
+| `Replit Usage Proof.pdf` | Replit proof of use |
 
 ## References
 
