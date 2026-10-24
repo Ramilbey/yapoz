@@ -247,17 +247,27 @@ function searchCatalog(ctx: ToolContext, query: string) {
 }
 
 const lc = (s?: string | null) => (s ?? "").trim().toLowerCase();
-/** Size labels compared loosely: 10", 10”, 10″, 10'' and 10 inch are the same size. */
-const sizeKey = (s?: string | null) => lc(s).replace(/(\d)\s*(?:inches|inch|in)\b/g, "$1").replace(/["“”″'‘’′`]/g, "").replace(/\s+/g, " ").trim();
+/** Size labels compared loosely: 10", 10”, 10″, 10'', 10 inch and 10-inch are the same size. */
+const sizeKey = (s?: string | null) => lc(s).replace(/(\d)\s*-?\s*(?:inches|inch|in)\b/g, "$1").replace(/["“”″'‘’′`]/g, "").replace(/\s+/g, " ").trim();
+
+/** The variants a size points at: the exact label, else every label containing all its words ("regular" or "10" finds "Regular 10\""). */
+function bySize(vs: Variant[], wanted: string, raw?: string) {
+  const exact = vs.filter((v) => sizeKey(v.size) === sizeKey(wanted));
+  if (exact.length) return exact;
+  const words = sizeKey(raw ?? wanted).split(" ").filter(Boolean);
+  return words.length ? vs.filter((v) => { const have = sizeKey(v.size).split(" "); return words.every((w) => have.includes(w)); }) : [];
+}
 
 /** Which of an item's variants a customer's size / colour / option words point at. Shared by check_variant and create_order. */
 function matchVariants(item: Item, input: { size?: string; color?: string; option?: string }) {
-  const size = normSize(input.size);
+  // An item sold without sizes ("6-piece wings") reads a size the model sent as its option.
+  const sized = item.variants.some((v) => v.size);
+  const size = sized ? normSize(input.size) : null;
   const colors = [...new Set(item.variants.map((v) => v.color).filter(Boolean))] as string[];
   const color = input.color ? colors.find((c) => lc(c) === lc(input.color) || lc(c).includes(lc(input.color))) ?? null : null;
-  const optionWanted = lc(input.option);
+  const optionWanted = lc(input.option || (sized ? "" : input.size));
   let vs = item.variants;
-  if (size) vs = vs.filter((v) => sizeKey(v.size) === sizeKey(size));
+  if (size) vs = bySize(vs, size, input.size);
   if (color) vs = vs.filter((v) => v.color === color);
   let optionMatched = false;
   if (optionWanted) {
@@ -286,7 +296,7 @@ function checkVariant(ctx: ToolContext, input: { product: string; size?: string;
   };
   if (item.kind === "service") out.durationMinutes = (item.data as { durationMinutes?: number }).durationMinutes ?? null;
   if (input.color && !color) out.colorNotFound = `No colour named “${input.color}”. Available colours: ${colors.join(", ")}.`;
-  if (size && !item.variants.some((v) => sizeKey(v.size) === sizeKey(size))) out.sizeNotFound = `No size ${size}. Sizes: ${[...new Set(item.variants.map((v) => v.size).filter(Boolean))].join(", ") || "none"}.`;
+  if (size && !bySize(item.variants, size, input.size).length) out.sizeNotFound = `No size ${size}. Sizes: ${[...new Set(item.variants.map((v) => v.size).filter(Boolean))].join(", ") || "none"}.`;
   out.variants = (vs.length ? vs : item.variants).map(fmt);
   if (!madeToOrder && (size || color)) {
     out.otherInStock = item.variants.filter((v) => (v.stock ?? 0) > 0 && !vs.includes(v)).slice(0, 8).map(fmt);
