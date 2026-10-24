@@ -247,6 +247,8 @@ function searchCatalog(ctx: ToolContext, query: string) {
 }
 
 const lc = (s?: string | null) => (s ?? "").trim().toLowerCase();
+/** Size labels compared loosely: 10", 10”, 10″, 10'' and 10 inch are the same size. */
+const sizeKey = (s?: string | null) => lc(s).replace(/(\d)\s*(?:inches|inch|in)\b/g, "$1").replace(/["“”″'‘’′`]/g, "").replace(/\s+/g, " ").trim();
 
 /** Which of an item's variants a customer's size / colour / option words point at. Shared by check_variant and create_order. */
 function matchVariants(item: Item, input: { size?: string; color?: string; option?: string }) {
@@ -255,7 +257,7 @@ function matchVariants(item: Item, input: { size?: string; color?: string; optio
   const color = input.color ? colors.find((c) => lc(c) === lc(input.color) || lc(c).includes(lc(input.color))) ?? null : null;
   const optionWanted = lc(input.option);
   let vs = item.variants;
-  if (size) vs = vs.filter((v) => lc(v.size) === lc(size));
+  if (size) vs = vs.filter((v) => sizeKey(v.size) === sizeKey(size));
   if (color) vs = vs.filter((v) => v.color === color);
   let optionMatched = false;
   if (optionWanted) {
@@ -284,7 +286,7 @@ function checkVariant(ctx: ToolContext, input: { product: string; size?: string;
   };
   if (item.kind === "service") out.durationMinutes = (item.data as { durationMinutes?: number }).durationMinutes ?? null;
   if (input.color && !color) out.colorNotFound = `No colour named “${input.color}”. Available colours: ${colors.join(", ")}.`;
-  if (size && !item.variants.some((v) => lc(v.size) === lc(size))) out.sizeNotFound = `No size ${size}. Sizes: ${[...new Set(item.variants.map((v) => v.size).filter(Boolean))].join(", ") || "none"}.`;
+  if (size && !item.variants.some((v) => sizeKey(v.size) === sizeKey(size))) out.sizeNotFound = `No size ${size}. Sizes: ${[...new Set(item.variants.map((v) => v.size).filter(Boolean))].join(", ") || "none"}.`;
   out.variants = (vs.length ? vs : item.variants).map(fmt);
   if (!madeToOrder && (size || color)) {
     out.otherInStock = item.variants.filter((v) => (v.stock ?? 0) > 0 && !vs.includes(v)).slice(0, 8).map(fmt);
