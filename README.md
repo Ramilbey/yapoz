@@ -26,7 +26,7 @@ We built Yapoz to help Malaysian micro and small businesses turn customer conver
 | Live application | [yapoz.vercel.app](https://yapoz.vercel.app) |
 | Staff login | [Demo accounts](https://yapoz.vercel.app/login) |
 | Customer simulator | [Ring the bell](https://yapoz.vercel.app/#ring) |
-| Full pitch and demonstration | [Watch on YouTube](https://youtu.be/2q-eszpy0OI) |
+| Full pitch and demonstration | [Watch on YouTube](https://youtu.be/9oFCyjG2bRc) |
 | Slide deck | [Yapoz-Pitch Slide Deck.pdf](submission/Yapoz-Pitch%20Slide%20Deck.pdf) |
 | Preliminary submission | [Project proposal](submission/SDC2026_Yaponomics_Preliminary_Submission.pdf) |
 | Technical & Tools Declaration | [Tools declaration](submission/SDC2026_Yaponomics_Technical%20Tools%20Declaration.pdf) |
