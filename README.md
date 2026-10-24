@@ -30,7 +30,6 @@ We built Yapoz to help Malaysian micro and small businesses turn customer conver
 | Slide deck | [Yapoz-Pitch Slide Deck.pdf](submission/Yapoz-Pitch%20Slide%20Deck.pdf) |
 | Preliminary submission | [Project proposal](submission/SDC2026_Yaponomics_Preliminary_Submission.pdf) |
 | Technical & Tools Declaration | [Tools declaration](submission/SDC2026_Yaponomics_Technical%20Tools%20Declaration.pdf) |
-| Replit proof of use | [Replit screenshot](submission/Replit_Usage_Proof.pdf) |
 
 ## Overview
 
