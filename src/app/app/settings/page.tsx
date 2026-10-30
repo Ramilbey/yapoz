@@ -13,6 +13,7 @@ import { BusinessForm } from "@/components/app/business-form";
 import { Channels } from "./channels";
 import { TeamSection } from "./team";
 import { Payments } from "./payments";
+import { Appointments } from "./appointments";
 import type { Patch, SettingsData } from "./types";
 
 const SECTIONS = [
@@ -20,25 +21,18 @@ const SECTIONS = [
   ["channels", "Channels"],
   ["business", "Business"],
   ["payments", "Payments"],
+  ["stock", "Stock"],
+  ["appointments", "Appointments"],
   ["team", "Team"],
-  ["modules", "Hiring"],
+  ["privacy", "Privacy"],
 ] as const;
 
 export default function SettingsPage() {
   const toast = useToast();
   const router = useRouter();
   const params = useSearchParams();
-  const { data, mutate } = useSWR<SettingsData>("/api/settings", getJson);
+  const { data, mutate } = useSWR<SettingsData & { stock: StockSettings }>("/api/settings", getJson);
   const [busy, setBusy] = useState<string | null>(null);
-
-  // Coming back from Instagram's approval screen.
-  useEffect(() => {
-    const ig = params.get("instagram");
-    if (!ig) return;
-    if (ig === "connected") toast(`Instagram connected${params.get("username") ? ` as @${params.get("username")}` : ""}.`, "ok");
-    else toast(params.get("reason") ?? "Instagram didn't connect.", "error");
-    router.replace("/app/settings#channels");
-  }, [params, router, toast]);
 
   const patch: Patch = async (url, method, body, msg) => {
     try {
@@ -54,7 +48,7 @@ export default function SettingsPage() {
   const quiet = (url: string, body: unknown, msg?: string) => patch(url, "PATCH", body, msg).then(() => router.refresh()).catch(() => {});
 
   async function reset() {
-    if (!window.confirm("Reset the sample businesses to their seeded state? Live conversations, bookings and hiring progress are wiped.")) return;
+    if (!window.confirm("Reset the sample businesses to their seeded state? Live conversations and orders are wiped.")) return;
     setBusy("reset");
     try {
       await send("/api/demo/reset", "POST");
@@ -121,11 +115,7 @@ export default function SettingsPage() {
                 />
                 <p className="mt-1 text-[12.5px] text-muted">Higher sends more questions to your team. Complaints, refunds and allergy or medical questions always go to a person.</p>
               </div>
-              <div className="text-[13.5px]">
-                {data.ai.configured ? <Chip tone="answered">Claude connected</Chip> : <Chip tone="signal">ANTHROPIC_API_KEY missing: answers come from the knowledge base only</Chip>}
-                <p className="num mt-2 text-[12.5px] text-fg-2">everyday answers: {data.ai.fast}</p>
-                <p className="num text-[12.5px] text-fg-2">setup, hiring and hard cases: {data.ai.smart}</p>
-              </div>
+              <AiStatus ai={data.ai} />
             </div>
           </section>
 
@@ -149,39 +139,13 @@ export default function SettingsPage() {
 
           <Payments key={ws.id} initial={st.payments} patch={patch} />
 
-          <TeamSection hiring={Boolean(st.modules?.hiring)} />
+          <Stock key={ws.id} initial={data.stock} patch={patch} />
 
-          <section id="modules" className="scroll-mt-6">
-            <h2 className="font-display text-[22px] font-bold">Hiring</h2>
-            <div className="mt-4 flex flex-wrap items-start justify-between gap-4 rounded-2xl border border-line p-5">
-              <p className="max-w-[60ch] text-[13.5px] text-fg-2">
-                Optional. Candidates apply through your Telegram bot or you upload CVs; Claude shortlists against each role and books interviews after you approve the invite.
-              </p>
-              <Switch checked={Boolean(st.modules?.hiring)} onCheckedChange={(v) => quiet("/api/workspace", { modules: { hiring: v } }, v ? "Hiring is on." : "Hiring is off.")} label="Hiring module" />
-            </div>
-            {st.modules?.hiring ? (
-              <div className="mt-6 grid max-w-[760px] gap-5 sm:grid-cols-2">
-                <div>
-                  <Label htmlFor="hr-loc">Where interviews happen</Label>
-                  <Input id="hr-loc" defaultValue={st.hr.location} onBlur={(e) => e.target.value !== st.hr.location && quiet("/api/workspace", { hr: { location: e.target.value } }, "Saved.")} placeholder="Address, or “Video call”" />
-                </div>
-                <div>
-                  <Label htmlFor="hr-ret">Delete CVs after</Label>
-                  <select id="hr-ret" defaultValue={st.resumeRetentionDays} onChange={(e) => quiet("/api/settings", { resumeRetentionDays: Number(e.target.value) }, "Saved.")} className="h-10 w-full rounded-[10px] border border-line bg-raised px-2 text-[14px]">
-                    {[30, 90, 180, 365].map((d) => (
-                      <option key={d} value={d}>
-                        {d} days
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <p className="text-[13px] text-muted sm:col-span-2">
-                  Apply link: {data.channels.telegram.applyLink ? <span className="num">{data.channels.telegram.applyLink}</span> : "connect Telegram first"}. Candidates can delete their data any time with /delete_my_data.
-                  {" "}Google Calendar: {data.google.connected ? "connected" : data.google.configured ? "not connected (connect from Interviews)" : "not configured, using the built-in calendar"}.
-                </p>
-              </div>
-            ) : null}
-          </section>
+          <Appointments key={ws.id} initial={data.appointments} patch={patch} />
+
+          <TeamSection />
+
+          <Privacy days={st.privacy?.retentionDays ?? null} onSave={(d) => quiet("/api/settings", { retentionDays: d }, d ? `Customer data older than ${d} days will be deleted.` : "Customer data is kept until you delete it.")} />
 
           {data.demoMode && st.sample ? (
             <section id="demo" className="scroll-mt-6">
@@ -199,5 +163,130 @@ export default function SettingsPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/** Which AI providers this server can use, and what actually answered recently: prices and stock never come from these. */
+function AiStatus({ ai }: { ai: SettingsData["ai"] }) {
+  return (
+    <div className="text-[13.5px]">
+      {ai.providers.length ? <Chip tone="answered">{ai.providers.length} AI provider{ai.providers.length === 1 ? "" : "s"} configured</Chip> : <Chip tone="signal">No AI provider configured: every message gets the holding reply and goes to Needs you</Chip>}
+      <ul className="mt-2 space-y-0.5 text-[12.5px] text-fg-2">
+        {ai.providers.map((p, i) => (
+          <li key={p.name} className="num">{i + 1}. {p.name}{p.vision ? " (reads receipts)" : ""}</li>
+        ))}
+      </ul>
+      {ai.recent.length ? (
+        <>
+          <p className="mt-3 text-[12.5px] text-muted">Last 24 hours, by the model that actually replied:</p>
+          <ul className="mt-1 space-y-0.5 text-[12.5px]">
+            {ai.recent.map((r) => (
+              <li key={r.model} className="num">{r.model === "none" ? "No AI (holding reply)" : r.model}: {r.n} repl{r.n === 1 ? "y" : "ies"}{r.failed ? <span className="text-signal-ink">, {r.failed} failed</span> : null}</li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+      <p className="mt-3 text-[12.5px] text-muted">Providers are tried in this order; if one is down or rate-limited the next answers. If all fail, the customer gets a short holding reply and the conversation lands in Needs you with the reason.</p>
+    </div>
+  );
+}
+
+const RETENTION = [null, 30, 90, 180, 365] as const;
+
+function Privacy({ days, onSave }: { days: number | null; onSave: (d: number | null) => void }) {
+  return (
+    <section id="privacy" className="scroll-mt-6">
+      <h2 className="font-display text-[22px] font-bold">Privacy</h2>
+      <p className="mt-1 max-w-[70ch] text-[14px] text-muted">
+        Customer messages, receipt images and order details are stored for your business only. Messages are sent to the AI providers above to write replies, and receipts to read them.
+      </p>
+      <div className="mt-4 max-w-[420px]">
+        <label htmlFor="retention" className="text-[14px]">Delete conversations and receipt images after</label>
+        <select id="retention" defaultValue={days ?? ""} onChange={(e) => onSave(e.target.value ? Number(e.target.value) : null)} className="mt-1.5 h-10 w-full rounded-[10px] border border-line bg-raised px-2 text-[14px]">
+          {RETENTION.map((d) => (
+            <option key={d ?? "never"} value={d ?? ""}>{d ? `${d} days` : "Keep until I delete them"}</option>
+          ))}
+        </select>
+        <p className="mt-1.5 text-[12.5px] text-muted">Orders and their totals stay for your records; the chat history and receipt files go. To erase one customer now, open their conversation in the Inbox and choose “Delete customer data”.</p>
+      </div>
+    </section>
+  );
+}
+
+type StockSettings = { defaultMode: "none" | "daily" | "tracked"; dayStartsAt: string; holdMinutes: number; preorderDays: number; lowStockDefault: number };
+
+const STOCK_MODES: Record<StockSettings["defaultMode"], { label: string; hint: string }> = {
+  none: { label: "Made to order", hint: "Restaurants: items are just on or off." },
+  daily: { label: "Daily quantity", hint: "Bakeries: a fresh number every day." },
+  tracked: { label: "Count stock", hint: "Shops: an on-hand count." },
+};
+
+function Stock({ initial, patch }: { initial: StockSettings; patch: Patch }) {
+  const [mode, setMode] = useState(initial.defaultMode);
+  const [dayStartsAt, setDayStartsAt] = useState(initial.dayStartsAt);
+  const [holdMinutes, setHoldMinutes] = useState(String(initial.holdMinutes));
+  const [preorderDays, setPreorderDays] = useState(String(initial.preorderDays));
+  const [lowStock, setLowStock] = useState(String(initial.lowStockDefault));
+  const [busy, setBusy] = useState(false);
+
+  async function save() {
+    setBusy(true);
+    try {
+      await patch(
+        "/api/settings",
+        "PATCH",
+        { stock: { defaultMode: mode, dayStartsAt, holdMinutes: Number(holdMinutes), preorderDays: Number(preorderDays), lowStockDefault: Number(lowStock) } },
+        "Stock settings saved.",
+      );
+    } catch {
+      // shown by patch()
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section id="stock" className="scroll-mt-6">
+      <h2 className="font-display text-[22px] font-bold">Stock</h2>
+      <p className="mt-1 max-w-[70ch] text-[14px] text-muted">How the assistant tracks what you can sell. Each item in Knowledge can override the default below.</p>
+      <div className="mt-4 max-w-[760px] space-y-5">
+        <div>
+          <Label htmlFor="stock-mode">Default for items</Label>
+          <select id="stock-mode" value={mode} onChange={(e) => setMode(e.target.value as StockSettings["defaultMode"])} className="h-10 w-full rounded-[10px] border border-line bg-raised px-2 text-[14px] sm:max-w-[320px]">
+            {Object.entries(STOCK_MODES).map(([k, m]) => (
+              <option key={k} value={k}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1.5 text-[12.5px] text-muted">{STOCK_MODES[mode].hint} Each item in Knowledge can override this.</p>
+        </div>
+        <div className="grid gap-5 sm:grid-cols-2">
+          <div>
+            <Label htmlFor="stock-day">Business day starts at</Label>
+            <Input id="stock-day" type="time" value={dayStartsAt} onChange={(e) => setDayStartsAt(e.target.value)} />
+            <p className="mt-1.5 text-[12.5px] text-muted">Daily quantities and &ldquo;sold out today&rdquo; reset then.</p>
+          </div>
+          <div>
+            <Label htmlFor="stock-low">Low-stock alert below</Label>
+            <Input id="stock-low" type="number" min={0} value={lowStock} onChange={(e) => setLowStock(e.target.value)} />
+            <p className="mt-1.5 text-[12.5px] text-muted">For counted items. Each option can have its own.</p>
+          </div>
+          <div>
+            <Label htmlFor="stock-hold" hint="minutes">Hold unpaid orders for</Label>
+            <Input id="stock-hold" type="number" min={5} max={1440} value={holdMinutes} onChange={(e) => setHoldMinutes(e.target.value)} />
+            <p className="mt-1.5 text-[12.5px] text-muted">With payments on, an order&apos;s stock is held this long while the customer pays. A receipt that passes the checks keeps it; otherwise the order expires and the customer is told.</p>
+          </div>
+          <div>
+            <Label htmlFor="stock-ahead" hint="days">Customers can order daily items up to</Label>
+            <Input id="stock-ahead" type="number" min={0} max={60} value={preorderDays} onChange={(e) => setPreorderDays(e.target.value)} />
+            <p className="mt-1.5 text-[12.5px] text-muted">days ahead.</p>
+          </div>
+        </div>
+        <Button variant="primary" loading={busy} onClick={save}>
+          Save stock settings
+        </Button>
+      </div>
+    </section>
   );
 }

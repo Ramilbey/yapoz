@@ -3,7 +3,8 @@ import { db, t } from "@/db";
 import { eq } from "drizzle-orm";
 import { apiSession, handle, HttpError } from "@/lib/auth";
 import { body, ok } from "@/lib/api";
-import { isTimezone } from "@/lib/workspace";
+import { audit } from "@/lib/audit";
+import { isTimezone, ONBOARDING_STEPS, ONBOARDING_VERSION, onboardingOf } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
@@ -29,11 +30,9 @@ const Patch = z.object({
     })
     .partial()
     .optional(),
-  modules: z.object({ hiring: z.boolean() }).partial().optional(),
   live: z.boolean().optional(),
-  onboardingStep: z.number().int().min(1).max(6).optional(),
+  onboardingStep: z.number().int().min(1).max(ONBOARDING_STEPS).optional(),
   completeOnboarding: z.boolean().optional(),
-  hr: z.object({ location: z.string().trim().max(200), interviewMinutes: z.number().int().min(10).max(180), workdayStart: z.string().regex(/^\d\d:\d\d$/), workdayEnd: z.string().regex(/^\d\d:\d\d$/) }).partial().optional(),
 });
 
 export const PATCH = handle(async (req: Request) => {
@@ -42,8 +41,6 @@ export const PATCH = handle(async (req: Request) => {
   const [ws] = await db.select().from(t.workspaces).where(eq(t.workspaces.id, s.workspaceId));
   const settings = structuredClone(ws.settings);
   if (b.business) settings.business = { ...settings.business, ...b.business };
-  if (b.modules) settings.modules = { ...settings.modules, ...b.modules };
-  if (b.hr) settings.hr = { ...settings.hr, ...b.hr };
   if (b.live !== undefined) {
     if (b.live) {
       const items = await db.select({ id: t.kbItems.id }).from(t.kbItems).where(eq(t.kbItems.workspaceId, ws.id)).limit(1);
@@ -51,13 +48,16 @@ export const PATCH = handle(async (req: Request) => {
     }
     settings.live = b.live;
   }
-  if (b.onboardingStep) settings.onboarding = { ...settings.onboarding, step: Math.max(settings.onboarding?.step ?? 1, b.onboardingStep) };
-  if (b.completeOnboarding) settings.onboarding = { step: 6, completedAt: settings.onboarding?.completedAt ?? new Date().toISOString() };
+  settings.onboarding = onboardingOf(settings);
+  if (b.onboardingStep) settings.onboarding = { ...settings.onboarding, step: Math.max(settings.onboarding.step, b.onboardingStep) };
+  if (b.completeOnboarding) settings.onboarding = { step: ONBOARDING_STEPS, completedAt: settings.onboarding.completedAt ?? new Date().toISOString(), version: ONBOARDING_VERSION };
   const patch: Partial<typeof t.workspaces.$inferInsert> = { settings };
   if (b.name) patch.name = b.name;
   if (b.city !== undefined) patch.city = b.city;
   if (b.timezone) patch.timezone = b.timezone;
   if (b.currency) patch.currency = b.currency;
   await db.update(t.workspaces).set(patch).where(eq(t.workspaces.id, ws.id));
+  await audit(s, "settings.updated", { keys: Object.keys(b) });
+  if (b.live !== undefined && b.live !== Boolean(ws.settings.live)) await audit(s, "assistant.live", { live: b.live });
   return ok({ ok: true, settings });
 });

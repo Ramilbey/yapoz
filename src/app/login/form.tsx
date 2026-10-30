@@ -7,8 +7,7 @@ type Demo = { workspaceId: string; password: string } | null;
 
 const ROLES = [
   { email: "owner@demo", label: "Owner", sees: "Everything" },
-  { email: "service@demo", label: "Service", sees: "Inbox, Needs you, knowledge, bookings" },
-  { email: "hr@demo", label: "HR", sees: "Hiring only" },
+  { email: "service@demo", label: "Service", sees: "Inbox, Needs you, orders, knowledge" },
 ];
 
 export function LoginForm({ demo, next, initialWorkspace }: { demo: Demo; next: string | null; initialWorkspace: string }) {

@@ -19,6 +19,7 @@ type ThreadRow = {
 };
 type Msg = {
   id: string; direction: "in" | "out"; author: "customer" | "ai" | "staff" | "system"; text: string; status: string; createdAt: string; error: string | null; authorName: string | null;
+  deliveredAt?: string | null; readAt?: string | null;
   attachments: { kind: string; name?: string }[];
   run: { model: string; intent: string | null; topic: string | null; language: string | null; sentiment: string | null; confidence: number | null; latencyMs: number | null; outcome: string; tokens: number; cacheRead: number; tools: { name: string; label: string; ok: boolean; ms: number }[]; error: string | null } | null;
 };
@@ -27,8 +28,13 @@ type Detail = {
   customer: { displayName: string | null; username: string | null; language: string | null; phone: string | null; createdAt: string };
   messages: Msg[];
   escalations: { id: string; category: string; priority: string; reason: string; summary: string; status: string; createdAt: string }[];
-  bookings: { id: string; refCode: string; partySize: number; startsAt: string; status: string; customerName: string }[];
+  orders: { id: string; refCode: string; status: string; totalMinor: number; currency: string; createdAt: string; confirmedAt: string | null; receiptRequest: { reason: string; fulfilledAt?: string | null } | null }[];
+  more: boolean;
+  canDelete: boolean;
 };
+
+const ORDER_STATUS: Record<string, string> = { pending: "Waiting for approval", confirmed: "Confirmed", ready: "Ready", completed: "Completed", cancelled: "Cancelled" };
+const money = (minor: number, currency: string) => (currency === "MYR" ? `RM ${Number.isInteger(minor / 100) ? minor / 100 : (minor / 100).toFixed(2)}` : new Intl.NumberFormat("en", { style: "currency", currency }).format(minor / 100));
 
 const FILTERS = [
   { key: "all", label: "All" },
@@ -65,8 +71,10 @@ function Inbox() {
   const [channel, setChannel] = useState<string | null>(null);
   const [demo, setDemo] = useState(false);
   const key = `/api/inbox/threads?filter=${filter}${channel ? `&channel=${channel}` : ""}&demo=${demo ? 1 : 0}`;
-  const { data, mutate } = useSWR<{ threads: ThreadRow[]; counts: Record<string, number>; sample?: boolean }>(key, getJson);
-  useLive(["threads", "messages", "escalations"], () => mutate(), 200);
+  // keepPreviousData: switching filters keeps the old list on screen until the new one arrives, instead of flashing "Loading…".
+  const { data, mutate } = useSWR<{ threads: ThreadRow[]; counts: Record<string, number>; sample?: boolean }>(key, getJson, { keepPreviousData: true, revalidateOnFocus: false, dedupingInterval: 1500 });
+  // Demo replays write constantly: unless they're shown, their changes don't refetch the list.
+  useLive(["threads", "messages", "escalations"], () => mutate(), 700, (e) => demo || !e.demo);
 
   const seen = useRef<Set<string> | null>(null);
   const fresh = useMemo(() => {
@@ -104,7 +112,6 @@ function Inbox() {
               <option value="">All channels</option>
               <option value="telegram">Telegram</option>
               <option value="whatsapp">WhatsApp</option>
-              <option value="instagram">Instagram</option>
               <option value="simulator">Simulator</option>
             </select>
             {data?.sample ? (
@@ -120,7 +127,7 @@ function Inbox() {
             <li className="p-5 text-[14px] text-muted">Loading…</li>
           ) : data.threads.length === 0 ? (
             <li className="p-5 text-[14px] text-muted">
-              {filter === "needs" ? "Nothing needs you right now." : "No conversations yet. Message the Telegram bot or try the Simulator on the home page, and they appear here as they happen."}
+              {filter === "needs" ? "Nothing needs you right now." : "No conversations yet. Message your WhatsApp or Telegram, or try the Simulator on the home page, and they appear here as they happen."}
             </li>
           ) : (
             data.threads.map((t) => (
@@ -168,15 +175,23 @@ function Inbox() {
 
 function ThreadView({ id, onBack, onChanged }: { id: string; onBack: () => void; onChanged: () => void }) {
   const toast = useToast();
-  const { data, mutate } = useSWR<Detail>(`/api/inbox/threads/${id}`, getJson);
-  useLive(["messages", "threads", "escalations", "bookings"], (e) => {
-    if (!e.thread || e.thread === id || e.t === "threads") void mutate();
-  }, 150);
+  const router = useRouter();
+  const { data, mutate } = useSWR<Detail>(`/api/inbox/threads/${id}`, getJson, { revalidateOnFocus: false, dedupingInterval: 1000 });
+  // Only changes to this chat refetch it.
+  useLive(["messages", "threads", "escalations", "orders"], () => void mutate(), 300, (e) => e.thread === id || (e.t === "threads" && e.id === id));
   const [text, setText] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
-  const endRef = useRef<HTMLDivElement>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  const pinned = useRef(true);
   const count = data?.messages.length ?? 0;
-  useEffect(() => endRef.current?.scrollIntoView({ block: "end" }), [count, id]);
+  // Follow new messages only when already at the bottom, and scroll this pane only (scrollIntoView moved the whole page).
+  useEffect(() => {
+    const el = scroller.current;
+    if (el && pinned.current) el.scrollTop = el.scrollHeight;
+  }, [count, id]);
+  useEffect(() => {
+    pinned.current = true;
+  }, [id]);
 
   async function act(action: string, extra?: Record<string, unknown>) {
     setBusy(action);
@@ -184,10 +199,30 @@ function ThreadView({ id, onBack, onChanged }: { id: string; onBack: () => void;
       await send(`/api/inbox/threads/${id}`, "POST", { action, ...extra });
       await mutate();
       onChanged();
-      if (action === "reply") setText("");
     } catch (e) {
       toast((e as Error).message, "error");
     } finally {
+      setBusy(null);
+    }
+  }
+  async function reply() {
+    const body = text.trim();
+    if (!body || busy === "reply") return;
+    setBusy("reply");
+    setText("");
+    pinned.current = true;
+    // Shown at once as "Sending…"; the real row replaces it when the server answers.
+    const temp: Msg = { id: `temp-${Date.now()}`, direction: "out", author: "staff", text: body, status: "sending", createdAt: new Date().toISOString(), error: null, authorName: "You", attachments: [], run: null };
+    void mutate((d) => (d ? { ...d, messages: [...d.messages, temp], thread: { ...d.thread, aiPaused: true } } : d), { revalidate: false });
+    try {
+      const r = await send<{ status?: string; error?: string }>(`/api/inbox/threads/${id}`, "POST", { action: "reply", text: body });
+      if (r.status === "failed") toast(`Not delivered: ${r.error ?? "channel error"}`, "error");
+    } catch (e) {
+      setText(body);
+      toast((e as Error).message, "error");
+    } finally {
+      await mutate();
+      onChanged();
       setBusy(null);
     }
   }
@@ -204,11 +239,25 @@ function ThreadView({ id, onBack, onChanged }: { id: string; onBack: () => void;
       setBusy(null);
     }
   }
+  async function eraseCustomer() {
+    if (!window.confirm("Delete this customer's data? Their chats, messages and receipt files are erased for good. Orders stay for your records without their name, phone or address.")) return;
+    setBusy("erase");
+    try {
+      await send(`/api/inbox/threads/${id}`, "DELETE");
+      toast("Customer data deleted.");
+      onChanged();
+      router.replace("/app/inbox", { scroll: false });
+    } catch (e) {
+      toast((e as Error).message, "error");
+      setBusy(null);
+    }
+  }
 
   if (!data) return <div className="p-8 text-[14px] text-muted">Loading conversation…</div>;
   const th = data.thread;
   const openEsc = data.escalations.filter((e) => e.status === "open");
   const name = data.customer.displayName ?? data.customer.username ?? "Customer";
+  const waiting = data.orders.find((o) => o.receiptRequest && !o.receiptRequest.fulfilledAt && o.status !== "cancelled");
 
   return (
     <>
@@ -223,6 +272,7 @@ function ThreadView({ id, onBack, onChanged }: { id: string; onBack: () => void;
               {th.routing?.mode === "business" ? <Chip>Business account</Chip> : null}
               {th.status === "needs_human" ? <Chip tone="signal">Needs you</Chip> : th.status === "resolved" ? <Chip>Resolved</Chip> : null}
               {th.aiPaused ? <Chip>Taken over{th.takenOverByName ? ` by ${th.takenOverByName}` : ""}</Chip> : <Chip tone="brass">AI answering</Chip>}
+              {waiting ? <Chip tone="signal">Waiting for a new receipt ({waiting.refCode})</Chip> : null}
             </div>
           </div>
           <div className="flex gap-2">
@@ -251,18 +301,25 @@ function ThreadView({ id, onBack, onChanged }: { id: string; onBack: () => void;
           </div>
         ) : null}
 
-        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-6 scrollbar-thin sm:px-8">
+        <div
+          ref={scroller}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+          }}
+          className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-6 scrollbar-thin sm:px-8"
+        >
+          {data.more ? <p className="text-center text-[12px] text-muted">Showing the latest 200 messages.</p> : null}
           {data.messages.map((m) => (
             <MessageRow key={m.id} m={m} busy={busy === m.id} onApprove={(t) => draft(m.id, "approve", t)} onDiscard={() => draft(m.id, "discard")} />
           ))}
-          <div ref={endRef} />
         </div>
 
         <form
           className="border-t border-line px-5 py-4 sm:px-8"
           onSubmit={(e) => {
             e.preventDefault();
-            if (text.trim()) void act("reply", { text });
+            void reply();
           }}
         >
           <Textarea
@@ -270,7 +327,7 @@ function ThreadView({ id, onBack, onChanged }: { id: string; onBack: () => void;
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && text.trim()) void act("reply", { text });
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void reply();
             }}
             placeholder={`Reply to ${name} as ${th.channel === "simulator" ? "staff" : "the business"}…`}
             aria-label="Reply"
@@ -293,16 +350,21 @@ function ThreadView({ id, onBack, onChanged }: { id: string; onBack: () => void;
           <Row k="Language" v={data.customer.language ?? "not detected yet"} />
           <Row k="First message" v={new Date(data.customer.createdAt).toLocaleDateString("en-MY", { day: "numeric", month: "short" })} />
         </dl>
-        <h3 className="mt-8 text-[13px] text-muted">Bookings from this chat</h3>
-        {data.bookings.length ? (
+        <h3 className="mt-8 text-[13px] text-muted">Orders from this chat</h3>
+        {data.orders.length ? (
           <ul className="mt-2 space-y-2">
-            {data.bookings.map((b) => (
-              <li key={b.id} className="rounded-xl border border-line px-3 py-2.5">
-                <div className="num text-[13px] text-brass-ink">{b.refCode}</div>
-                <div className="text-[14px]">
-                  {new Date(b.startsAt).toLocaleString("en-MY", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}, {b.partySize} people
-                </div>
-                <div className="text-[12px] text-muted">{b.status}</div>
+            {data.orders.map((o) => (
+              <li key={o.id}>
+                <a href={`/app/orders?o=${o.id}`} className="block rounded-xl border border-line px-3 py-2.5 hover:bg-raised">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="num text-[13px] font-semibold">{o.refCode}</span>
+                    <span className="num text-[13px]">{money(o.totalMinor, o.currency)}</span>
+                  </div>
+                  <div className={cx("text-[12px]", o.status === "pending" ? "text-signal-ink" : "text-muted")}>
+                    {o.status === "cancelled" && !o.confirmedAt ? "Rejected" : ORDER_STATUS[o.status] ?? o.status}
+                    {o.receiptRequest && !o.receiptRequest.fulfilledAt && o.status !== "cancelled" ? " · new receipt requested" : ""}
+                  </div>
+                </a>
               </li>
             ))}
           </ul>
@@ -323,6 +385,12 @@ function ThreadView({ id, onBack, onChanged }: { id: string; onBack: () => void;
         ) : (
           <p className="mt-2 text-[13px] text-muted">None.</p>
         )}
+        <a href={`/app/activity?thread=${th.id}`} className="mt-8 block text-[13px] text-brass-ink underline-offset-4 hover:underline">Activity for this chat</a>
+        {data.canDelete ? (
+          <button onClick={eraseCustomer} disabled={busy === "erase"} className="mt-3 block text-[13px] text-signal-ink underline-offset-4 hover:underline disabled:opacity-50">
+            Delete customer data
+          </button>
+        ) : null}
       </aside>
     </>
   );
@@ -363,7 +431,9 @@ function MessageRow({ m, busy, onApprove, onDiscard }: { m: Msg; busy: boolean; 
           {who ? <span>{who}</span> : null}
           <span className="num">{clock(m.createdAt)}</span>
           {draft ? <span className="text-brass-ink">Draft, waiting for approval</span> : null}
+          {m.status === "sending" || (m.status === "received" && !inbound) ? <span>Sending…</span> : null}
           {m.status === "failed" ? <span className="text-signal-ink">Not delivered{m.error ? `: ${m.error}` : ""}</span> : null}
+          {!inbound && m.status === "sent" ? <span title={m.readAt ? "Read by the customer" : m.deliveredAt ? "Delivered to the customer's phone" : "Sent to the channel"}>{m.readAt ? "✓✓ read" : m.deliveredAt ? "✓✓ delivered" : "✓ sent"}</span> : null}
         </div>
         {m.run && m.run.tools.length ? (
           <ul className="mt-2 space-y-0.5 text-right">

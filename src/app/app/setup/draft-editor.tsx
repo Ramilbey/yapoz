@@ -4,19 +4,9 @@ import { Input, Label, Textarea } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { cx } from "@/components/ui/cx";
-import { DAYS, type Day, type Draft, type DraftItem, type DraftBookingType } from "@/setup/types";
+import { DAYS, type Day, type Draft, type DraftItem } from "@/setup/types";
 
 const DAY_LABEL: Record<Day, string> = { mon: "Monday", tue: "Tuesday", wed: "Wednesday", thu: "Thursday", fri: "Friday", sat: "Saturday", sun: "Sunday" };
-const UNIT_HELP: Record<DraftBookingType["unit"], string> = {
-  party: "Tables or group sessions, booked by number of people",
-  appointment: "One service per booking, e.g. a haircut or a repair slot",
-  day: "Whole days, e.g. rooms, rentals or equipment",
-};
-const CAPACITY_HELP: Record<DraftBookingType["unit"], string> = {
-  party: "Seats per time slot",
-  appointment: "Staff or stations working at the same time",
-  day: "Units available per day",
-};
 const select = "h-10 w-full rounded-[10px] border border-line bg-raised px-2 text-[14px]";
 const num = (v: string) => (v === "" ? null : Number(v));
 
@@ -45,7 +35,7 @@ function Remove({ onClick, label }: { onClick: () => void; label: string }) {
   );
 }
 
-function ItemEditor({ item, types, currency, onChange, onRemove }: { item: DraftItem; types: DraftBookingType[]; currency: string; onChange: (i: DraftItem) => void; onRemove: () => void }) {
+function ItemEditor({ item, currency, onChange, onRemove }: { item: DraftItem; currency: string; onChange: (i: DraftItem) => void; onRemove: () => void }) {
   const set = (p: Partial<DraftItem>) => onChange({ ...item, ...p });
   return (
     <li className="rounded-xl border border-line p-4">
@@ -75,22 +65,9 @@ function ItemEditor({ item, types, currency, onChange, onRemove }: { item: Draft
         </button>
       </div>
       {item.kind === "service" ? (
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <div>
-            <Label htmlFor={`dur-${item.name}`}>Takes (minutes)</Label>
-            <Input id={`dur-${item.name}`} type="number" min={5} step={5} value={item.durationMinutes ?? ""} onChange={(e) => set({ durationMinutes: num(e.target.value) })} />
-          </div>
-          <div>
-            <Label>Booked as</Label>
-            <select className={select} value={item.bookingType ?? ""} onChange={(e) => set({ bookingType: e.target.value || null })} aria-label="Booking type">
-              <option value="">Not bookable in chat</option>
-              {types.map((t) => (
-                <option key={t.key} value={t.key}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className="mt-3 max-w-[200px]">
+          <Label htmlFor={`dur-${item.name}`}>Takes (minutes)</Label>
+          <Input id={`dur-${item.name}`} type="number" min={5} step={5} value={item.durationMinutes ?? ""} onChange={(e) => set({ durationMinutes: num(e.target.value) })} />
         </div>
       ) : null}
     </li>
@@ -187,7 +164,6 @@ export function DraftEditor({ draft, onChange, currency }: { draft: Draft; onCha
             <ItemEditor
               key={idx}
               item={it}
-              types={draft.bookingTypes}
               currency={currency}
               onChange={(n) => set({ items: draft.items.map((x, j) => (j === idx ? n : x)) })}
               onRemove={() => set({ items: draft.items.filter((_, j) => j !== idx) })}
@@ -198,77 +174,9 @@ export function DraftEditor({ draft, onChange, currency }: { draft: Draft; onCha
           type="button"
           size="sm"
           className="mt-3"
-          onClick={() => set({ items: [...draft.items, { kind: draft.bookingTypes.length ? "service" : "product", name: "", category: filter ?? categories[0] ?? "general", description: "", options: [{ label: null, price: null, stock: null }], durationMinutes: null, bookingType: null, tags: [] }] })}
+          onClick={() => set({ items: [...draft.items, { kind: "product", name: "", category: filter ?? categories[0] ?? "general", description: "", options: [{ label: null, price: null, stock: null }], durationMinutes: null, tags: [] }] })}
         >
           Add product or service
-        </Button>
-      </Section>
-
-      <Section title="Bookings" count={draft.bookingTypes.length} hint="How customers book with you in chat. Leave empty if you don't take bookings.">
-        <ul className="space-y-3">
-          {draft.bookingTypes.map((b, i) => {
-            const upd = (p: Partial<DraftBookingType>) => set({ bookingTypes: draft.bookingTypes.map((x, j) => (j === i ? { ...x, ...p } : x)) });
-            return (
-              <li key={i} className="rounded-xl border border-line p-4">
-                <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
-                  <div>
-                    <Label>Name</Label>
-                    <Input value={b.name} onChange={(e) => upd({ name: e.target.value })} aria-label="Booking name" />
-                  </div>
-                  <div>
-                    <Label>Kind</Label>
-                    <select className={select} value={b.unit} onChange={(e) => upd({ unit: e.target.value as DraftBookingType["unit"] })} aria-label="Booking kind">
-                      <option value="party">Tables / groups</option>
-                      <option value="appointment">Appointments</option>
-                      <option value="day">Days (rooms, rentals)</option>
-                    </select>
-                  </div>
-                  <div className="self-end">
-                    <Remove onClick={() => set({ bookingTypes: draft.bookingTypes.filter((_, j) => j !== i) })} label={`Remove ${b.name}`} />
-                  </div>
-                </div>
-                <p className="mt-1.5 text-[12.5px] text-muted">{UNIT_HELP[b.unit]}</p>
-                <div className="mt-3 grid gap-3 sm:grid-cols-4">
-                  <div>
-                    <Label>{CAPACITY_HELP[b.unit]}</Label>
-                    <Input type="number" min={1} value={b.capacity} onChange={(e) => upd({ capacity: Math.max(1, Number(e.target.value || 1)) })} />
-                  </div>
-                  {b.unit !== "day" ? (
-                    <>
-                      <div>
-                        <Label>Lasts (min)</Label>
-                        <Input type="number" min={5} step={5} value={b.durationMinutes} onChange={(e) => upd({ durationMinutes: Math.max(5, Number(e.target.value || 60)) })} />
-                      </div>
-                      <div>
-                        <Label>Starts every (min)</Label>
-                        <Input type="number" min={5} step={5} value={b.slotMinutes} onChange={(e) => upd({ slotMinutes: Math.max(5, Number(e.target.value || 30)) })} />
-                      </div>
-                    </>
-                  ) : null}
-                  <div>
-                    <Label>{b.unit === "party" ? "Max people per booking" : "Max per booking"}</Label>
-                    <Input type="number" min={1} value={b.maxPerBooking} onChange={(e) => upd({ maxPerBooking: Math.max(1, Number(e.target.value || 1)) })} />
-                  </div>
-                  <div>
-                    <Label>Book at least (min ahead)</Label>
-                    <Input type="number" min={0} step={15} value={b.leadMinutes} onChange={(e) => upd({ leadMinutes: Math.max(0, Number(e.target.value || 0)) })} />
-                  </div>
-                </div>
-                <Input className="mt-3" value={b.notes} onChange={(e) => upd({ notes: e.target.value })} placeholder="Notes for customers: deposits, how long you hold a booking, walk-ins…" aria-label="Booking notes" />
-              </li>
-            );
-          })}
-        </ul>
-        <Button
-          type="button"
-          size="sm"
-          className="mt-3"
-          onClick={() => {
-            const base = draft.bookingTypes.length ? `booking-${draft.bookingTypes.length + 1}` : "booking";
-            set({ bookingTypes: [...draft.bookingTypes, { key: base, name: "Appointment", unit: "appointment", capacity: 1, durationMinutes: 60, slotMinutes: 30, maxPerBooking: 1, leadMinutes: 60, notes: "" }] });
-          }}
-        >
-          Add a way to book
         </Button>
       </Section>
 
@@ -324,20 +232,9 @@ export function DraftEditor({ draft, onChange, currency }: { draft: Draft; onCha
 
 /** Drops half-filled rows before saving so validation doesn't reject the whole draft. */
 export function cleanDraft(d: Draft): Draft {
-  const used = new Set<string>();
-  const bookingTypes = d.bookingTypes
-    .filter((b) => b.name.trim())
-    .map((b) => {
-      let key = (b.key || b.name).toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-|-$/g, "").slice(0, 30) || "booking";
-      if (key.length < 2) key = `${key}-1`;
-      while (used.has(key)) key = `${key.slice(0, 27)}-${used.size + 1}`;
-      used.add(key);
-      return { ...b, key };
-    });
   return {
     ...d,
     items: d.items.filter((i) => i.name.trim()).map((i) => ({ ...i, category: i.category.trim() || "general", options: i.options.filter((o) => o.price !== null || (o.label ?? "").trim()) })),
-    bookingTypes,
     policies: d.policies.filter((p) => p.title.trim() && p.body.trim()).map((p) => ({ ...p, topic: p.topic.trim() || "general" })),
     faqs: d.faqs.filter((f) => f.question.trim() && f.answer.trim()),
     hours: d.hours && Object.values(d.hours.weekly).some((x) => x.length) ? d.hours : null,

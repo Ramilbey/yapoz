@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Chip } from "@/components/ui/chip";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/field";
@@ -130,7 +130,7 @@ function Telegram({ s, patch, workspaceId }: { s: ChannelStatus["telegram"]; pat
           {s.customerLink ? (
             <div>
               <p className="text-[14px] font-medium">Your customer link</p>
-              <p className="mt-0.5 text-[13px] text-muted">Put it in your Instagram bio, on the menu, or print the QR for the counter. Anyone who opens it chats with your assistant.</p>
+              <p className="mt-0.5 text-[13px] text-muted">Put it in your social bios, on the menu, or print the QR for the counter. Anyone who opens it chats with your assistant.</p>
               <div className="mt-2 flex items-center gap-3">
                 <CopyField className="flex-1" value={s.customerLink} label="Customer link" />
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -233,20 +233,20 @@ function WhatsAppHealth({ s }: { s: ChannelStatus["whatsapp"] }) {
 /** A settings box without the Autopilot/Copilot switch, for things that aren't a channel. */
 function Plain({ title, status, children }: { title: string; status: React.ReactNode; children: React.ReactNode }) {
   return (
-    <li className="py-6">
+    <div className="rounded-xl border border-line p-4">
       <div className="flex flex-wrap items-center gap-2.5">
-        <h3 className="text-[17px] font-semibold">{title}</h3>
+        <h4 className="text-[15px] font-semibold">{title}</h4>
         {status}
       </div>
-      <div className="mt-3">{children}</div>
-    </li>
+      <div className="mt-2">{children}</div>
+    </div>
   );
 }
 
 const soon = (iso: string) => new Date(iso).getTime() - Date.now() < 3 * 24 * 60 * 60 * 1000;
 
 /**
- * The business's Meta app, saved once and shared by WhatsApp and Instagram: Meta App ID + App secret.
+ * The business's own Meta app, for connecting WhatsApp manually: Meta App ID + App secret.
  * Yapoz asks Meta whether the two belong together before saving, and later uses the secret to check that
  * webhooks really come from Meta.
  */
@@ -258,9 +258,9 @@ function MetaApp({ s, needsMetaApp, patch }: { s: ChannelStatus["metaApp"]; need
   const own = s.source === "workspace";
   const showForm = !s.connected || editing;
   return (
-    <Plain title="Meta app" status={s.connected ? <Chip tone="answered">{s.appName ?? `App ${s.appId ?? ""}`}</Chip> : <Chip>Not set</Chip>}>
+    <Plain title="1. Your Meta app" status={s.connected ? <Chip tone="answered">{s.appName ?? `App ${s.appId ?? ""}`}</Chip> : <Chip>Not set</Chip>}>
       <p className="max-w-[72ch] text-[13.5px] text-fg-2">
-        One Meta app serves both WhatsApp and Instagram, so you save it once, here, apart from your WhatsApp number. Yapoz checks the App ID and secret with Meta before saving, stores the secret encrypted, and uses it to confirm that messages really come from Meta.
+        Yapoz checks the App ID and secret with Meta before saving, stores the secret encrypted, and uses it to confirm that messages really come from Meta.
       </p>
       {needsMetaApp && !s.connected ? (
         <p className="mt-2 max-w-[72ch] text-[13px] text-signal-ink">
@@ -343,59 +343,161 @@ function MetaApp({ s, needsMetaApp, patch }: { s: ChannelStatus["metaApp"]; need
 }
 
 function WhatsApp({ s, meta, patch }: { s: ChannelStatus["whatsapp"]; meta: ChannelStatus["metaApp"]; patch: Patch }) {
+  const [how, setHow] = useState<"embedded" | "manual">(s.embedded ? "embedded" : "manual");
+  return (
+    <Card title="WhatsApp" type="whatsapp" mode={s.mode} patch={patch} status={s.connected ? <Chip tone="answered">{s.displayPhone ?? "Connected"}</Chip> : <Chip>Not connected</Chip>}>
+      {s.connected ? (
+        <WhatsAppConnected s={s} meta={meta} patch={patch} />
+      ) : (
+        <div className="max-w-[760px]">
+          <div className="flex rounded-lg border border-line p-0.5 text-[13px]" role="tablist" aria-label="How to connect WhatsApp">
+            {(
+              [
+                ["embedded", "Connect with Facebook"],
+                ["manual", "Enter credentials manually"],
+              ] as const
+            ).map(([k, label]) => (
+              <button key={k} role="tab" aria-selected={how === k} onClick={() => setHow(k)} className={cx("h-8 flex-1 rounded-md px-3", how === k ? "bg-fg text-bg" : "text-fg-2 hover:text-fg")}>
+                {label}
+                {k === "embedded" ? <span className="ml-1.5 opacity-70">(recommended)</span> : null}
+              </button>
+            ))}
+          </div>
+          <div className="mt-4">
+            {how === "embedded" ? (
+              <EmbeddedSignup cfg={s.embedded} patch={patch} />
+            ) : (
+              <div className="space-y-3">
+                <MetaApp s={meta} needsMetaApp={s.needsMetaApp} patch={patch} />
+                <Plain title="2. Your WhatsApp number" status={null}>
+                  <ManualNumber meta={meta} patch={patch} />
+                </Plain>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+type FbLoginResponse = { authResponse?: { code?: string } | null };
+type FbSdk = { init: (o: Record<string, unknown>) => void; login: (cb: (r: FbLoginResponse) => void, o: Record<string, unknown>) => void };
+declare global {
+  interface Window {
+    FB?: FbSdk;
+    fbAsyncInit?: () => void;
+  }
+}
+
+/** Meta's JavaScript SDK, loaded once and only when the owner chooses to connect. */
+function loadFacebook(appId: string, version: string): Promise<FbSdk> {
+  if (window.FB) return Promise.resolve(window.FB);
+  return new Promise((resolve, reject) => {
+    window.fbAsyncInit = () => {
+      window.FB!.init({ appId, autoLogAppEvents: true, xfbml: false, version });
+      resolve(window.FB!);
+    };
+    const el = document.createElement("script");
+    el.src = "https://connect.facebook.net/en_US/sdk.js";
+    el.async = true;
+    el.crossOrigin = "anonymous";
+    el.onerror = () => reject(new Error("Couldn't load Facebook's sign-in. Check your connection or ad blocker, then try again."));
+    document.body.appendChild(el);
+  });
+}
+
+/**
+ * Meta's Embedded Signup popup: the owner signs in with Facebook and picks or creates their WhatsApp Business Account and number.
+ * The popup posts the account and number IDs to this window and returns a one-time code; both go to the server, which swaps the
+ * code for the business's token. No IDs or tokens to copy, and no webhook to set up.
+ */
+function EmbeddedSignup({ cfg, patch }: { cfg: ChannelStatus["whatsapp"]["embedded"]; patch: Patch }) {
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const ids = useRef<{ phoneNumberId?: string; wabaId?: string }>({});
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      if (!/(^|\.)facebook\.com$/.test(new URL(e.origin).hostname)) return;
+      try {
+        const d = typeof e.data === "string" ? JSON.parse(e.data) : e.data;
+        if (d?.type !== "WA_EMBEDDED_SIGNUP") return;
+        if (d.event === "FINISH" || d.event === "FINISH_ONLY_WABA") ids.current = { phoneNumberId: d.data?.phone_number_id, wabaId: d.data?.waba_id };
+        else if (d.event === "CANCEL") setNote(d.data?.current_step ? `Stopped at “${d.data.current_step}”. Start again when you're ready.` : "Cancelled.");
+        else if (d.event === "ERROR") setNote(d.data?.error_message ?? "Meta reported an error in the popup.");
+      } catch {
+        // not one of Meta's messages
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
+
+  if (!cfg) {
+    return (
+      <p className="max-w-[72ch] text-[13.5px] text-fg-2">
+        Connecting with Facebook isn&apos;t set up on this server yet: it needs <span className="num">META_APP_ID</span>, <span className="num">META_APP_SECRET</span> and <span className="num">META_EMBEDDED_SIGNUP_CONFIG_ID</span>. Use “Enter credentials manually” meanwhile.
+      </p>
+    );
+  }
+
+  async function start() {
+    setBusy(true);
+    setNote(null);
+    ids.current = {};
+    try {
+      const FB = await loadFacebook(cfg!.appId, cfg!.graphVersion);
+      const code = await new Promise<string | null>((resolve) =>
+        FB.login((r) => resolve(r.authResponse?.code ?? null), {
+          config_id: cfg!.configId,
+          response_type: "code",
+          override_default_response_type: true,
+          extras: { setup: {}, featureType: "", sessionInfoVersion: "3" },
+        }),
+      );
+      if (!code) {
+        setNote((n) => n ?? "The Facebook window closed before you finished.");
+        return;
+      }
+      // Meta posts the IDs just before the popup closes; give the message a moment to land.
+      for (let i = 0; i < 20 && !ids.current.phoneNumberId; i++) await new Promise((r) => setTimeout(r, 150));
+      if (!ids.current.phoneNumberId || !ids.current.wabaId) {
+        setNote("Meta didn't share which number you picked. Run the steps again and choose a phone number at the end.");
+        return;
+      }
+      const r = (await patch("/api/channels/whatsapp/embedded", "POST", { code, ...ids.current }, "WhatsApp connected. Customers can message your number now.")) as { registerIssue?: string | null };
+      if (r?.registerIssue) setNote(r.registerIssue);
+    } catch (e) {
+      if (!(e instanceof Error && e.name === "ApiError")) setNote((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div>
+      <Steps
+        items={[
+          <>Press the button and sign in with the Facebook account that manages your business.</>,
+          <>Pick your business, then choose an existing WhatsApp Business number or add a new one (Meta texts it a code).</>,
+          <>That&apos;s all: Yapoz checks the number with Meta and starts receiving its messages. Nothing to copy or paste.</>,
+        ]}
+      />
+      <Button className="mt-3" variant="brass" loading={busy} onClick={start}>
+        Connect with Facebook
+      </Button>
+      {note ? <p className="mt-2 text-[13px] text-signal-ink">{note}</p> : null}
+    </div>
+  );
+}
+
+function ManualNumber({ meta, patch }: { meta: ChannelStatus["metaApp"]; patch: Patch }) {
   const [f, setF] = useState({ phoneNumberId: "", wabaId: "", accessToken: "" });
   const [busy, setBusy] = useState(false);
   const [help, setHelp] = useState(false);
-  return (
-    <Card title="WhatsApp number" type="whatsapp" mode={s.mode} patch={patch} status={s.connected ? <Chip tone="answered">{s.displayPhone ?? "Connected"}</Chip> : <Chip>Not connected</Chip>}>
-      {s.connected ? (
-        <div className="space-y-3">
-          <p className="text-[13.5px] text-fg-2">
-            {s.verifiedName ? <>{s.verifiedName} · </> : null}
-            Free-form replies within 24 hours of a customer&apos;s last message; after that only approved templates can be sent.
-            {s.source === "env" ? " Using this server's demo number." : null}
-          </p>
-          {s.source === "workspace" ? (
-            <dl className="grid max-w-[640px] grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[13.5px]">
-              <dt className="text-muted">Meta app</dt>
-              <dd className="num">{meta.connected ? meta.appId : <span className="text-signal-ink">not saved: add it in the Meta app box</span>}</dd>
-              <dt className="text-muted">Business Account</dt>
-              <dd>
-                {s.wabaId ? <span className="num">{s.wabaId}</span> : <span className="text-signal-ink">not saved: disconnect and connect again</span>}
-                {s.wabaId && !s.wabaChecked ? <span className="block text-[12.5px] text-muted">Meta doesn&apos;t show this account to the token, which is normal for Meta&apos;s test number. The number itself was confirmed; make sure <span className="num">messages</span> is subscribed under WhatsApp → Configuration.</span> : null}
-              </dd>
-              <dt className="text-muted">Access token</dt>
-              <dd className={cx((s.tokenExpiresAt && soon(s.tokenExpiresAt)) || !s.tokenChecked ? "text-signal-ink" : null)}>
-                {!s.tokenChecked
-                  ? "not checked with Meta yet: disconnect and connect again to check it"
-                  : s.tokenExpiresAt
-                  ? `${new Date(s.tokenExpiresAt).getTime() < Date.now() ? "expired" : "expires"} ${new Date(s.tokenExpiresAt).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}${soon(s.tokenExpiresAt) ? ": make a System User token that doesn't expire" : ""}`
-                  : "doesn't expire"}
-              </dd>
-            </dl>
-          ) : null}
-          {s.webhookUrl && s.source === "workspace" ? (
-            <div className="max-w-[640px] space-y-2">
-              <p className="text-[13px] text-muted">
-                Last step: in your Meta app → WhatsApp → Configuration, paste this callback URL and verify token, then subscribe to <span className="num">messages</span>.
-              </p>
-              <CopyField value={s.webhookUrl} label="Callback URL" />
-              {s.verifyToken ? <CopyField value={s.verifyToken} label="Verify token" /> : null}
-              <p className="text-[12.5px] text-muted">The verify token stays the same if you disconnect and connect again, so Meta&apos;s webhook settings keep working.</p>
-              <WhatsAppHealth s={s} />
-            </div>
-          ) : null}
-          {s.source === "workspace" ? (
-            <button className={linkBtn} onClick={() => window.confirm("Disconnect WhatsApp? Customer messages stop being answered. The verify token is kept for when you connect again.") && patch("/api/channels/whatsapp", "DELETE", undefined, "WhatsApp disconnected.")}>
-              Disconnect
-            </button>
-          ) : null}
-        </div>
-      ) : !meta.connected ? (
-        <p className="max-w-[72ch] text-[13.5px] text-fg-2">
-          Save your <b>Meta app</b> in the box above first. WhatsApp needs it so Yapoz can check your access token with Meta and trust the messages that arrive.
-        </p>
-      ) : (
+  return !meta.connected ? (
+    <p className="max-w-[72ch] text-[13.5px] text-fg-2">Save your Meta app above first. WhatsApp needs it so Yapoz can check your access token with Meta and trust the messages that arrive.</p>
+  ) : (
         <form
           onSubmit={async (e) => {
             e.preventDefault();
@@ -449,42 +551,65 @@ function WhatsApp({ s, meta, patch }: { s: ChannelStatus["whatsapp"]; meta: Chan
             Check with Meta and connect
           </Button>
         </form>
-      )}
-    </Card>
   );
 }
 
-function Instagram({ s, patch }: { s: ChannelStatus["instagram"]; patch: Patch }) {
+function WhatsAppConnected({ s, meta, patch }: { s: ChannelStatus["whatsapp"]; meta: ChannelStatus["metaApp"]; patch: Patch }) {
   return (
-    <Card title="Instagram" type="instagram" mode={s.mode} patch={patch} status={s.connected ? <Chip tone="answered">{s.username ? `@${s.username}` : "Connected"}</Chip> : <Chip>Not connected</Chip>}>
-      <p className="text-[13.5px] text-fg-2">Answers DMs (within 24 hours) and sends one private reply to each comment on your posts (within 7 days). Needs an Instagram professional account (Business or Creator).</p>
-      {s.connected ? (
-        <div className="mt-2 flex flex-wrap items-center gap-3 text-[13px]">
-          {s.expiresAt ? <span className="text-muted">Access renews automatically (current token valid until {new Date(s.expiresAt).toLocaleDateString()}).</span> : null}
+        <div className="space-y-3">
+          <p className="text-[13.5px] text-fg-2">
+            {s.verifiedName ? <>{s.verifiedName} · </> : null}
+            Free-form replies within 24 hours of a customer&apos;s last message; after that only approved templates can be sent.
+            {s.source === "env" ? " Using this server's demo number." : null}
+          </p>
+          {s.registerIssue ? <p className="max-w-[72ch] text-[13px] text-signal-ink">{s.registerIssue} Replies may fail until the number is registered in WhatsApp Manager.</p> : null}
           {s.source === "workspace" ? (
-            <>
-              <a href="/api/channels/instagram/start" className={linkBtn}>
-                Reconnect
-              </a>
-              <button className={linkBtn} onClick={() => window.confirm("Disconnect Instagram?") && patch("/api/channels/instagram", "DELETE", undefined, "Instagram disconnected.")}>
-                Disconnect
-              </button>
-            </>
-          ) : (
-            <span className="text-muted">Using this server&apos;s demo account.</span>
-          )}
+            <dl className="grid max-w-[640px] grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[13.5px]">
+              <dt className="text-muted">Connected</dt>
+              <dd>{s.method === "embedded" ? "with Facebook (Embedded Signup)" : "manually, with your own Meta app"}</dd>
+              {s.method === "manual" ? (
+                <>
+                  <dt className="text-muted">Meta app</dt>
+                  <dd className="num">{meta.connected ? meta.appId : <span className="text-signal-ink">not saved: disconnect, save your Meta app, and connect again</span>}</dd>
+                </>
+              ) : null}
+              <dt className="text-muted">Business Account</dt>
+              <dd>
+                {s.wabaId ? <span className="num">{s.wabaId}</span> : <span className="text-signal-ink">not saved: disconnect and connect again</span>}
+                {s.wabaId && !s.wabaChecked ? <span className="block text-[12.5px] text-muted">Meta doesn&apos;t show this account to the token, which is normal for Meta&apos;s test number. The number itself was confirmed; make sure <span className="num">messages</span> is subscribed under WhatsApp → Configuration.</span> : null}
+              </dd>
+              <dt className="text-muted">Access token</dt>
+              <dd className={cx((s.tokenExpiresAt && soon(s.tokenExpiresAt)) || !s.tokenChecked ? "text-signal-ink" : null)}>
+                {!s.tokenChecked
+                  ? "not checked with Meta yet: disconnect and connect again to check it"
+                  : s.tokenExpiresAt
+                  ? `${new Date(s.tokenExpiresAt).getTime() < Date.now() ? "expired" : "expires"} ${new Date(s.tokenExpiresAt).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}${soon(s.tokenExpiresAt) ? ": make a System User token that doesn't expire" : ""}`
+                  : "doesn't expire"}
+              </dd>
+            </dl>
+          ) : null}
+          {s.method === "embedded" ? (
+            <div className="max-w-[640px]">
+              <WhatsAppHealth s={s} />
+            </div>
+          ) : null}
+          {s.webhookUrl && s.method === "manual" ? (
+            <div className="max-w-[640px] space-y-2">
+              <p className="text-[13px] text-muted">
+                Last step: in your Meta app → WhatsApp → Configuration, paste this callback URL and verify token, then subscribe to <span className="num">messages</span>.
+              </p>
+              <CopyField value={s.webhookUrl} label="Callback URL" />
+              {s.verifyToken ? <CopyField value={s.verifyToken} label="Verify token" /> : null}
+              <p className="text-[12.5px] text-muted">The verify token stays the same if you disconnect and connect again, so Meta&apos;s webhook settings keep working.</p>
+              <WhatsAppHealth s={s} />
+            </div>
+          ) : null}
+          {s.source === "workspace" ? (
+            <button className={linkBtn} onClick={() => window.confirm("Disconnect WhatsApp? Customer messages stop being answered. The verify token is kept for when you connect again.") && patch("/api/channels/whatsapp", "DELETE", undefined, "WhatsApp disconnected.")}>
+              Disconnect
+            </button>
+          ) : null}
         </div>
-      ) : s.canConnect ? (
-        <div className="mt-3">
-          <a href="/api/channels/instagram/start" className="inline-flex h-10 items-center rounded-[10px] bg-brass px-4 text-sm font-medium text-ink hover:brightness-105">
-            Connect Instagram
-          </a>
-          <p className="mt-2 text-[12.5px] text-muted">Until Yapoz&apos;s Meta app passes review, only accounts added as Instagram testers on the app can connect.</p>
-        </div>
-      ) : (
-        <p className="mt-2 text-[13px] text-muted">Instagram isn&apos;t set up on this server yet (INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET).</p>
-      )}
-    </Card>
   );
 }
 
@@ -495,9 +620,7 @@ export function Channels({ channels, patch, workspaceId }: { channels: ChannelSt
       <p className="mt-1 max-w-[70ch] text-[14px] text-muted">Where customers reach you. Autopilot sends replies on its own; Copilot drafts them for your team to approve in the inbox.</p>
       <ul className="mt-2 divide-y divide-line border-y border-line">
         <Telegram s={channels.telegram} patch={patch} workspaceId={workspaceId} />
-        <MetaApp s={channels.metaApp} needsMetaApp={channels.whatsapp.needsMetaApp} patch={patch} />
         <WhatsApp s={channels.whatsapp} meta={channels.metaApp} patch={patch} />
-        <Instagram s={channels.instagram} patch={patch} />
         <Card title="Website simulator" type="simulator" mode={channels.simulator.mode} patch={patch} status={<Chip tone="answered">Always on</Chip>}>
           <p className="text-[13.5px] text-fg-2">A phone on screen that talks to the same assistant. Test answers before going live, or use it as the fallback on stage.</p>
         </Card>

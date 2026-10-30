@@ -2,16 +2,12 @@
 // - the shared Jawab bot ("platform"): one bot for everyone. Businesses connect it to their Telegram Business
 //   account after proving ownership with a link code; customers reach a business through t.me/<bot>?start=<WORKSPACE>.
 // - a business's own bot (ref = channel id): every update belongs to that business.
-import type { Update, Message, CallbackQuery, ChatMemberUpdated, BusinessConnection } from "grammy/types";
+import type { Update, Message, CallbackQuery, BusinessConnection } from "grammy/types";
 import type { Api } from "grammy";
 import { db, t } from "@/db";
 import { and, eq, gt, isNull } from "drizzle-orm";
-import { botEntry, downloadTelegramFile, PLATFORM } from "./api";
+import { botEntry, PLATFORM } from "./api";
 import { ingest, respond } from "@/agent/pipeline";
-import { handleApplyFlow, startApply, deleteMyData } from "./apply";
-import { addCandidate } from "@/hiring/ingest";
-import { pickSlot } from "@/hiring/schedule";
-import { extractPdfText } from "@/hiring/pdf";
 import { env } from "@/lib/env";
 import type { Attachment } from "@/db/schema";
 
@@ -32,13 +28,7 @@ export async function handleTelegramUpdateJob(payload: Record<string, unknown>) 
   if (u.business_connection) return onBusinessConnection(ctx, u.business_connection);
   if (u.business_message) return onBusinessMessage(ctx, u.business_message);
   if (u.callback_query) return onCallback(ctx, u.callback_query);
-  if (u.my_chat_member) return onMyChatMember(ctx, u.my_chat_member);
-  if (u.channel_post) return onSourcePost(ctx, u.channel_post);
-  if (u.message) {
-    const m = u.message;
-    if (m.chat.type === "private") return onPrivateMessage(ctx, m);
-    if (m.chat.type === "group" || m.chat.type === "supergroup") return onSourcePost(ctx, m);
-  }
+  if (u.message?.chat.type === "private") return onPrivateMessage(ctx, u.message);
 }
 
 function attachmentsOf(m: Message): Attachment[] {
@@ -124,7 +114,7 @@ async function onBusinessMessage(ctx: BotCtx, m: Message) {
   await respond(r.thread.id, r.messageId);
 }
 
-/** /start payloads on the shared bot: link_<code> (owner), apply_<WS> (candidate), <WS> (customer). */
+/** /start payloads on the shared bot: link_<code> (owner), <WS> (customer). */
 async function onStart(ctx: BotCtx, m: Message, arg: string | undefined): Promise<boolean> {
   const from = String(m.from?.id ?? m.chat.id);
   if (arg?.startsWith("link_")) {
@@ -145,26 +135,14 @@ async function onStart(ctx: BotCtx, m: Message, arg: string | undefined): Promis
     );
     return true;
   }
-  // A business's own bot belongs to one business: "/start apply" opens the application, nothing else rebinds it.
-  if (ctx.fixedWorkspace) {
-    if (arg === "apply" || arg === `apply_${ctx.fixedWorkspace}`) {
-      await startApply(ctx, ctx.fixedWorkspace, m);
-      return true;
-    }
-    return false;
-  }
-  const apply = arg?.startsWith("apply_") ? arg.slice(6) : null;
-  const wsRef = (apply ?? arg ?? "").toUpperCase();
+  // A business's own bot belongs to one business: nothing rebinds it.
+  if (ctx.fixedWorkspace) return false;
+  const wsRef = (arg ?? "").toUpperCase();
   if (wsRef && /^[A-Z0-9]{3,12}$/.test(wsRef)) {
-    const [w] = await db.select({ id: t.workspaces.id, name: t.workspaces.name, settings: t.workspaces.settings }).from(t.workspaces).where(eq(t.workspaces.id, wsRef));
+    const [w] = await db.select({ id: t.workspaces.id, name: t.workspaces.name }).from(t.workspaces).where(eq(t.workspaces.id, wsRef));
     if (w) {
       await bindChat(ctx, m.chat.id, w.id);
-      if (apply) {
-        await startApply(ctx, w.id, m);
-        return true;
-      }
-      const hiring = w.settings.modules?.hiring ? " Looking for a job? Send /apply." : "";
-      await ctx.api.sendMessage(m.chat.id, `Hi${m.from?.first_name ? ` ${m.from.first_name}` : ""}! You're chatting with ${w.name}. Ask about products, prices, opening hours or bookings.${hiring}`);
+      await ctx.api.sendMessage(m.chat.id, `Hi${m.from?.first_name ? ` ${m.from.first_name}` : ""}! You're chatting with ${w.name}. Ask about products, prices, opening hours or orders.`);
       return true;
     }
   }
@@ -185,21 +163,10 @@ async function onPrivateMessage(ctx: BotCtx, m: Message) {
     );
     return;
   }
-  if (cmd) {
-    const [, name] = cmd;
-    if (name === "apply") return startApply(ctx, workspaceId, m);
-    if (name === "delete_my_data") return deleteMyData(ctx, workspaceId, m);
-    if (name === "cancel") {
-      await db.delete(t.botSessions).where(and(eq(t.botSessions.workspaceId, workspaceId), eq(t.botSessions.chatId, chatId)));
-      await ctx.api.sendMessage(m.chat.id, `Cancelled. Ask me anything about ${await wsName(workspaceId)}.`);
-      return;
-    }
-    if (name === "start") {
-      await ctx.api.sendMessage(m.chat.id, `Hi${m.from?.first_name ? ` ${m.from.first_name}` : ""}! This is ${await wsName(workspaceId)}. Ask about products, prices, opening hours or bookings.`);
-      return;
-    }
+  if (cmd?.[1] === "start") {
+    await ctx.api.sendMessage(m.chat.id, `Hi${m.from?.first_name ? ` ${m.from.first_name}` : ""}! This is ${await wsName(workspaceId)}. Ask about products, prices, opening hours or orders.`);
+    return;
   }
-  if (await handleApplyFlow(ctx, workspaceId, m)) return;
   const r = await ingest({
     workspaceId, channel: "telegram", externalThreadId: `chat:${ctx.ref}:${chatId}`,
     customer: { externalId: String(m.from?.id ?? chatId), displayName: displayName(m.from), username: m.from?.username ?? null },
@@ -211,75 +178,6 @@ async function onPrivateMessage(ctx: BotCtx, m: Message) {
 }
 
 async function onCallback(ctx: BotCtx, q: CallbackQuery) {
-  const data = q.data ?? "";
-  try {
-    const chat = q.message?.chat.id;
-    const workspaceId = chat !== undefined ? await chatWorkspace(ctx, chat) : ctx.fixedWorkspace;
-    if (data.startsWith("slot:")) {
-      const [, outreachId, idx] = data.split(":");
-      const [o] = await db.select({ ws: t.outreach.workspaceId }).from(t.outreach).where(eq(t.outreach.id, outreachId));
-      const result = o ? await pickSlot(o.ws, outreachId, Number(idx), String(q.from.id)) : { toast: "This invite is no longer valid." };
-      await ctx.api.answerCallbackQuery(q.id, { text: result.toast });
-      return;
-    }
-    if (data.startsWith("apply:") && workspaceId) {
-      const handled = await handleApplyFlow(ctx, workspaceId, null, q);
-      await ctx.api.answerCallbackQuery(q.id, handled ? {} : { text: "This step has expired. Send /apply to start again." });
-      return;
-    }
-    await ctx.api.answerCallbackQuery(q.id);
-  } catch (e) {
-    console.error("[telegram callback]", e);
-    await ctx.api.answerCallbackQuery(q.id, { text: "Something went wrong, please try again." }).catch(() => {});
-  }
+  // No flows use inline buttons any more; acknowledge so the button stops spinning.
+  await ctx.api.answerCallbackQuery(q.id).catch(() => {});
 }
-
-/** Remember channels/groups where the bot was made admin: those become candidate sources for that business. */
-async function onMyChatMember(ctx: BotCtx, u: ChatMemberUpdated) {
-  if (u.chat.type === "private") return;
-  const workspaceId = ctx.fixedWorkspace ?? (await linkedWorkspaceOf(String(u.from.id)));
-  if (!workspaceId) return;
-  const isAdmin = u.new_chat_member.status === "administrator";
-  const [ch] = await db.select().from(t.channels).where(and(eq(t.channels.workspaceId, workspaceId), eq(t.channels.type, "telegram")));
-  if (!ch) return;
-  const sources = new Set(String(ch.config.hrSources ?? "").split(",").filter(Boolean));
-  const key = `${ctx.ref}|${u.chat.id}`;
-  if (isAdmin) sources.add(key);
-  else sources.delete(key);
-  await db
-    .update(t.channels)
-    .set({ config: { ...ch.config, hrSources: [...sources].join(","), [`hrSourceTitle:${u.chat.id}`]: "title" in u.chat ? (u.chat.title ?? null) : null } })
-    .where(eq(t.channels.id, ch.id));
-}
-
-async function sourceWorkspace(ctx: BotCtx, chatId: number): Promise<string | null> {
-  const envIds = (process.env.TELEGRAM_HR_CHANNEL_ID ?? "").split(",").map((s) => s.trim()).filter(Boolean);
-  if (ctx.ref === PLATFORM && envIds.includes(String(chatId))) return env.demoWorkspaceId;
-  const rows = await db.select({ ws: t.channels.workspaceId, config: t.channels.config }).from(t.channels).where(eq(t.channels.type, "telegram"));
-  const key = `${ctx.ref}|${chatId}`;
-  return rows.find((r) => String(r.config.hrSources ?? "").split(",").includes(key))?.ws ?? null;
-}
-
-/** Resume posts and PDFs in a channel/group the business administers (bot is admin there). */
-async function onSourcePost(ctx: BotCtx, m: Message) {
-  const workspaceId = await sourceWorkspace(ctx, m.chat.id);
-  if (!workspaceId) return;
-  const text = (m.text ?? m.caption ?? "").trim();
-  let raw = text;
-  let doc: { filename: string; mime: string; bytes: Buffer; text: string } | undefined;
-  if (m.document && (m.document.mime_type === "application/pdf" || m.document.file_name?.toLowerCase().endsWith(".pdf"))) {
-    const { bytes } = await downloadTelegramFile(ctx.ref, m.document.file_id);
-    const pdfText = await extractPdfText(bytes);
-    doc = { filename: m.document.file_name ?? "resume.pdf", mime: "application/pdf", bytes, text: pdfText };
-    raw = [text, pdfText].filter(Boolean).join("\n\n");
-  }
-  if (raw.length < 40) return; // chatter, not a resume
-  const nameGuess = displayName(m.from) ?? text.match(/name[:\s]+([^\n]+)/i)?.[1]?.trim() ?? "Unnamed candidate";
-  await addCandidate({
-    workspaceId, fullName: nameGuess, source: "telegram_channel",
-    sourceRef: `${"title" in m.chat ? m.chat.title : "chat"} #${m.message_id}`,
-    telegramUsername: m.from?.username ?? text.match(/@([a-zA-Z0-9_]{5,32})/)?.[1] ?? null,
-    telegramChatId: null, rawText: raw, doc, consent: true,
-  });
-}
-

@@ -12,13 +12,9 @@ import { encryptJson, decryptJson } from "@/lib/crypto";
 import { channelOf } from "../connections";
 import { forgetBot } from "./api";
 
-export const ALLOWED_UPDATES = ["message", "edited_message", "channel_post", "callback_query", "my_chat_member", "business_connection", "business_message", "edited_business_message", "deleted_business_messages"] as const;
+export const ALLOWED_UPDATES = ["message", "edited_message", "callback_query", "business_connection", "business_message", "edited_business_message", "deleted_business_messages"] as const;
 
-export const COMMANDS = (hiring: boolean) => [
-  { command: "start", description: "Say hello" },
-  ...(hiring ? [{ command: "apply", description: "Apply for a job" }, { command: "delete_my_data", description: "Delete my job application" }] : []),
-  { command: "cancel", description: "Stop the current step" },
-];
+export const COMMANDS = [{ command: "start", description: "Say hello" }];
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
@@ -57,7 +53,6 @@ export async function connectOwnBot(workspaceId: string, token: string, opts: { 
     .where(eq(t.channels.id, ch.id));
   forgetBot(ch.id);
 
-  const [ws] = await db.select({ settings: t.workspaces.settings }).from(t.workspaces).where(eq(t.workspaces.id, workspaceId));
   let webhook: "set" | "local" = "local";
   // Telegram only delivers to public https URLs; locally, `npm run telegram:poll` polls own bots too.
   if (env.appUrl.startsWith("https://")) {
@@ -78,7 +73,7 @@ export async function connectOwnBot(workspaceId: string, token: string, opts: { 
     }
     webhook = "set";
   }
-  await api.setMyCommands(COMMANDS(Boolean(ws?.settings.modules?.hiring))).catch(() => {});
+  await api.setMyCommands(COMMANDS).catch(() => {});
   await db.insert(t.events).values({ workspaceId, type: "channel.connected", props: { channel: "telegram", bot: me.username } });
   return { channelId: ch.id, username: me.username, webhook };
 }

@@ -13,11 +13,12 @@ import { Dialog } from "@/components/ui/dialog";
 import { Input, Textarea, Label } from "@/components/ui/field";
 import { useToast } from "@/components/app/toast";
 import { cx } from "@/components/ui/cx";
+import type { AppointmentView } from "@/lib/appointment-types";
 
 type Today = {
   today: string;
   kpi: {
-    handled: number; autoResolvedPct: number | null; escalated: number; medianFirstResponseMs: number | null; bookingsCreated: number;
+    handled: number; autoResolvedPct: number | null; escalated: number; medianFirstResponseMs: number | null; ordersCreated: number; aiFailures: number;
     openEscalations: number; urgentEscalations: number; demoShare: number;
     yesterday: { handled: number; autoResolvedPct: number | null; medianFirstResponseMs: number | null };
   };
@@ -27,25 +28,32 @@ type Today = {
   sentiment: { day: string; positive: number; neutral: number; negative: number; total: number }[];
   hourly: number[];
   gaps: { id: string; key: string; question: string; count: number; last_asked_at: string; is_demo: boolean }[];
-  hiring: { open_roles: number; candidates: number; shortlisted: number; invited: number; scheduled: number; approvals: number; next_interview: string | null };
+  appointments?: AppointmentView[];
+  pending: { id: string; ref_code: string; customer_name: string; total_minor: number; currency: string; created_at: string; receipts: number; last_verdict: string | null }[];
+  models: { model: string; n: number }[];
   includeDemo: boolean;
   demoMode: boolean;
   demoTraffic: boolean;
-  hiringModule: boolean;
   live: boolean;
   setupDone: boolean;
   workspace: { name: string; timezone: string };
 };
 
 const LANG: Record<string, string> = { en: "English", ms: "Malay", zh: "Chinese", ta: "Tamil", ru: "Russian", uz: "Uzbek", ar: "Arabic", id: "Indonesian", unknown: "Not detected" };
-const CH: Record<string, string> = { telegram: "Telegram", whatsapp: "WhatsApp", instagram: "Instagram", simulator: "Simulator" };
+const CH: Record<string, string> = { telegram: "Telegram", whatsapp: "WhatsApp", simulator: "Simulator" };
+const VERDICT: Record<string, string> = { consistent: "receipt looks consistent", review: "receipt needs a look", mismatch: "receipt doesn't add up", unreadable: "receipt unreadable" };
+
+function money(minor: number, currency: string) {
+  const major = minor / 100;
+  return currency === "MYR" ? `RM ${Number.isInteger(major) ? major : major.toFixed(2)}` : new Intl.NumberFormat("en", { style: "currency", currency }).format(major);
+}
 
 function GettingStarted({ live, setupDone }: { live: boolean; setupDone: boolean }) {
   const steps = [
     { done: setupDone, title: "Teach it your business", body: "Describe what you sell, upload your menu or price list, and check the draft.", href: "/app/setup", cta: setupDone ? "Edit in Knowledge" : "Continue setup", alt: "/app/knowledge" },
-    { done: false, title: "Connect your chats", body: "Telegram, WhatsApp and Instagram, from Settings → Channels.", href: "/app/settings#channels", cta: "Connect" },
+    { done: false, title: "Connect your chats", body: "WhatsApp and Telegram, from Settings → Channels.", href: "/app/settings#channels", cta: "Connect" },
     { done: live, title: "Go live", body: live ? "Customers on connected channels get answers right away." : "Until then it only answers in the simulator.", href: "/app/settings#assistant", cta: live ? "Live" : "Go live" },
-    { done: false, title: "Bring in your team", body: "Give service staff the inbox, and HR the hiring desk.", href: "/app/settings#team", cta: "Invite" },
+    { done: false, title: "Bring in your team", body: "Give service staff the orders queue and the inbox.", href: "/app/settings#team", cta: "Invite" },
   ];
   return (
     <section className="mb-10 rounded-2xl border border-line p-6">
@@ -67,6 +75,130 @@ function GettingStarted({ live, setupDone }: { live: boolean; setupDone: boolean
   );
 }
 
+type StockRow = { itemId: string; itemTitle: string; variantId: string; name: string; usualQty: number | null; override: number | null; qty: number | null; held: number; sold: number; left: number | null; on: boolean };
+type Stock = {
+  date: string; today: string; days: string[];
+  daily: StockRow[];
+  low: { itemId: string; itemTitle: string; variantId: string; name: string; left: number; threshold: number }[];
+};
+
+function dayLabel(d: string, today: string) {
+  if (d === today) return "Today";
+  const next = new Date(today + "T12:00:00");
+  next.setDate(next.getDate() + 1);
+  if (d === next.toLocaleDateString("sv-SE")) return "Tomorrow";
+  return new Date(d + "T12:00:00").toLocaleDateString("en-MY", { weekday: "short", day: "numeric", month: "short" });
+}
+
+const putStock = (body: { variantId: string; date: string; qty: number | null }) => send("/api/stock/daily", "PUT", body);
+
+function StockQty({ row, date, onSaved }: { row: StockRow; date: string; onSaved: () => void }) {
+  const toast = useToast();
+  const [val, setVal] = useState(row.override !== null ? String(row.override) : "");
+  useEffect(() => setVal(row.override !== null ? String(row.override) : ""), [row.override]);
+  async function save(qty: number | null) {
+    try {
+      await putStock({ variantId: row.variantId, date, qty });
+      onSaved();
+    } catch (e) {
+      toast((e as Error).message, "error");
+    }
+  }
+  function commit() {
+    const t = val.trim();
+    const n = t === "" ? null : Math.max(0, Math.floor(Number(t)));
+    if (n !== null && !Number.isFinite(n)) return setVal(row.override !== null ? String(row.override) : "");
+    if (n !== row.override) void save(n);
+  }
+  return (
+    <div className="flex items-center justify-end gap-2">
+      <input
+        type="number" min={0} inputMode="numeric" value={val} placeholder={row.usualQty !== null ? String(row.usualQty) : "–"}
+        aria-label={`Quantity for ${row.itemTitle} ${row.name}`}
+        onChange={(e) => setVal(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+        className="num h-8 w-16 rounded-lg border border-line bg-transparent px-2 text-right text-[14px]"
+      />
+      {row.override !== null ? (
+        <button type="button" onClick={() => void save(null)} className="text-[12px] text-muted underline-offset-4 hover:underline">Reset</button>
+      ) : null}
+    </div>
+  );
+}
+
+function StockCards() {
+  const [date, setDate] = useState<string | null>(null);
+  const { data, mutate } = useSWR<Stock>(`/api/stock${date ? `?date=${date}` : ""}`, getJson);
+  useLive(["stock_holds", "daily_stock", "kb_variants"], () => mutate(), 600);
+  if (!data) return null;
+  const shown = data.date;
+  return (
+    <>
+      {data.daily.length > 0 ? (
+        <section className="mt-8 rounded-2xl border border-line p-5" aria-label="Stock">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="font-display text-[20px] font-bold">{shown === data.today ? "Today's stock" : `Stock for ${dayLabel(shown, data.today)}`}</h2>
+              <p className="text-[13px] text-muted">Leave “Today” empty to use the usual amount.</p>
+            </div>
+            {data.days.length > 1 ? (
+              <label className="flex items-center gap-2 text-[13px] text-fg-2">
+                Plan ahead
+                <select value={shown} onChange={(e) => setDate(e.target.value === data.today ? null : e.target.value)} className="h-8 rounded-lg border border-line bg-transparent px-2 text-[14px] text-fg">
+                  {data.days.map((d) => <option key={d} value={d}>{dayLabel(d, data.today)}</option>)}
+                </select>
+              </label>
+            ) : null}
+          </div>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-[14px]">
+              <thead>
+                <tr className="border-b border-line text-left text-[12px] font-normal text-muted">
+                  <th className="py-2 pr-3 font-normal">Item</th>
+                  <th className="px-3 text-right font-normal">Usual</th>
+                  <th className="px-3 text-right font-normal">{shown === data.today ? "Today" : "That day"}</th>
+                  <th className="px-3 text-right font-normal">Held</th>
+                  <th className="px-3 text-right font-normal">Sold</th>
+                  <th className="pl-3 text-right font-normal">Left</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {data.daily.map((r) => (
+                  <tr key={r.variantId}>
+                    <td className="py-2 pr-3"><span className="font-medium">{r.itemTitle}</span>{r.name && r.name !== r.itemTitle ? <span className="text-fg-2">, {r.name}</span> : null}</td>
+                    <td className="num px-3 text-right text-fg-2">{r.usualQty ?? "–"}</td>
+                    <td className="px-3">{r.on ? <StockQty row={r} date={shown} onSaved={() => void mutate()} /> : <div className="text-right text-muted">Off</div>}</td>
+                    <td className="num px-3 text-right text-fg-2">{r.held}</td>
+                    <td className="num px-3 text-right text-fg-2">{r.sold}</td>
+                    <td className="pl-3 text-right">
+                      {!r.on ? <span className="text-muted">Off</span> : r.left === 0 ? <Chip tone="signal">Sold out</Chip> : <span className="num font-medium">{r.left ?? "–"}</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+      {data.low.length > 0 ? (
+        <section className="mt-8 rounded-2xl border border-signal/40 bg-signal/[0.05] p-5" aria-label="Low stock">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="font-display text-[20px] font-bold">Low stock</h2>
+            <Link href="/app/knowledge" className="text-[14px] font-medium text-brass-ink underline-offset-4 hover:underline">Update in Knowledge</Link>
+          </div>
+          <ul className="mt-3 divide-y divide-line">
+            {data.low.map((l) => (
+              <li key={l.variantId} className="py-2.5 text-[14px]">
+                {l.left === 0 ? "Out of stock: " : `Only ${l.left} left of `}
+                <span className="font-medium">{l.name && l.name !== l.itemTitle ? `${l.itemTitle}, ${l.name}` : l.itemTitle}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+    </>
+  );
+}
+
 function secs(ms: number | null) {
   if (ms === null || ms === undefined) return "–";
   return ms < 10_000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms / 1000)}s`;
@@ -76,7 +208,7 @@ export default function TodayPage() {
   const [includeDemo, setIncludeDemo] = useState(true);
   const toast = useToast();
   const { data, mutate } = useSWR<Today>(`/api/owner/today?demo=${includeDemo ? 1 : 0}`, getJson);
-  useLive(["agent_runs", "escalations", "knowledge_gaps", "bookings", "outreach", "interviews", "matches"], () => mutate(), 600);
+  useLive(["agent_runs", "escalations", "knowledge_gaps", "orders", "order_receipts", "appointments"], () => mutate(), 600);
   const [gap, setGap] = useState<Today["gaps"][number] | null>(null);
 
   // Owner-only demo traffic: replays one seeded conversation every few seconds while this page is open.
@@ -137,11 +269,55 @@ export default function TodayPage() {
         <Kpi label="Messages handled" value={k ? String(k.handled) : "–"} delta={k ? diff(k.handled, k.yesterday.handled, "") : null} />
         <Kpi label="Auto-resolved" value={k?.autoResolvedPct != null ? `${k.autoResolvedPct}%` : "–"} delta={k && k.autoResolvedPct != null && k.yesterday.autoResolvedPct != null ? diff(k.autoResolvedPct, k.yesterday.autoResolvedPct, " pts") : null} />
         <Kpi label="Median first reply" value={secs(k?.medianFirstResponseMs ?? null)} delta={k?.yesterday.medianFirstResponseMs ? `yesterday ${secs(k.yesterday.medianFirstResponseMs)}` : null} />
-        <Kpi label="Bookings created" value={k ? String(k.bookingsCreated) : "–"} delta="by the agent, today" />
+        <Link href="/app/orders" className="group">
+          <Kpi label="Waiting for approval" value={data ? String(data.pending.length) : "–"} tone={data?.pending.length ? "signal" : undefined} delta={k ? `${k.ordersCreated} order${k.ordersCreated === 1 ? "" : "s"} taken today` : null} />
+        </Link>
         <Link href="/app/needs-you" className="group col-span-2 md:col-span-1">
           <Kpi label="Needs you" value={k ? String(k.openEscalations) : "–"} tone={k && k.openEscalations > 0 ? "signal" : undefined} delta={k ? (k.urgentEscalations ? `${k.urgentEscalations} high priority` : "open escalations") : null} />
         </Link>
       </section>
+
+      {data?.pending.length ? (
+        <section className="mt-8 rounded-2xl border border-signal/40 bg-signal/[0.05] p-5" aria-label="Orders waiting for approval">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="font-display text-[20px] font-bold">Orders waiting for you</h2>
+            <Link href="/app/orders" className="text-[14px] font-medium text-brass-ink underline-offset-4 hover:underline">Review and approve</Link>
+          </div>
+          <ul className="mt-3 divide-y divide-line">
+            {data.pending.map((o) => (
+              <li key={o.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2.5 text-[14px]">
+                <Link href={`/app/orders?o=${o.id}`} className="num font-semibold underline-offset-4 hover:underline">{o.ref_code}</Link>
+                <span>{o.customer_name}</span>
+                <span className="num text-fg-2">{money(o.total_minor, o.currency)}</span>
+                <span className="text-muted">{o.receipts ? VERDICT[o.last_verdict ?? ""] ?? "receipt sent" : "no receipt yet"}</span>
+                <span className="num ml-auto text-[12px] text-muted">{new Date(o.created_at).toLocaleString("en-MY", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {data?.appointments?.length ? (
+        <section className="mt-8 rounded-2xl border border-line p-5" aria-label="Today's appointments">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="font-display text-[20px] font-bold">Today&apos;s appointments</h2>
+            <Link href="/app/calendar" className="text-[14px] font-medium text-brass-ink underline-offset-4 hover:underline">Open calendar</Link>
+          </div>
+          <ul className="mt-3 divide-y divide-line">
+            {data.appointments.map((a) => (
+              <li key={a.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5 text-[14px]">
+                <span className="num w-16 font-semibold">{new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: data.workspace.timezone }).format(new Date(a.startsAt)).replace(" ", "").toLowerCase()}</span>
+                <span className="font-medium">{a.service}</span>
+                <span>{a.customerName}</span>
+                {a.staffName ? <span className="text-fg-2">with {a.staffName}</span> : null}
+                <span className="ml-auto">{a.status === "pending" ? <Chip tone="brass">Waiting for approval</Chip> : a.status === "completed" ? <Chip tone="answered">Done</Chip> : <Chip tone="answered">Confirmed</Chip>}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      <StockCards />
 
       <div className="mt-10 grid grid-cols-1 gap-x-10 gap-y-12 lg:grid-cols-12">
         <section className="lg:col-span-8">
@@ -206,24 +382,19 @@ export default function TodayPage() {
           )}
         </section>
 
-        {data && !data.hiringModule ? null : <section className="lg:col-span-4">
-          <SectionTitle title="Hiring" sub="Open roles and candidates" />
+        <section className="lg:col-span-4">
+          <SectionTitle title="AI today" sub="Which models wrote the replies" />
           {data ? (
-            <dl className="grid grid-cols-2 border-t border-line">
-              <Stat label="Open roles" value={data.hiring.open_roles} />
-              <Stat label="Candidates" value={data.hiring.candidates} />
-              <Stat label="Shortlisted" value={data.hiring.shortlisted} />
-              <Stat label="Waiting for Approve" value={data.hiring.approvals} tone={data.hiring.approvals ? "brass" : undefined} />
-              <Stat label="Invited" value={data.hiring.invited} />
-              <Stat label="Interviews booked" value={data.hiring.scheduled} />
-            </dl>
+            <>
+              <BarList items={data.models.map((m) => ({ label: m.model === "none" ? "No AI configured" : m.model, value: m.n }))} empty="No replies yet." />
+              <p className={cx("mt-3 text-[13px]", k?.aiFailures ? "text-signal-ink" : "text-muted")}>
+                {k?.aiFailures ? `${k.aiFailures} message${k.aiFailures === 1 ? "" : "s"} got the holding reply because every AI provider failed. Each one is in Needs you.` : "No AI failures today."}
+              </p>
+            </>
           ) : (
             <Skeleton h={160} />
           )}
-          <Link href="/app/hiring" className="mt-4 inline-block text-[14px] text-brass-ink underline-offset-4 hover:underline">
-            Open hiring
-          </Link>
-        </section>}
+        </section>
       </div>
 
       <GapDialog gap={gap} onClose={() => setGap(null)} onSaved={() => (setGap(null), mutate(), toast("Answer added. The agent uses it from the next message."))} />
@@ -243,15 +414,6 @@ function Kpi({ label, value, delta, tone }: { label: string; value: string; delt
       <div className="text-[13px] text-muted">{label}</div>
       <div className={cx("num mt-1 text-[44px] font-medium leading-none tracking-[-0.04em]", tone === "signal" ? "text-signal-ink" : "text-fg")}>{value}</div>
       <div className="mt-2 h-4 text-[12px] text-muted">{delta ?? ""}</div>
-    </div>
-  );
-}
-
-function Stat({ label, value, tone }: { label: string; value: number; tone?: "brass" }) {
-  return (
-    <div className="border-b border-line py-3 pr-3 [&:nth-child(even)]:border-l [&:nth-child(even)]:pl-4">
-      <dt className="text-[12px] text-muted">{label}</dt>
-      <dd className={cx("num text-[26px] leading-tight", tone === "brass" ? "text-brass-ink" : "")}>{value}</dd>
     </div>
   );
 }

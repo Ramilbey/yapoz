@@ -12,7 +12,7 @@ async function ctx(wsId = "FORNO7"): Promise<ToolContext> {
   const [customer] = await db.insert(t.customers).values({ workspaceId: ws.id, channel: "simulator", externalId: `test-${Date.now()}`, displayName: "Test Guest" }).returning();
   const [thread] = await db.insert(t.threads).values({ workspaceId: ws.id, channel: "simulator", externalThreadId: `test-${Date.now()}`, customerId: customer.id }).returning();
   const kb = await knowledge(ws);
-  return { ws, catalog: kb.catalog, threadId: thread.id, customerId: customer.id, customerName: "Test Guest", channel: "simulator", escalations: [], bookings: [] };
+  return { ws, catalog: kb.catalog, threadId: thread.id, customerId: customer.id, customerName: "Test Guest", channel: "simulator", escalations: [] };
 }
 function nextWeekday(wd: string) {
   const today = localDate(new Date(), "Asia/Kuala_Lumpur");
@@ -28,24 +28,24 @@ after(async () => { await sql.end(); });
 test("check_variant: large margherita price", async () => {
   const c = await ctx();
   const r = await runTool(c, "check_variant", { product: "margherita", size: "large" }, "");
-  const out = r.output as { variants: { price: string }[]; availableToday: boolean };
+  const out = r.output as { variants: { price: string }[]; available: boolean };
   assert.equal(out.variants[0].price, "RM 52");
-  assert.equal(out.availableToday, true);
+  assert.equal(out.available, true);
   assert.match(r.label, /Large Margherita ✓/);
 });
 
 test("check_variant: truffle sold out today", async () => {
   const c = await ctx();
   const r = await runTool(c, "check_variant", { product: "truffle" }, "");
-  assert.equal((r.output as { availableToday: boolean }).availableToday, false);
+  assert.equal((r.output as { available: boolean }).available, false);
   assert.match(r.label, /sold out/i);
 });
 
 test("check_variant: merch stock by size and colour", async () => {
   const c = await ctx();
   const r = await runTool(c, "check_variant", { product: "t-shirt", size: "XL", color: "brick red" }, "");
-  const out = r.output as { variants: { stock: number; inStock: boolean }[] };
-  assert.equal(out.variants[0].stock, 0);
+  const out = r.output as { variants: { inStock: boolean; stock?: number }[] };
+  assert.equal(out.variants[0].stock, undefined, "the customer-facing output doesn't expose counts");
   assert.equal(out.variants[0].inStock, false);
   const r2 = await runTool(c, "check_variant", { product: "tee", size: "M", color: "black" }, "");
   assert.ok((r2.output as { colorNotFound?: string }).colorNotFound?.includes("Charcoal"));
@@ -70,23 +70,6 @@ test("get_business_info: Monday closed, private event exception", async () => {
   assert.match((ex.output as { days: { hours: string }[] }).days[0].hours, /private event/);
 });
 
-test("booking: Friday 8pm for 4 succeeds, Saturday 8pm is full", async () => {
-  const c = await ctx();
-  const fri = nextWeekday("fri");
-  const s = await runTool(c, "check_slots", { date: fri, party_size: 4, time: "20:00" }, "");
-  assert.equal((s.output as { requestedAvailable: boolean }).requestedAvailable, true);
-  const b = await runTool(c, "create_booking", { customer_name: "Test Guest", date: fri, time: "8pm", party_size: 4 }, "");
-  assert.equal((b.output as { ok: boolean }).ok, true);
-  assert.match((b.output as { refCode: string }).refCode, /^F7-[A-Z0-9]{4}$/);
-  const sat = nextWeekday("sat");
-  const full = await runTool(c, "check_slots", { date: sat, party_size: 4, time: "20:00" }, "");
-  assert.equal((full.output as { requestedAvailable: boolean }).requestedAvailable, false);
-  assert.ok(((full.output as { nearestAlternatives: string[] }).nearestAlternatives ?? []).length > 0);
-  const big = await runTool(c, "create_booking", { customer_name: "Big", date: fri, time: "19:00", party_size: 14 }, "");
-  assert.equal((big.output as { ok: boolean }).ok, false);
-  await db.delete(t.bookings).where(eq(t.bookings.refCode, (b.output as { refCode: string }).refCode));
-});
-
 test("escalate: knowledge gap lands in Needs you", async () => {
   const c = await ctx();
   const r = await runTool(c, "escalate", { category: "knowledge_gap", priority: "low", reason: "gluten free", summary: "asks gluten free", gap_key: "gluten-free base" }, "gluten free?");
@@ -95,41 +78,3 @@ test("escalate: knowledge gap lands in Needs you", async () => {
   assert.equal(th.status, "needs_human");
 });
 
-test("appointments: a service sets the length and three stylists cap the slot", async () => {
-  const c = await ctx("KASIH1");
-  const tue = nextWeekday("tue");
-  const r = await runTool(c, "create_booking", { customer_name: "Test", date: tue, time: "10:00", service: "keratin" }, "");
-  const out = r.output as { ok: boolean; refCode: string; service: string; bookingId: string };
-  assert.equal(out.ok, true, JSON.stringify(out));
-  assert.match(out.refCode, /^K1-/);
-  assert.equal(out.service, "Keratin smoothing treatment");
-  const [b] = await db.select().from(t.bookings).where(eq(t.bookings.id, out.bookingId));
-  assert.equal((b.endsAt.getTime() - b.startsAt.getTime()) / 60000, 150);
-  // Fill the 9pm Thursday slot: 3 stylists, so a 4th men's cut at the same time is refused.
-  const thu = nextWeekday("thu");
-  const made: string[] = [];
-  for (let i = 0; i < 3; i++) {
-    const x = await runTool(c, "create_booking", { customer_name: `T${i}`, date: thu, time: "20:00", service: "men's cut" }, "");
-    const o = x.output as { ok: boolean; bookingId: string; reason?: string };
-    if (o.ok) made.push(o.bookingId);
-  }
-  const s = await runTool(c, "check_slots", { date: thu, time: "20:00", service: "men's cut" }, "");
-  assert.equal((s.output as { requestedAvailable: boolean }).requestedAvailable, false);
-  for (const id of [out.bookingId, ...made]) await db.delete(t.bookings).where(eq(t.bookings.id, id));
-});
-
-test("day bookings: rooms by the night with capacity per day", async () => {
-  const c = await ctx("KASIH1");
-  const [type] = await db.insert(t.bookingTypes).values({ workspaceId: "KASIH1", key: "test_room", name: "Test room", unit: "day", capacity: 2, maxPerBooking: 2, leadMinutes: 0 }).returning();
-  try {
-    const d = addLocalDays(localDate(new Date(), "Asia/Kuala_Lumpur"), 3);
-    const a = await runTool(c, "create_booking", { booking_type: "test_room", customer_name: "A", date: d, quantity: 2, nights: 2 }, "");
-    assert.equal((a.output as { ok: boolean }).ok, true, JSON.stringify(a.output));
-    const b = await runTool(c, "check_slots", { booking_type: "test_room", date: addLocalDays(d, 1), quantity: 1 }, "");
-    assert.equal((b.output as { available: boolean }).available, false);
-    const free = await runTool(c, "check_slots", { booking_type: "test_room", date: addLocalDays(d, 2), quantity: 2 }, "");
-    assert.equal((free.output as { available: boolean }).available, true);
-  } finally {
-    await db.delete(t.bookingTypes).where(eq(t.bookingTypes.id, type.id));
-  }
-});

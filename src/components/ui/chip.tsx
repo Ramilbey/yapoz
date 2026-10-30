@@ -17,7 +17,7 @@ export function Chip({ tone = "neutral", className, children, ...p }: React.HTML
   );
 }
 
-export const CHANNEL_LABEL: Record<string, string> = { telegram: "Telegram", whatsapp: "WhatsApp", instagram: "Instagram", simulator: "Simulator" };
+export const CHANNEL_LABEL: Record<string, string> = { telegram: "Telegram", whatsapp: "WhatsApp", simulator: "Simulator" };
 
 /** Our own channel glyphs (a letter in a ring), not the platforms' logos or colours. */
 export function ChannelMark({ channel, className, showLabel = true }: { channel: string; className?: string; showLabel?: boolean }) {

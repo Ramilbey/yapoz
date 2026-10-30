@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { env } from "@/lib/env";
-import { extractPdfText } from "@/hiring/pdf";
+import { extractPdfText } from "@/lib/pdf";
 
 type Tier = "fast" | "smart";
 /** Picks a model from the ids a provider actually serves, in order of preference. */

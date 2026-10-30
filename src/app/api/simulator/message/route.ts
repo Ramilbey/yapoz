@@ -12,7 +12,7 @@ export const maxDuration = 60;
 const Body = z.object({
   sessionId: z.string().regex(/^[a-zA-Z0-9_-]{8,64}$/),
   text: z.string().trim().min(1).max(500),
-  accent: z.enum(["telegram", "whatsapp", "instagram"]).default("telegram"),
+  accent: z.enum(["telegram", "whatsapp"]).default("telegram"),
   name: z.string().trim().max(40).optional(),
   /** A sample business on the public site. Signed-in users without it talk to their own business. */
   workspace: z.string().trim().toUpperCase().regex(/^[A-Z0-9]{3,12}$/).optional(),
@@ -51,7 +51,6 @@ export const POST = handle(async (req: Request) => {
     tools: (out.tools ?? []).map((tc) => ({ name: tc.name, label: tc.label, ok: tc.ok, ms: tc.ms })),
     // Staff-written summaries (and AI error details) stay inside the signed-in desks; the public site only gets the category.
     escalated: (out.escalated ?? []).map((e) => (session ? e : { category: e.category })),
-    booking: out.booking ?? null,
     order: out.order ?? null,
     latencyMs: out.latencyMs ?? null,
     model: out.model ?? null,

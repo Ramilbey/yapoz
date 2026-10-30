@@ -1,15 +1,17 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { db, t } from "@/db";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, gt, sql } from "drizzle-orm";
 import type { Catalog, Workspace } from "./knowledge";
 import { findProduct, norm } from "./knowledge";
 import { formatMoney } from "@/lib/money";
 import { hoursForDate, describeDay, openStatus, type HoursData } from "@/lib/hours";
-import { addLocalDays, localDate, human, zoned } from "@/lib/time";
-import { checkSlots, createBooking, resolveBookingType, resolveService, bookingTypesOf } from "@/lib/booking";
-import { placeOrder, lineTotal, MAX_LINES, MAX_QTY, type OrderLine } from "@/lib/orders";
-import { paymentInstruction } from "@/lib/receipts";
+import { addLocalDays, localDate, localTime, human, zoned } from "@/lib/time";
+import { placeOrder, lineTotal, MAX_LINES, MAX_QTY, StockProblem, type OrderLine } from "@/lib/orders";
+import { handOver, paymentInstruction, receiptRequired } from "@/lib/receipts";
+import { availability, availKey, businessDate, dateProblem, dayLabel, modeOf, shortMessage, stockSettings, type Avail } from "@/lib/stock";
 import { recordGap } from "@/lib/gaps";
+import { bookAppointment, changeAppointment, chatBookings } from "@/lib/appointments";
+import { appointmentSettings, bookableStaff, checkTime, freeTimes, serviceMinutes, type Offer } from "@/lib/schedule";
 import type { ToolCallLog } from "@/db/schema";
 
 export const ESCALATION_CATEGORIES = [
@@ -20,12 +22,19 @@ export const ESCALATION_CATEGORIES = [
 export const TOOLS: Anthropic.Messages.Tool[] = [
   {
     name: "search_catalog",
-    description: "Search the business's products and services (menu, items, treatments, rooms...). Returns matches with prices per option, flags and whether available today. Use for browsing or 'do you have X' questions.",
-    input_schema: { type: "object", properties: { query: { type: "string", description: "What the customer is looking for, in a few words" } }, required: ["query"] },
+    description: "Search the business's products and services (menu, items, treatments, rooms...). Returns matches with prices per option, flags and whether each is available (in stock / sold out). Use for browsing or 'do you have X' questions.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "What the customer is looking for, in a few words" },
+        date: { type: "string", description: "YYYY-MM-DD from the CALENDAR if they ask about a specific day (items made fresh each day). Default today." },
+      },
+      required: ["query"],
+    },
   },
   {
     name: "check_variant",
-    description: "Price and stock for one product or service, optionally a size, colour or other option. Call this before stating any price or whether a specific item/option is in stock or available today.",
+    description: "Price and availability for one product or service, optionally a size, colour or other option, a quantity and a day. Call this before stating any price or whether a specific item/option is in stock or available. It says in stock or sold out, never how many; if they want more than can be done it returns maxQuantity.",
     input_schema: {
       type: "object",
       properties: {
@@ -33,6 +42,8 @@ export const TOOLS: Anthropic.Messages.Tool[] = [
         size: { type: "string", description: "Size if relevant (S, M, L, XL or the business's own sizes)" },
         color: { type: "string" },
         option: { type: "string", description: "Any other option, e.g. 'long hair', 'double room', '1 hour'" },
+        quantity: { type: "integer", minimum: 1, description: "How many they want, if they said" },
+        date: { type: "string", description: "YYYY-MM-DD from the CALENDAR for the day they want it. Default today." },
       },
       required: ["product"],
     },
@@ -50,43 +61,8 @@ export const TOOLS: Anthropic.Messages.Tool[] = [
     },
   },
   {
-    name: "check_slots",
-    description: "Availability for a booking type on a date. Party types need a headcount, appointments can take a service (sets the duration), day types take a number of days. Returns open times (or days) and, if a time is given, whether it's free plus nearest alternatives.",
-    input_schema: {
-      type: "object",
-      properties: {
-        booking_type: { type: "string", description: "Key or name of a booking type from KNOWLEDGE; optional if there is only one" },
-        date: { type: "string", description: "YYYY-MM-DD in the business's time zone" },
-        quantity: { type: "integer", minimum: 1, description: "People for party types, units for day types; 1 for appointments" },
-        time: { type: "string", description: "Preferred time, 24h HH:MM" },
-        service: { type: "string", description: "Service name for appointments" },
-        nights: { type: "integer", minimum: 1, description: "Number of days/nights for day types" },
-      },
-      required: ["date"],
-    },
-  },
-  {
-    name: "create_booking",
-    description: "Make a booking. Validates hours, lead time and capacity itself, so call it directly when the details are known. Returns a reference code on success, or the reason and alternatives.",
-    input_schema: {
-      type: "object",
-      properties: {
-        booking_type: { type: "string" },
-        customer_name: { type: "string" },
-        date: { type: "string", description: "YYYY-MM-DD" },
-        time: { type: "string", description: "24h HH:MM (not needed for day types)" },
-        quantity: { type: "integer", minimum: 1 },
-        service: { type: "string" },
-        nights: { type: "integer", minimum: 1 },
-        phone: { type: "string" },
-        notes: { type: "string" },
-      },
-      required: ["customer_name", "date"],
-    },
-  },
-  {
     name: "create_order",
-    description: "Place an order for products (menu items, merchandise...). It prices every line itself from the catalog and checks availability and stock, then saves the order for the team to approve. Call it once the customer has said what they want (each item with its size/option and quantity), pickup or delivery (delivery needs an address) and who it's for. Returns a reference code and the total, or exactly what to fix. The order is NOT confirmed until staff approve it. Services are booked with create_booking, not ordered.",
+    description: "Place an order for products (menu items, merchandise...). It prices every line itself from the catalog and checks availability and stock, then saves the order for the team to approve. Call it once the customer has said what they want (each item with its size/option and quantity), pickup or delivery (delivery needs an address) and who it's for. Returns a reference code and the total, or exactly what to fix. The order is NOT confirmed until staff approve it. Services are booked with book_appointment instead.",
     input_schema: {
       type: "object",
       properties: {
@@ -111,9 +87,58 @@ export const TOOLS: Anthropic.Messages.Tool[] = [
         phone: { type: "string" },
         address: { type: "string", description: "Delivery address (required for delivery)" },
         when: { type: "string", description: "When the customer wants it, in their words" },
+        date: { type: "string", description: "The day they want it, YYYY-MM-DD from the CALENDAR (resolve 'tomorrow', 'Saturday'). Default today." },
         notes: { type: "string", description: "Anything about the whole order" },
       },
       required: ["items", "fulfilment"],
+    },
+  },
+  {
+    name: "find_times",
+    description: "Free appointment times for a service. Without a time it lists the earliest free start times (on a day, or from now). With a date and time it checks that exact time: free (and with whom), or why not, a short delay that would work, others free then, and the next free times. Call it before offering or promising any appointment time.",
+    input_schema: {
+      type: "object",
+      properties: {
+        service: { type: "string", description: "Service name as the customer said it" },
+        option: { type: "string", description: "The service's option if it has several, e.g. 'long hair'" },
+        staff: { type: "string", description: "Only if the customer asked for a specific person (a name from TEAM)" },
+        date: { type: "string", description: "YYYY-MM-DD from the CALENDAR" },
+        time: { type: "string", description: "Local start time they asked for, e.g. '15:00' or '3pm'" },
+      },
+      required: ["service"],
+    },
+  },
+  {
+    name: "book_appointment",
+    description: "Book a service at a date and time. It checks the time is still free, prices it from the catalog and saves the booking for the team to approve (with payments on, the customer has to pay within the payment window). Call it once the customer has chosen the service (and option), the day and time, and given a name. Returns a reference code, the time, who, and the price, or exactly what to fix.",
+    input_schema: {
+      type: "object",
+      properties: {
+        service: { type: "string" },
+        option: { type: "string" },
+        staff: { type: "string", description: "Only if the customer asked for a specific person" },
+        date: { type: "string", description: "YYYY-MM-DD from the CALENDAR" },
+        time: { type: "string", description: "Local start time, e.g. '15:00' or '3pm'" },
+        customer_name: { type: "string" },
+        phone: { type: "string" },
+        notes: { type: "string", description: "Anything the customer wants the team to know" },
+      },
+      required: ["service", "date", "time"],
+    },
+  },
+  {
+    name: "change_appointment",
+    description: "Cancel or reschedule the customer's own booking (from ORDERS IN THIS CHAT). Allowed in chat up to the business's cutoff before the start; closer than that it goes to the team. A rescheduled booking needs the team's approval again.",
+    input_schema: {
+      type: "object",
+      properties: {
+        ref: { type: "string", description: "The booking's reference code (APT-...), if they have more than one" },
+        action: { type: "string", enum: ["cancel", "reschedule"] },
+        date: { type: "string", description: "Reschedule: the new day, YYYY-MM-DD" },
+        time: { type: "string", description: "Reschedule: the new start time" },
+        staff: { type: "string", description: "Reschedule: only if they want a different person" },
+      },
+      required: ["action"],
     },
   },
   {
@@ -139,9 +164,8 @@ export type ToolContext = {
   threadId: string;
   customerId: string;
   customerName: string;
-  channel: "telegram" | "whatsapp" | "instagram" | "simulator";
+  channel: "telegram" | "whatsapp" | "simulator";
   escalations: { id: string; category: string; summary: string }[];
-  bookings: { refCode: string; id: string }[];
   orders?: { refCode: string; id: string }[];
   isDemo?: boolean;
 };
@@ -180,7 +204,10 @@ type Variant = Item["variants"][number];
 
 const variantLabel = (v: Variant) => [v.size ? (SIZE_LABEL[v.size] ? `${v.size} (${SIZE_LABEL[v.size]})` : v.size) : null, v.color, v.option].filter(Boolean).join(" / ") || "standard";
 
-function itemSummary(ws: Workspace, i: Item) {
+/** In stock / sold out for an item, from live availability: true if any option can still be ordered. */
+const anyLeft = (i: Item, av: Map<string, Avail>, date: string) => i.variants.some((v) => av.get(availKey(v.id, date))?.left !== 0);
+
+function itemSummary(ws: Workspace, i: Item, av: Map<string, Avail>, date: string) {
   const d = i.data as Record<string, unknown>;
   const seen = new Set<string>();
   const prices = i.variants
@@ -200,7 +227,8 @@ function itemSummary(ws: Workspace, i: Item) {
     ...(i.kind === "service" && d.durationMinutes ? { durationMinutes: d.durationMinutes } : {}),
     ...(Array.isArray(d.allergens) && d.allergens.length ? { allergens: d.allergens } : {}),
     tags: i.tags,
-    availableToday: i.available,
+    available: anyLeft(i, av, date),
+    ...(date !== businessDate(ws) ? { forDate: date } : {}),
     availabilityNote: i.availabilityNote,
     colors: [...new Set(i.variants.map((v) => v.color).filter(Boolean))],
   };
@@ -208,7 +236,7 @@ function itemSummary(ws: Workspace, i: Item) {
 
 const STOP = new Set(["free", "without", "no", "based", "option", "options", "do", "you", "have", "got", "any", "the", "a", "an", "is", "there", "ada", "or", "not", "can", "i", "get", "some", "with", "for", "me", "your", "u", "something", "what", "which", "how", "much", "price", "prices"]);
 
-function searchCatalog(ctx: ToolContext, query: string) {
+async function searchCatalog(ctx: ToolContext, query: string, rawDate?: string) {
   const q = norm(query);
   const words = q.split(" ").filter((w) => w && !STOP.has(w));
   let items = ctx.catalog.items;
@@ -240,8 +268,10 @@ function searchCatalog(ctx: ToolContext, query: string) {
       .map((x) => x.i);
   }
   results = results.slice(0, 16);
+  const date = rawDate && /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : businessDate(ctx.ws);
+  const av = await availability(db, ctx.ws, results.flatMap((i) => i.variants.map((v) => ({ variantId: v.id, date }))));
   return {
-    output: { query, count: results.length, items: results.map((i) => itemSummary(ctx.ws, i)), note: results.length ? undefined : "Nothing in the catalog matches. Don't guess: say you'll check with the team and escalate as knowledge_gap." },
+    output: { query, count: results.length, items: results.map((i) => itemSummary(ctx.ws, i, av, date)), note: results.length ? undefined : "Nothing in the catalog matches. Don't guess: say you'll check with the team and escalate as knowledge_gap." },
     label: `searched catalog: “${query}” → ${results.length} found`,
   };
 }
@@ -281,30 +311,46 @@ function matchVariants(item: Item, input: { size?: string; color?: string; optio
   return { size, colors, color, vs, optionMatched };
 }
 
-function checkVariant(ctx: ToolContext, input: { product: string; size?: string; color?: string; option?: string }) {
+async function checkVariant(ctx: ToolContext, input: { product: string; size?: string; color?: string; option?: string; quantity?: number; date?: string }) {
   const item = findProduct(ctx.catalog, input.product);
   if (!item) {
     return { output: { found: false, product: input.product, note: "Not in the catalog. Offer search_catalog results or escalate if the customer insists." }, label: `checked: “${input.product}” ✗ not listed`, ok: false };
   }
   const { size, colors, color, vs } = matchVariants(item, input);
-  const madeToOrder = item.variants.every((v) => v.stock === null);
-  const fmt = (v: Variant) => ({ option: variantLabel(v), price: formatMoney(v.priceMinor, ctx.ws.currency), ...(madeToOrder || v.stock === null ? {} : { stock: v.stock, inStock: (v.stock ?? 0) > 0 }) });
+  const mode = modeOf(item, ctx.ws);
+  const date = input.date && /^\d{4}-\d{2}-\d{2}$/.test(input.date) ? input.date : businessDate(ctx.ws);
+  const av = await availability(db, ctx.ws, item.variants.map((v) => ({ variantId: v.id, date })));
+  const left = (v: Variant) => av.get(availKey(v.id, date))?.left ?? null;
+  const qty = Number.isInteger(input.quantity) && input.quantity! > 0 ? input.quantity! : null;
+  // Customers hear in stock / sold out, never a count; the only number is "at most N", and only when they asked for more.
+  const fmt = (v: Variant) => {
+    const l = left(v);
+    return { option: variantLabel(v), price: formatMoney(v.priceMinor, ctx.ws.currency), inStock: l !== 0, ...(qty && l !== null && l > 0 && qty > l ? { maxQuantity: l } : {}) };
+  };
   const out: Record<string, unknown> = {
     found: true, product: item.title, kind: item.kind, category: item.category,
-    availableToday: item.available, availabilityNote: item.availabilityNote, madeToOrder,
-    requested: { size: size ?? null, color: input.color ?? null, option: input.option ?? null },
+    available: anyLeft(item, av, date), availabilityNote: item.availabilityNote, madeFreshDaily: mode === "daily",
+    ...(date !== businessDate(ctx.ws) || mode === "daily" ? { forDate: `${date} (${dayLabel(ctx.ws, date)})` } : {}),
+    requested: { size: size ?? null, color: input.color ?? null, option: input.option ?? null, quantity: qty },
   };
+  if (mode === "daily") {
+    const problem = dateProblem(ctx.ws, date, hoursOf(ctx), new Date());
+    if (problem) out.dateProblem = problem;
+  }
   if (item.kind === "service") out.durationMinutes = (item.data as { durationMinutes?: number }).durationMinutes ?? null;
   if (input.color && !color) out.colorNotFound = `No colour named “${input.color}”. Available colours: ${colors.join(", ")}.`;
   if (size && !bySize(item.variants, size, input.size).length) out.sizeNotFound = `No size ${size}. Sizes: ${[...new Set(item.variants.map((v) => v.size).filter(Boolean))].join(", ") || "none"}.`;
   out.variants = (vs.length ? vs : item.variants).map(fmt);
-  if (!madeToOrder && (size || color)) {
-    out.otherInStock = item.variants.filter((v) => (v.stock ?? 0) > 0 && !vs.includes(v)).slice(0, 8).map(fmt);
+  if ((out.variants as { maxQuantity?: number }[]).some((v) => v.maxQuantity)) out.note = "They asked for more than we can do: tell them we can do at most maxQuantity. Never mention any other number.";
+  if (mode !== "none" && (size || color)) {
+    out.otherInStock = item.variants.filter((v) => left(v) !== 0 && !vs.includes(v)).slice(0, 8).map(fmt);
   }
+  // The label is for staff (the run log), so it can carry the count.
   const label = (() => {
     const name = `${size ? `${SIZE_LABEL[size] ?? size} ` : ""}${item.title}${color ? `, ${color}` : ""}${input.option && vs.length === 1 && vs[0].option ? `, ${vs[0].option}` : ""}`;
-    if (!item.available) return `checked: ${name} ✗ ${item.availabilityNote ?? "unavailable today"}`;
-    if (!madeToOrder && vs.length === 1 && vs[0].stock !== null) return `checked stock: ${name} ${(vs[0].stock ?? 0) > 0 ? `✓ ${vs[0].stock} left` : "✗ out of stock"}`;
+    const a = vs.length === 1 ? av.get(availKey(vs[0].id, date)) : undefined;
+    if (item.variants.length && item.variants.every((v) => av.get(availKey(v.id, date))?.on === false)) return `checked: ${name} ✗ ${item.availabilityNote ?? "switched off"}`;
+    if (a && a.left !== null) return `checked stock: ${name}${mode === "daily" ? ` (${date})` : ""} ${a.left > 0 ? `✓ ${a.left} left` : "✗ sold out"}`;
     return `checked: ${name} ✓`;
   })();
   return { output: out, label, ok: true };
@@ -353,8 +399,13 @@ function lineName(item: Item, v: Variant) {
 
 type OrderLineInput = { product?: unknown; size?: unknown; color?: unknown; option?: unknown; quantity?: unknown; note?: unknown };
 
-/** Turn what the model asked for into priced lines, or say everything that has to change first. */
-function resolveOrderLines(ctx: ToolContext, raw: unknown): { lines: OrderLine[]; problems: string[] } {
+const hoursOf = (ctx: ToolContext) => (ctx.catalog.all.find((i) => i.kind === "hours")?.data as unknown as HoursData | undefined) ?? null;
+
+/**
+ * Turn what the model asked for into priced lines, or say everything that has to change first. Availability comes from
+ * the database for `date` (daily items) with holds subtracted, so "at most N" is never the model's number.
+ */
+async function resolveOrderLines(ctx: ToolContext, raw: unknown, date: string): Promise<{ lines: OrderLine[]; problems: string[] }> {
   const lines: OrderLine[] = [];
   const problems: string[] = [];
   const wanted = Array.isArray(raw) ? (raw as OrderLineInput[]) : [];
@@ -378,11 +429,11 @@ function resolveOrderLines(ctx: ToolContext, raw: unknown): { lines: OrderLine[]
       continue;
     }
     if (item.kind !== "product") {
-      problems.push(`${item.title} is a service: book it with create_booking instead of ordering it.`);
+      problems.push(`${item.title} is a service, not a product: it can't be ordered in chat. Tell the customer the team will arrange it and escalate (category "other").`);
       continue;
     }
     if (!item.available) {
-      problems.push(`${item.title} isn't available today${item.availabilityNote ? `: ${item.availabilityNote}` : ""}. Offer an alternative.`);
+      problems.push(`${item.title} isn't available${item.availabilityNote ? `: ${item.availabilityNote}` : ""}. Offer an alternative.`);
       continue;
     }
     const m = matchVariants(item, { size: w.size as string | undefined, color: w.color as string | undefined, option: w.option as string | undefined });
@@ -396,30 +447,19 @@ function resolveOrderLines(ctx: ToolContext, raw: unknown): { lines: OrderLine[]
       continue;
     }
     const v = m.vs[0];
-    const used = (take.get(v.id) ?? 0) + qty;
-    if (v.stock !== null && used > v.stock) {
-      problems.push(v.stock <= 0 ? `${item.title} (${variantLabel(v)}) is out of stock.` : `Only ${v.stock} left of ${item.title} (${variantLabel(v)}).`);
-      continue;
-    }
-    take.set(v.id, used);
+    take.set(v.id, (take.get(v.id) ?? 0) + qty);
     // Words that matched no variant ("extra sauce") are the customer's request for the kitchen, not an option.
     const unmatched = w.option && !m.optionMatched ? String(w.option).trim() : "";
     const note = [String(w.note ?? "").trim(), unmatched].filter(Boolean).join(", ").slice(0, 120) || null;
     lines.push({ itemId: item.id, variantId: v.id, name: lineName(item, v), quantity: qty, unitPriceMinor: v.priceMinor, note });
   }
-  return { lines, problems };
-}
-
-async function bookingContext(ctx: ToolContext, input: Record<string, unknown>) {
-  const type = await resolveBookingType(ctx.ws.id, (input.booking_type as string) ?? null);
-  if (!type) {
-    const types = await bookingTypesOf(ctx.ws.id);
-    return { error: types.length ? `Which booking type? Options: ${types.map((x) => `${x.key} (${x.name})`).join(", ")}.` : "This business doesn't take bookings through chat. Offer to pass the request to the team (escalate as other)." };
+  const av = await availability(db, ctx.ws, [...take.keys()].map((variantId) => ({ variantId, date })));
+  for (const [id, used] of take) {
+    const a = av.get(availKey(id, date));
+    const short = a && shortMessage(ctx.ws, a, used, lines.find((l) => l.variantId === id)?.name);
+    if (short) problems.push(short);
   }
-  const svc = await resolveService(ctx.ws.id, (input.service as string) ?? null);
-  const service = svc ? { id: svc.id, title: svc.title, durationMinutes: Number((svc.data as { durationMinutes?: number }).durationMinutes) || null } : null;
-  const qty = Number(input.quantity ?? input.party_size ?? 1) || 1;
-  return { type, service, qty };
+  return { lines: problems.length ? [] : lines, problems };
 }
 
 export async function runTool(ctx: ToolContext, name: string, input: Record<string, unknown>, lastQuestion: string): Promise<ToolCallLog> {
@@ -428,76 +468,70 @@ export async function runTool(ctx: ToolContext, name: string, input: Record<stri
   try {
     switch (name) {
       case "search_catalog": {
-        const r = searchCatalog(ctx, String(input.query ?? ""));
+        const r = await searchCatalog(ctx, String(input.query ?? ""), input.date as string | undefined);
         return done(r.output, r.label);
       }
       case "check_variant": {
-        const r = checkVariant(ctx, input as { product: string; size?: string; color?: string; option?: string });
+        const r = await checkVariant(ctx, input as { product: string; size?: string; color?: string; option?: string; quantity?: number; date?: string });
         return done(r.output, r.label, r.ok);
       }
       case "get_business_info": {
         const r = businessInfo(ctx, input as { topic: string; date?: string });
         return done(r.output, r.label);
       }
-      case "check_slots": {
-        const date = String(input.date ?? "");
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return done({ ok: false, reason: "date must be YYYY-MM-DD" }, "checked availability ✗ bad date", false);
-        const bc = await bookingContext(ctx, input);
-        if ("error" in bc) return done({ ok: false, reason: bc.error }, "checked availability ✗ no booking type", false);
-        const time = input.time ? normTime(String(input.time)) : null;
-        const r = await checkSlots(ctx.ws, { type: bc.type, date, qty: bc.qty, time, durationMinutes: bc.service?.durationMinutes, nights: Number(input.nights ?? 1) || 1 });
-        const day = human(zoned(date, time ?? "12:00", ctx.ws.timezone), ctx.ws.timezone).split(",")[0];
-        const what = bc.type.unit === "party" ? `${bc.qty} people` : bc.type.unit === "day" ? `${bc.qty} × ${input.nights ?? 1} day(s)` : bc.service?.title ?? bc.type.name;
-        const rr = r as { ok?: boolean; closed?: boolean; requestedAvailable?: boolean; availableTimes?: string[]; available?: boolean };
-        const label =
-          rr.ok === false ? `checked ${bc.type.name}: ${day}, ${what} ✗ too large`
-          : rr.closed ? `checked ${bc.type.name}: ${day} ✗ closed`
-          : bc.type.unit === "day" ? `checked ${bc.type.name}: ${day}, ${what} ${rr.available ? "✓" : "✗ full"}`
-          : time ? `checked ${bc.type.name}: ${day} ${time}, ${what} ${rr.requestedAvailable ? "✓" : "✗ taken"}`
-          : `checked ${bc.type.name}: ${day}, ${what} → ${(rr.availableTimes ?? []).length} times`;
-        return done(r, label);
-      }
-      case "create_booking": {
-        const date = String(input.date ?? "");
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return done({ ok: false, reason: "date must be YYYY-MM-DD" }, "booking ✗ bad date", false);
-        const bc = await bookingContext(ctx, input);
-        if ("error" in bc) return done({ ok: false, reason: bc.error }, "booking ✗ no booking type", false);
-        const time = input.time ? normTime(String(input.time)) : null;
-        const r = await createBooking(ctx.ws, {
-          type: bc.type, customerName: String(input.customer_name || ctx.customerName || "Guest"), date, time, qty: bc.qty, nights: Number(input.nights ?? 1) || 1,
-          service: bc.service, phone: (input.phone as string) ?? null, notes: (input.notes as string) ?? null, threadId: ctx.threadId, customerId: ctx.customerId, channel: ctx.channel,
-        });
-        if (r.ok) {
-          ctx.bookings.push({ refCode: r.refCode, id: r.bookingId });
-          return done(r, `booked: ${r.service ? `${r.service}, ` : ""}${r.when}${bc.type.unit === "party" ? `, ${r.quantity} people` : ""} · ${r.refCode}`);
-        }
-        return done(r, `booking ✗ ${r.reason}`, false);
-      }
       case "create_order": {
-        const { lines, problems } = resolveOrderLines(ctx, input.items);
+        const today = businessDate(ctx.ws);
+        const date = typeof input.date === "string" && input.date.trim() ? input.date.trim() : today;
+        const pre = await resolveOrderLines(ctx, input.items, date);
+        const { lines } = pre;
+        const problems = [...pre.problems];
+        // Daily items are held against the day they're wanted: that day has to be orderable.
+        const daily = lines.some((l) => { const it = ctx.catalog.items.find((i) => i.id === l.itemId); return it && modeOf(it, ctx.ws) === "daily"; });
+        const badDate = daily || date !== today ? dateProblem(ctx.ws, date, daily ? hoursOf(ctx) : null) : null;
+        if (badDate) problems.unshift(badDate);
         const fulfilment = input.fulfilment === "delivery" ? "delivery" : "pickup";
         const address = String(input.address ?? "").trim();
         const customerName = String(input.customer_name || ctx.customerName || "").trim();
         if (fulfilment === "delivery" && !address) problems.push("Delivery needs the customer's address. Ask for it.");
         if (!customerName) problems.push("Who is the order for? Ask for a name.");
-        if (problems.length) return done({ ok: false, problems, instruction: "Nothing was ordered. Fix these with the customer (ask only for what's missing), then call create_order again." }, `order ✗ ${problems[0].slice(0, 90)}`, false);
-        const r = await placeOrder(ctx.ws, {
-          lines, customerName, phone: (input.phone as string) ?? null, fulfilment, address, wanted: (input.when as string) ?? null, notes: (input.notes as string) ?? null,
-          threadId: ctx.threadId, customerId: ctx.customerId, channel: ctx.channel, isDemo: ctx.isDemo,
-        });
+        if (problems.length) {
+          await orderTrouble(ctx, problems, lastQuestion);
+          return done({ ok: false, problems, instruction: "Nothing was ordered. Fix these with the customer (ask only for what's missing, offer alternatives for anything unavailable), then call create_order again. If a problem says \"we can do at most N\", tell them that exact N and no other number." }, `order ✗ ${problems[0].slice(0, 90)}`, false);
+        }
+        let r: Awaited<ReturnType<typeof placeOrder>>;
+        try {
+          r = await placeOrder(ctx.ws, {
+            lines, customerName, phone: (input.phone as string) ?? null, fulfilment, address, wanted: (input.when as string) ?? null, notes: (input.notes as string) ?? null,
+            wantedDate: daily || date !== today ? date : null, threadId: ctx.threadId, customerId: ctx.customerId, channel: ctx.channel, isDemo: ctx.isDemo,
+          });
+        } catch (e) {
+          // Someone else took the last ones between the check and the save.
+          if (!(e instanceof StockProblem)) throw e;
+          await orderTrouble(ctx, e.problems, lastQuestion);
+          return done({ ok: false, problems: e.problems, instruction: "Nothing was ordered. Tell the customer exactly what the problem says (no other numbers) and offer an alternative." }, `order ✗ ${e.problems[0].slice(0, 90)}`, false);
+        }
         (ctx.orders ??= []).push({ refCode: r.order.refCode, id: r.order.id });
         const money = (m: number) => formatMoney(m, ctx.ws.currency);
         const payHow = paymentInstruction(ctx.ws, r.order.totalMinor, r.order.refCode, fulfilment === "delivery");
+        const minutes = receiptRequired(ctx.ws) ? stockSettings(ctx.ws).holdMinutes : null;
         return done(
           {
             ok: true, refCode: r.order.refCode, status: "pending", duplicate: r.duplicate, fulfilment, ...(fulfilment === "delivery" ? { address } : {}),
             items: r.items.map((i) => ({ name: i.name, quantity: i.quantity, unitPrice: money(i.unitPriceMinor), lineTotal: money(lineTotal(i)), note: i.note })),
             total: money(r.order.totalMinor), note: fulfilment === "delivery" ? "Total is for the items; the delivery fee is confirmed by the team." : undefined,
+            ...(r.order.wantedDate ? { forDate: `${r.order.wantedDate} (${dayLabel(ctx.ws, r.order.wantedDate)})` } : {}),
             ...(payHow ? { howToPay: payHow } : {}),
-            instruction: `${r.duplicate ? "This exact order was already placed a moment ago, so no second one was made. " : ""}Tell the customer the order is received, with the reference code, the items and the total.${payHow ? ` Then give them howToPay exactly as written (same accounts, same amount) and ask them to send the receipt in this chat. The team confirms the order after checking it.` : " Say the team will confirm it shortly."} Do NOT say it is confirmed, paid or being prepared, and never invent payment details.`,
+            ...(minutes && r.order.holdExpiresAt ? { heldForMinutes: minutes, expiresAt: human(r.order.holdExpiresAt, ctx.ws.timezone) } : {}),
+            instruction: `${r.duplicate ? "This exact order was already placed a moment ago, so no second one was made. " : ""}Tell the customer the order is received, with the reference code, the items and the total${r.order.wantedDate ? " and the day it's for" : ""}.${payHow ? ` Then give them howToPay exactly as written (same accounts, same amount) and ask them to send the receipt in this chat. Make clear we hold the order for ${minutes ?? stockSettings(ctx.ws).holdMinutes} minutes: if no receipt arrives by then it expires. The team confirms the order after checking it.` : " Say the team will confirm it shortly."} Do NOT say it is confirmed, paid or being prepared, and never invent payment details.`,
           },
           `ordered: ${r.items.reduce((n, i) => n + i.quantity, 0)} item${r.items.reduce((n, i) => n + i.quantity, 0) === 1 ? "" : "s"} · ${money(r.order.totalMinor)} · ${r.order.refCode}${r.duplicate ? " (already placed)" : ""}`,
         );
+      }
+      case "find_times":
+      case "book_appointment":
+      case "change_appointment": {
+        const r = await appointmentTool(ctx, name, input, lastQuestion);
+        return done(r.output, r.label, r.ok);
       }
       case "escalate": {
         const category = String(input.category ?? "other");
@@ -510,6 +544,7 @@ export async function runTool(ctx: ToolContext, name: string, input: Record<stri
           })
           .returning();
         await db.update(t.threads).set({ status: "needs_human" }).where(eq(t.threads.id, ctx.threadId));
+        await db.insert(t.events).values({ workspaceId: ctx.ws.id, type: "escalation.created", props: { threadId: ctx.threadId, category, priority: row.priority, reason: row.reason, summary: row.summary }, isDemo: Boolean(ctx.isDemo) });
         if (category === "knowledge_gap") await recordGap({ workspaceId: ctx.ws.id, key: String(input.gap_key ?? input.reason ?? ""), question: lastQuestion, isDemo: ctx.isDemo });
         ctx.escalations.push({ id: row.id, category, summary: row.summary });
         return done({ ok: true, escalationId: row.id, instruction: "Now send a short holding reply: the team will follow up in this chat. Don't answer the substance." }, `escalated: ${category.replace("_", " ")}`);
@@ -519,6 +554,171 @@ export async function runTool(ctx: ToolContext, name: string, input: Record<stri
     }
   } catch (e) {
     return done({ error: e instanceof Error ? e.message : String(e) }, `${name} ✗ error`, false);
+  }
+}
+
+// ───────────────────────────── appointments
+
+type ToolOut = { output: unknown; label: string; ok: boolean };
+
+/** "2026-11-06" + "3pm" → the instant in the business's time zone, or what's wrong with them. */
+function startOf(ctx: ToolContext, date: unknown, time: unknown): Date | string {
+  const d = String(date ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return "Which day? Use YYYY-MM-DD from the CALENDAR.";
+  const tm = normTime(String(time ?? ""));
+  if (!tm) return `“${String(time ?? "")}” isn't a time I can read: ask for a time like 3pm.`;
+  return zoned(d, tm, ctx.ws.timezone);
+}
+
+/** A time as the assistant passes it on, and as it would pass it back. */
+const slot = (ctx: ToolContext, o: { start: Date; staffName?: string | null }) => ({ date: localDate(o.start, ctx.ws.timezone), time: localTime(o.start, ctx.ws.timezone), label: human(o.start, ctx.ws.timezone), ...(o.staffName ? { with: o.staffName } : {}) });
+const offers = (ctx: ToolContext, list: Offer[]) => list.map((o) => slot(ctx, o));
+
+/** The person the customer named, among those who take bookings for this service. */
+async function staffByName(ctx: ToolContext, name: unknown, itemId?: string): Promise<{ id: string | null; problem?: string }> {
+  const n = lc(String(name ?? ""));
+  if (!n || /^(any|anyone|whoever|no preference|tak kisah)/.test(n)) return { id: null };
+  const all = await bookableStaff(db, ctx.ws, itemId);
+  const hit = all.find((p) => lc(p.name) === n) ?? all.find((p) => lc(p.name).split(/\s+/).includes(n) || lc(p.name).startsWith(n));
+  if (hit) return { id: hit.userId };
+  return { id: null, problem: all.length ? `Nobody called “${String(name)}” does this service. Who does: ${all.map((p) => p.name).join(", ")}.` : "Nobody takes bookings for this service yet." };
+}
+
+/** The service and, for booking, its one option. */
+function serviceOf(ctx: ToolContext, input: Record<string, unknown>, needOption: boolean): { item: Item; v: Variant | null } | string {
+  const item = findProduct(ctx.catalog, String(input.service ?? ""));
+  if (!item) return `“${String(input.service ?? "")}” isn't one of our services. Use search_catalog to find what they mean.`;
+  if (item.kind !== "service") return `${item.title} is a product, not a service: use create_order for it.`;
+  if (!item.available) return `${item.title} isn't available right now${item.availabilityNote ? `: ${item.availabilityNote}` : ""}.`;
+  if (!item.variants.length) return `${item.title} has no price on file yet: the team will arrange it (escalate, category "other").`;
+  const m = matchVariants(item, { option: input.option as string | undefined });
+  if (m.vs.length === 1) return { item, v: m.vs[0] };
+  if (!needOption) return { item, v: null };
+  return `${item.title}: which option? ${item.variants.map((v) => `${variantLabel(v)} ${formatMoney(v.priceMinor, ctx.ws.currency)}`).join("; ")}.`;
+}
+
+/** find_times, book_appointment and change_appointment. Times, people and prices all come from here, never the model. */
+async function appointmentTool(ctx: ToolContext, name: string, input: Record<string, unknown>, lastQuestion: string): Promise<ToolOut> {
+  const s = appointmentSettings(ctx.ws);
+  const fail = (problem: string, extra: Record<string, unknown> = {}): ToolOut => ({ output: { ok: false, problem, ...extra }, label: `${name.replace("_", " ")} ✗ ${problem.slice(0, 80)}`, ok: false });
+  const noStaff = async () => {
+    await handOver(ctx.ws.id, ctx.threadId, { category: "booking", priority: "normal", reason: "Nobody takes bookings for this service", summary: `${ctx.customerName || "A customer"} wants to book “${String(input.service ?? "")}”, but nobody is switched on to take it (Calendar → Team availability). Last message: “${lastQuestion.slice(0, 80)}”`, isDemo: ctx.isDemo });
+    return fail("Nobody takes bookings for this service in chat yet.", { instruction: "Tell the customer the team will arrange a time with them here. Don't offer any time." });
+  };
+  /** Not bookable: what to tell the customer, with the nearest options. Never another customer's details. */
+  const notFree = (r: { problem: string; delay: { minutes: number; start: Date; staffName: string } | null; otherStaff: { staffName: string }[]; nextTimes: Offer[] }) =>
+    fail(r.problem, {
+      ...(r.delay ? { delay: { minutes: r.delay.minutes, ...slot(ctx, r.delay) } } : {}),
+      ...(r.otherStaff.length ? { othersFreeThen: r.otherStaff.map((p) => p.staffName) } : {}),
+      nextFreeTimes: offers(ctx, r.nextTimes),
+      instruction: r.delay
+        ? `Ask: start ${r.delay.minutes} minutes later (${human(r.delay.start, ctx.ws.timezone)}), or pick another time${r.otherStaff.length ? " or someone else" : ""}? Use only these times.`
+        : "Offer the next free times (or the others free then) exactly as listed; don't suggest any other time.",
+    });
+
+  if (name === "change_appointment") {
+    const mine = await chatBookings(ctx.threadId);
+    const ref = String(input.ref ?? "").trim().toUpperCase();
+    const chosen = ref ? mine.find((m) => m.o.refCode.toUpperCase() === ref) : mine.length === 1 ? mine[0] : undefined;
+    if (!chosen) return fail(mine.length ? `Which booking? ${mine.map((m) => `${m.o.refCode} (${human(m.a.startsAt, ctx.ws.timezone)})`).join("; ")}.` : "There's no upcoming booking in this chat to change.");
+    const action = input.action === "cancel" ? "cancel" : "reschedule";
+    let start: Date | null = null;
+    let staffId: string | null = null;
+    if (action === "reschedule") {
+      const st = startOf(ctx, input.date, input.time);
+      if (typeof st === "string") return fail(st);
+      start = st;
+      if (input.staff) {
+        const who = await staffByName(ctx, input.staff, chosen.a.itemId ?? undefined);
+        if (who.problem) return fail(who.problem);
+        staffId = who.id;
+      }
+    }
+    const r = await changeAppointment(ctx.ws, { threadId: ctx.threadId, orderId: chosen.o.id, action, start, staffId, customerName: ctx.customerName, isDemo: ctx.isDemo });
+    if (!r.ok && r.tooLate) {
+      return { output: { ok: false, problem: r.problem, handedToTeam: true, instruction: "Tell the customer kindly that it's close to the time, so the team will sort out the change with them here. Don't promise it." }, label: `booking change ✗ inside the ${s.changeCutoffHours} h cutoff → team`, ok: false };
+    }
+    if (!r.ok) return notFree(r);
+    if (r.action === "cancelled") {
+      return { output: { ok: true, refCode: r.order.refCode, cancelled: true, instruction: `Tell the customer booking ${r.order.refCode} is cancelled.${r.paid ? " They had paid: say the team will be in touch here about the refund. Don't promise an amount or a date." : ""}` }, label: `booking cancelled: ${r.order.refCode}`, ok: true };
+    }
+    return {
+      output: {
+        ok: true, refCode: r.order.refCode, rescheduled: true, from: human(r.from, ctx.ws.timezone), to: slot(ctx, { start: r.facts.startsAt, staffName: r.facts.staffName }),
+        instruction: `Tell the customer the booking is moved to ${human(r.facts.startsAt, ctx.ws.timezone)}${r.facts.staffName ? ` with ${r.facts.staffName}` : ""}${r.reconfirm ? ", and that the team will confirm the new time shortly (it isn't confirmed until then)" : ""}.`,
+      },
+      label: `booking moved: ${r.order.refCode} → ${human(r.facts.startsAt, ctx.ws.timezone)}`, ok: true,
+    };
+  }
+
+  const svc = serviceOf(ctx, input, name === "book_appointment");
+  if (typeof svc === "string") return fail(svc);
+  const minutes = serviceMinutes(svc.item, s);
+  const who = await staffByName(ctx, input.staff, svc.item.id);
+  if (who.problem) return fail(who.problem);
+
+  if (name === "find_times") {
+    const base = { service: svc.item.title, durationMinutes: minutes, online: !svc.item.inPerson };
+    if (input.time) {
+      const st = startOf(ctx, input.date, input.time);
+      if (typeof st === "string") return fail(st);
+      const c = await checkTime(db, ctx.ws, { itemId: svc.item.id, minutes, start: st, staffId: who.id });
+      if (c.ok) return { output: { ...base, free: true, ...slot(ctx, c), instruction: "That time is free. Book it with book_appointment once they confirm; it isn't held until then." }, label: `times: ${human(st, ctx.ws.timezone)} ✓ ${c.staffName}`, ok: true };
+      if (c.noStaff) return noStaff();
+      return notFree(c);
+    }
+    const date = typeof input.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(input.date) ? input.date : null;
+    const list = await freeTimes(db, ctx.ws, { itemId: svc.item.id, minutes, staffId: who.id, date, limit: 6 });
+    if (!list.length && !(await bookableStaff(db, ctx.ws, svc.item.id)).length) return noStaff();
+    return {
+      output: { ...base, ...(date ? { date } : {}), freeTimes: offers(ctx, list), instruction: list.length ? "Offer these times exactly as listed (earliest first); never suggest a time that isn't listed." : `Nothing free${date ? " that day" : ` in the next ${s.bookingDays} days`}. Ask for another day, or say the team will help.` },
+      label: `times: ${svc.item.title}${date ? ` on ${date}` : ""} → ${list.length} free`, ok: true,
+    };
+  }
+
+  // book_appointment
+  const st = startOf(ctx, input.date, input.time);
+  if (typeof st === "string") return fail(st);
+  const customerName = String(input.customer_name || ctx.customerName || "").trim();
+  if (!customerName) return fail("Who is the booking for? Ask for a name.");
+  const r = await bookAppointment(ctx.ws, {
+    itemId: svc.item.id, variantId: svc.v!.id, name: lineName(svc.item, svc.v!), staffId: who.id, start: st, customerName, phone: (input.phone as string) ?? null, notes: (input.notes as string) ?? null,
+    threadId: ctx.threadId, customerId: ctx.customerId, channel: ctx.channel, isDemo: ctx.isDemo,
+  });
+  if (!r.ok) return r.noStaff ? noStaff() : notFree(r);
+  (ctx.orders ??= []).push({ refCode: r.order.refCode, id: r.order.id });
+  const payHow = paymentInstruction(ctx.ws, r.order.totalMinor, r.order.refCode, false, "booking");
+  const held = receiptRequired(ctx.ws) ? stockSettings(ctx.ws).holdMinutes : null;
+  return {
+    output: {
+      ok: true, refCode: r.order.refCode, status: "pending", duplicate: r.duplicate, service: r.facts.service, ...slot(ctx, { start: r.facts.startsAt, staffName: r.facts.staffName }),
+      durationMinutes: minutes, price: formatMoney(r.order.totalMinor, ctx.ws.currency), where: r.facts.inPerson ? "in person at the business" : "online: the meeting link comes with the confirmation",
+      ...(payHow ? { howToPay: payHow } : {}), ...(held && r.order.holdExpiresAt ? { heldForMinutes: held, expiresAt: human(r.order.holdExpiresAt, ctx.ws.timezone) } : {}),
+      instruction: `${r.duplicate ? "This booking was already made a moment ago, so no second one was made. " : ""}Tell the customer the booking request is received, with the reference code, service, day and time${r.facts.staffName ? ", who with" : ""} and the price.${payHow ? ` Then give them howToPay exactly as written and ask for the receipt in this chat: the time is held for ${held ?? stockSettings(ctx.ws).holdMinutes} minutes, and after that it's released.` : ""} The team confirms it shortly${r.facts.inPerson ? "" : ", and the confirmation carries the meeting link"}. Do NOT say it is confirmed.`,
+    },
+    label: `booked: ${r.facts.service} · ${human(r.facts.startsAt, ctx.ws.timezone)}${r.facts.staffName ? ` · ${r.facts.staffName}` : ""} · ${r.order.refCode}${r.duplicate ? " (already booked)" : ""}`, ok: true,
+  };
+}
+
+const STOCK_PROBLEM = /sold out|at most \d+|isn't available/i;
+
+/**
+ * A create_order that failed. Stock problems and an order the assistant can't complete after three tries go to a person
+ * (Needs you), with the reason in plain words; the assistant keeps helping the customer meanwhile.
+ */
+async function orderTrouble(ctx: ToolContext, problems: string[], lastQuestion: string) {
+  await db.insert(t.events).values({ workspaceId: ctx.ws.id, type: "order.attempt_failed", props: { threadId: ctx.threadId, problems: problems.slice(0, 5) }, isDemo: Boolean(ctx.isDemo) });
+  const stock = problems.filter((p) => STOCK_PROBLEM.test(p));
+  if (stock.length) {
+    await handOver(ctx.ws.id, ctx.threadId, { category: "out_of_stock", priority: "normal", reason: "Customer asked for something that isn't available", summary: `${ctx.customerName || "A customer"} wanted: ${stock.join(" ")} The assistant offered alternatives; restock or reply if you can help.`, isDemo: ctx.isDemo });
+    return;
+  }
+  const [n] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(t.events)
+    .where(and(eq(t.events.workspaceId, ctx.ws.id), eq(t.events.type, "order.attempt_failed"), sql`${t.events.props}->>'threadId' = ${ctx.threadId}`, gt(t.events.createdAt, new Date(Date.now() - 3600_000))));
+  if ((n?.n ?? 0) >= 3) {
+    await handOver(ctx.ws.id, ctx.threadId, { category: "order_problem", priority: "normal", reason: `The assistant couldn't complete the order after ${n.n} tries`, summary: `Still missing or wrong: ${problems.join(" ").slice(0, 220)} Last message: “${lastQuestion.slice(0, 60)}”`, isDemo: ctx.isDemo });
   }
 }
 

@@ -11,8 +11,7 @@ export const GET = handle(async () => {
     select
       (select count(*)::int from escalations where workspace_id = ${s.workspaceId} and status = 'open' and is_demo = false) as needs,
       (select count(distinct thread_id)::int from messages where workspace_id = ${s.workspaceId} and status = 'pending_approval') as drafts,
-      (select count(*)::int from outreach where workspace_id = ${s.workspaceId} and status = 'draft') as approvals,
       (select count(*)::int from orders where workspace_id = ${s.workspaceId} and status = 'pending') as orders,
-      (select count(*)::int from knowledge_gaps where workspace_id = ${s.workspaceId} and status = 'open') as gaps`)) as unknown as { needs: number; drafts: number; approvals: number; orders: number; gaps: number }[];
+      (select count(*)::int from knowledge_gaps where workspace_id = ${s.workspaceId} and status = 'open') as gaps`)) as unknown as { needs: number; drafts: number; orders: number; gaps: number }[];
   return ok(r);
 });

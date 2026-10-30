@@ -4,7 +4,7 @@ import { Chip } from "@/components/ui/chip";
 import { cx } from "@/components/ui/cx";
 
 type Line = { who: "me" | "ai" | "note"; text: string; meta?: string };
-type Reply = { reply: string | null; skipped: string | null; tools: { name: string; label?: string; ok: boolean }[]; escalated: { category?: string; reason?: string }[]; booking: { refCode?: string } | null; latencyMs: number | null; aiConfigured: boolean; error?: string };
+type Reply = { reply: string | null; skipped: string | null; tools: { name: string; label?: string; ok: boolean }[]; escalated: { category?: string; reason?: string }[]; order: { refCode?: string } | null; latencyMs: number | null; aiConfigured: boolean; error?: string };
 
 /** Talks to the owner's own assistant through the simulator channel (same pipeline as real customers). */
 export function TestChat({ suggestions }: { suggestions: string[] }) {
@@ -13,7 +13,10 @@ export function TestChat({ suggestions }: { suggestions: string[] }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const end = useRef<HTMLDivElement>(null);
-  useEffect(() => end.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }), [lines]);
+  // Braces: newer browsers return a Promise from scrollIntoView, and an effect may only return a cleanup function.
+  useEffect(() => {
+    end.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [lines]);
 
   async function ask(q: string) {
     const msg = q.trim();
@@ -28,7 +31,7 @@ export function TestChat({ suggestions }: { suggestions: string[] }) {
       const meta = [r.tools?.length ? `looked up: ${r.tools.map((x) => x.label ?? x.name).join(", ")}` : null, r.latencyMs ? `${(r.latencyMs / 1000).toFixed(1)}s` : null].filter(Boolean).join(" · ");
       if (r.reply) setLines((l) => [...l, { who: "ai", text: r.reply!, meta }]);
       if (r.escalated?.length) setLines((l) => [...l, { who: "note", text: `Sent to Needs you${r.escalated[0].category ? ` (${r.escalated[0].category})` : ""}: a person on your team would take this one.` }]);
-      if (r.booking?.refCode) setLines((l) => [...l, { who: "note", text: `Test booking ${r.booking!.refCode} created. You can cancel it in Bookings.` }]);
+      if (r.order?.refCode) setLines((l) => [...l, { who: "note", text: `Test order ${r.order!.refCode} created. You can cancel it in Orders.` }]);
       if (!r.reply && !r.escalated?.length) setLines((l) => [...l, { who: "note", text: r.skipped ? `No reply (${r.skipped}).` : "No reply." }]);
     } catch (e) {
       setLines((l) => [...l, { who: "note", text: (e as Error).message }]);
@@ -44,7 +47,7 @@ export function TestChat({ suggestions }: { suggestions: string[] }) {
         <Chip>Simulator: nothing goes to real customers</Chip>
       </div>
       <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4 scrollbar-thin">
-        {!lines.length ? <p className="text-[13.5px] text-muted">Ask what your customers ask. Try a price, a booking for tomorrow, something you don&apos;t sell, or a complaint.</p> : null}
+        {!lines.length ? <p className="text-[13.5px] text-muted">Ask what your customers ask. Try a price, an order for tomorrow, something you don&apos;t sell, or a complaint.</p> : null}
         {lines.map((l, i) =>
           l.who === "note" ? (
             <p key={i} className="text-center text-[12.5px] text-muted">

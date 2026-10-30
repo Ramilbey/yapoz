@@ -1,14 +1,13 @@
-import type { WorkspaceSettings } from "@/db/schema";
+import type { AppointmentSettings, WorkspaceSettings } from "@/db/schema";
 
 export type Mode = "autopilot" | "copilot";
 export type ChannelStatus = {
-  /** The business's Meta app, shared by WhatsApp and Instagram. The secret never leaves the server. */
+  /** The business's own Meta app, for a manually connected WhatsApp number. The secret never leaves the server. */
   metaApp: { connected: boolean; appId: string | null; appName: string | null; source: "workspace" | "env" | null };
   telegram: {
     mode: Mode;
     sharedBot: string | null;
     customerLink: string | null;
-    applyLink: string | null;
     ownBot: { username: string } | null;
     businessConnections: { id: string; canReply: boolean; isEnabled: boolean; updatedAt: string }[];
     connected: boolean;
@@ -16,6 +15,9 @@ export type ChannelStatus = {
   whatsapp: {
     mode: Mode;
     connected: boolean;
+    method: "embedded" | "manual" | "env" | null;
+    embedded: { appId: string; configId: string; graphVersion: string } | null;
+    registerIssue: string | null;
     source: "workspace" | "env" | null;
     displayPhone: string | null;
     verifiedName: string | null;
@@ -31,15 +33,14 @@ export type ChannelStatus = {
     lastWebhookTest: boolean;
     lastSendError: { at: string; message: string } | null;
   };
-  instagram: { mode: Mode; connected: boolean; source: "workspace" | "env" | null; username: string | null; expiresAt: string | null; canConnect: boolean };
   simulator: { mode: Mode; connected: boolean };
 };
 
 export type SettingsData = {
   workspace: { id: string; name: string; city: string; timezone: string; currency: string; settings: WorkspaceSettings };
   channels: ChannelStatus;
-  ai: { configured: boolean; fast: string; smart: string };
-  google: { configured: boolean; connected: boolean };
+  ai: { providers: { name: string; vision: boolean }[]; recent: { model: string; n: number; failed: number }[] };
+  appointments: AppointmentSettings;
   demoMode: boolean;
   appUrl: string;
 };

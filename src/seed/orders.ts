@@ -5,12 +5,12 @@ import { assessReceipt, sha256 } from "@/lib/receipts";
 import type { ReceiptReading } from "@/db/schema";
 import { fmt } from "@/lib/time";
 
-type Spec = { ref: string; name: string; channel: "telegram" | "whatsapp" | "instagram"; fulfilment: "pickup" | "delivery"; address?: string; wanted?: string; notes?: string; status: "pending" | "confirmed" | "ready" | "completed"; paid?: boolean; receipt?: "ok" | "short" | "other_account"; ageMin: number; lines: { slug: string; size: string; qty: number; note?: string }[] };
+type Spec = { ref: string; name: string; channel: "telegram" | "whatsapp"; fulfilment: "pickup" | "delivery"; address?: string; wanted?: string; notes?: string; status: "pending" | "confirmed" | "ready" | "completed"; paid?: boolean; firmedBy?: "receipt" | "staff" | null; receipt?: "ok" | "short" | "other_account"; ageMin: number; lines: { slug: string; size: string; qty: number; note?: string }[] };
 
 const SPECS: Spec[] = [
-  { ref: "ORD-DEMO", name: "Aiman R.", channel: "whatsapp", fulfilment: "pickup", wanted: "7:30pm tonight", status: "pending", receipt: "ok", ageMin: 4, lines: [{ slug: "margherita", size: "L", qty: 2, note: "extra basil" }, { slug: "diavola", size: "M", qty: 1 }] },
-  { ref: "ORD-DEMA", name: "Wei Ling", channel: "telegram", fulfilment: "delivery", address: "Unit 12-3, Menara Telawi, Jalan Telawi 3, Bangsar Baru", status: "pending", receipt: "short", ageMin: 11, notes: "Please call when downstairs", lines: [{ slug: "quattro-formaggi", size: "L", qty: 1 }, { slug: "marinara", size: "S", qty: 2 }] },
-  { ref: "ORD-DEMB", name: "Farah N.", channel: "instagram", fulfilment: "pickup", wanted: "6pm", status: "confirmed", paid: true, receipt: "ok", ageMin: 38, lines: [{ slug: "diavola", size: "L", qty: 2 }] },
+  { ref: "ORD-DEMO", name: "Aiman R.", channel: "whatsapp", fulfilment: "pickup", wanted: "7:30pm tonight", status: "pending", firmedBy: "receipt", receipt: "ok", ageMin: 4, lines: [{ slug: "margherita", size: "L", qty: 2, note: "extra basil" }, { slug: "diavola", size: "M", qty: 1 }] },
+  { ref: "ORD-DEMA", name: "Wei Ling", channel: "telegram", fulfilment: "delivery", address: "Unit 12-3, Menara Telawi, Jalan Telawi 3, Bangsar Baru", status: "pending", firmedBy: null, receipt: "short", ageMin: 11, notes: "Please call when downstairs", lines: [{ slug: "quattro-formaggi", size: "L", qty: 1 }, { slug: "marinara", size: "S", qty: 2 }] },
+  { ref: "ORD-DEMB", name: "Farah N.", channel: "telegram", fulfilment: "pickup", wanted: "6pm", status: "confirmed", paid: true, receipt: "ok", ageMin: 38, lines: [{ slug: "diavola", size: "L", qty: 2 }] },
   { ref: "ORD-DEMC", name: "Daniel K.", channel: "whatsapp", fulfilment: "pickup", status: "ready", receipt: "other_account", ageMin: 52, lines: [{ slug: "margherita", size: "M", qty: 3 }] },
   { ref: "ORD-DEMD", name: "Siti Z.", channel: "telegram", fulfilment: "delivery", address: "B-8, Pangsapuri Mutiara, Jalan Maarof", status: "completed", paid: true, receipt: "ok", ageMin: 190, lines: [{ slug: "margherita", size: "L", qty: 1 }, { slug: "diavola", size: "L", qty: 1 }] },
 ];
@@ -43,7 +43,7 @@ export async function seedOrders(workspaceId: string, currency: string) {
       .insert(t.orders)
       .values({
         workspaceId, refCode: s.ref, customerName: s.name, fulfilment: s.fulfilment, address: s.address ?? null, wanted: s.wanted ?? null, notes: s.notes ?? null, status: s.status, paid: Boolean(s.paid),
-        totalMinor: lines.reduce((n, x) => n + x.v.priceMinor * x.l.qty, 0), currency, channel: s.channel, isDemo: true, createdAt: created,
+        totalMinor: lines.reduce((n, x) => n + x.v.priceMinor * x.l.qty, 0), currency, channel: s.channel, isDemo: true, createdAt: created, holdExpiresAt: null, firmedBy: s.firmedBy ?? null,
         confirmedAt: s.status === "pending" ? null : new Date(created.getTime() + 3 * 60_000),
         readyAt: s.status === "ready" || s.status === "completed" ? new Date(created.getTime() + 25 * 60_000) : null,
         completedAt: s.status === "completed" ? new Date(created.getTime() + 40 * 60_000) : null,

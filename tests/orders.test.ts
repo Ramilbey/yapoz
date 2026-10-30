@@ -5,13 +5,12 @@ import "../scripts/env";
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import { db, t, sql } from "../src/db";
-import { and, eq, desc } from "drizzle-orm";
+import { and, eq, desc, ne } from "drizzle-orm";
 import { knowledge } from "../src/agent/knowledge";
 import { runTool, type ToolContext } from "../src/agent/tools";
 import { transitionOrder, orderMessage, loadOrders, placeOrder } from "../src/lib/orders";
 import { ingest, respond } from "../src/agent/pipeline";
 import { acknowledgement } from "../src/agent/acknowledge";
-import { addLocalDays, localDate, localWeekday, zoned } from "../src/lib/time";
 
 const OWNER = "00000000-0000-4000-8000-000000000001";
 
@@ -20,7 +19,7 @@ async function ctx(wsId = "FORNO7", customerName = "Test Guest"): Promise<ToolCo
   const [customer] = await db.insert(t.customers).values({ workspaceId: ws.id, channel: "simulator", externalId: `ord-${Math.random()}`, displayName: customerName || null }).returning();
   const [thread] = await db.insert(t.threads).values({ workspaceId: ws.id, channel: "simulator", externalThreadId: `ord-${Math.random()}`, customerId: customer.id }).returning();
   const kb = await knowledge(ws);
-  return { ws, catalog: kb.catalog, threadId: thread.id, customerId: customer.id, customerName, channel: "simulator", escalations: [], bookings: [], orders: [] };
+  return { ws, catalog: kb.catalog, threadId: thread.id, customerId: customer.id, customerName, channel: "simulator", escalations: [], orders: [] };
 }
 
 const variant = async (slug: string, size: string, color?: string) => {
@@ -45,10 +44,14 @@ const create = async (c: ToolContext, input: Record<string, unknown>) => {
   return { r, out: r.output as Placed };
 };
 
+// Pending orders hold stock; drop any left over so each test starts from the 2 aprons set up below.
+const releaseHolds = () => db.update(t.stockHolds).set({ status: "released" }).where(and(eq(t.stockHolds.workspaceId, "FORNO7"), ne(t.stockHolds.status, "released")));
+
 before(async () => {
   // Stock the tests rely on: an apron in Brick Red size S with exactly 2 left.
   const v = await variant("apron", "S", "Brick Red");
   await db.update(t.kbVariants).set({ stock: 2 }).where(eq(t.kbVariants.id, v.id));
+  await releaseHolds();
 });
 after(async () => {
   await sql.end();
@@ -81,17 +84,18 @@ test("an order is priced from the catalog, whatever price the model sends, and w
 });
 
 test("what can't be ordered is explained, all at once, and nothing is saved", async () => {
+  await releaseHolds();
   const c = await ctx();
   const before = await orderCount();
   const ambiguous = await create(c, { items: [{ product: "margherita", quantity: 1 }], fulfilment: "pickup" });
   assert.equal(ambiguous.out.ok, false);
   assert.match(ambiguous.out.problems!.join(" "), /which option\? .*Small.*RM 28.*Large.*RM 52/);
   const soldOut = await create(c, { items: [{ product: "truffle", size: "L", quantity: 1 }], fulfilment: "pickup" });
-  assert.match(soldOut.out.problems!.join(" "), /isn't available today.*sold out/i);
+  assert.match(soldOut.out.problems!.join(" "), /Large Funghi e Tartufo isn't available/);
   const noStock = await create(c, { items: [{ product: "apron", size: "S", color: "Brick Red", quantity: 3 }, { product: "t-shirt", size: "XL", color: "Brick Red", quantity: 1 }], fulfilment: "pickup" });
   assert.equal(noStock.out.problems!.length, 2);
-  assert.match(noStock.out.problems![0], /Only 2 left of Forno Sette canvas apron/);
-  assert.match(noStock.out.problems![1], /out of stock/);
+  assert.match(noStock.out.problems![0], /We can do at most 2 of Small Forno Sette canvas apron, Brick Red \(asked for 3\)/);
+  assert.match(noStock.out.problems![1], /XL Forno Sette T-shirt, Brick Red is sold out\./);
   const unknown = await create(c, { items: [{ product: "sushi platter", quantity: 1 }], fulfilment: "pickup" });
   assert.match(unknown.out.problems![0], /isn't in the catalog/);
   const silly = await create(c, { items: [{ product: "margherita", size: "L", quantity: 500 }, { product: "marinara", size: "S", quantity: 1.5 }], fulfilment: "pickup" });
@@ -120,7 +124,7 @@ test("delivery needs an address and every order needs a name; services are booke
   const salon = await ctx("KASIH1");
   const [svc] = await db.select().from(t.kbItems).where(and(eq(t.kbItems.workspaceId, "KASIH1"), eq(t.kbItems.kind, "service")));
   const service = await create(salon, { items: [{ product: svc.title, quantity: 1 }], fulfilment: "pickup" });
-  assert.match(service.out.problems![0], /is a service: book it with create_booking/);
+  assert.match(service.out.problems![0], /is a service, not a product: it can't be ordered in chat/);
 });
 
 test("an option the menu doesn't have becomes a note for the kitchen; repeating the same order doesn't make a second one", async () => {
@@ -142,14 +146,26 @@ test("an option the menu doesn't have becomes a note for the kitchen; repeating 
 });
 
 test("confirming takes stock off, refuses when it's gone, and cancelling gives it back; each step is logged", async () => {
+  await releaseHolds();
   const apron = await variant("apron", "S", "Brick Red");
+  await db.update(t.kbVariants).set({ stock: 2 }).where(eq(t.kbVariants.id, apron.id));
   const stock = async () => (await db.select().from(t.kbVariants).where(eq(t.kbVariants.id, apron.id)))[0].stock;
+  // Placing an order holds its stock, so a second order for the same two aprons is refused up front.
   const a = await create(await ctx(), { items: [{ product: "apron", size: "S", color: "Brick Red", quantity: 2 }], fulfilment: "pickup" });
+  const refused = await create(await ctx(), { items: [{ product: "apron", size: "S", color: "Brick Red", quantity: 2 }], fulfilment: "pickup" });
+  assert.equal(a.out.ok, true);
+  assert.equal(refused.out.ok, false, "the first order holds the stock");
+  assert.match(refused.out.problems!.join(" "), /Small Forno Sette canvas apron, Brick Red is sold out\./);
+  // To still cover "confirm refuses when it's gone": more stock for a moment, two orders, then the shelf count drops to 2
+  // and the second order's hold lapses (an order's own live hold is always honoured, a lapsed one is re-checked).
+  await db.update(t.kbVariants).set({ stock: 4 }).where(eq(t.kbVariants.id, apron.id));
   const b = await create(await ctx(), { items: [{ product: "apron", size: "S", color: "Brick Red", quantity: 2 }], fulfilment: "pickup" });
-  assert.equal(a.out.ok && b.out.ok, true, "stock isn't reserved until staff confirm");
+  assert.equal(b.out.ok, true);
+  await db.update(t.kbVariants).set({ stock: 2 }).where(eq(t.kbVariants.id, apron.id));
   const idOf = async (ref: string) => (await db.select().from(t.orders).where(eq(t.orders.refCode, ref)))[0].id;
   const [aId, bId] = [await idOf(a.out.refCode!), await idOf(b.out.refCode!)];
 
+  await db.update(t.stockHolds).set({ expiresAt: new Date(Date.now() - 60_000) }).where(eq(t.stockHolds.orderId, bId));
   assert.equal(await stock(), 2);
   await addReceipt(aId);
   await addReceipt(bId);
@@ -159,7 +175,7 @@ test("confirming takes stock off, refuses when it's gone, and cancelling gives i
 
   const second = await transitionOrder({ workspaceId: "FORNO7", orderId: bId, action: "confirm", userId: OWNER });
   assert.ok(!second.ok && second.status === 409);
-  assert.match(!second.ok ? second.error : "", /Small Forno Sette canvas apron, Brick Red is out of stock now/);
+  assert.match(!second.ok ? second.error : "", /Small Forno Sette canvas apron, Brick Red is sold out\./);
   assert.equal((await db.select().from(t.orders).where(eq(t.orders.id, bId)))[0].status, "pending", "a refused confirm changes nothing");
   assert.equal(await stock(), 0);
 
@@ -225,8 +241,10 @@ test("the customer is told what happened, in words that match pickup or delivery
   assert.match(orderMessage(ws, "confirmed", delivery.order, delivery.items), /RM 48 plus delivery\. We'll let you know when it's on its way/);
   assert.match(orderMessage(ws, "ready", pickup.order, pickup.items), /ready for pickup at Forno Sette/);
   assert.match(orderMessage(ws, "ready", delivery.order, delivery.items), /on its way/);
-  assert.match(orderMessage(ws, "cancelled", { ...pickup.order, cancelReason: "we ran out of dough" }, pickup.items), /can't make your order .*: we ran out of dough\./);
+  assert.match(orderMessage(ws, "cancelled", { ...pickup.order, cancelReason: "we ran out of dough" }, pickup.items), /we've had to cancel your order .*: we ran out of dough\. Reply here/);
   assert.ok(!/confirmed|paid/.test(orderMessage(ws, "cancelled", pickup.order, pickup.items)));
+  assert.match(orderMessage(ws, "rejected", { ...pickup.order, cancelReason: "we ran out of dough" }, pickup.items), /can't accept your order .*: we ran out of dough\. Nothing will be prepared\./);
+  assert.ok(!/confirmed|paid/.test(orderMessage(ws, "rejected", pickup.order, pickup.items)));
 });
 
 test("the Orders page lists waiting orders first, with their items, for the right business only", async () => {
@@ -269,7 +287,7 @@ test("through the agent: a chat order becomes a pending order, the run is 'order
     assert.equal(out.error, undefined);
     assert.equal(out.outcome, "ordered");
     assert.ok(out.order?.refCode.startsWith("ORD-"));
-    assert.ok(seen.some((s) => s.tools >= 7), "the agent is offered create_order alongside the other tools");
+    assert.ok(seen.some((s) => s.tools >= 5), "the agent is offered create_order alongside the other tools");
     assert.match(out.reply ?? "", /is in: 2 × Large Margherita/);
     assert.ok(!/confirmed (and|!)|on its way|ready for pickup/i.test(out.reply ?? ""));
     const [order] = await db.select().from(t.orders).where(eq(t.orders.threadId, r.thread.id));
@@ -317,7 +335,7 @@ async function chatWhereAiDiesAfter(tool: string, args: unknown, text: string) {
 
 test("the AI dies after saving an order: the customer is told their order is in, not 'passed to our team'", async () => {
   const { out, escalations, run, threadId } = await chatWhereAiDiesAfter("create_order", { items: [{ product: "margherita", size: "large", quantity: 1 }], fulfilment: "pickup", customer_name: "Hana" }, "1 large margherita for pickup, I'm Hana");
-  assert.match(out.reply ?? "", /^Got it! Your order ORD-[A-Z0-9]{4} is in:\n• 1 × Large Margherita\nTotal RM 52\.\nTo place it, please pay RM 52 to:\n• Bank transfer: Sample Bank, 1234 5678 9012 \(Forno Sette Sdn Bhd\)\n• DuitNow: DuitNow, 012-345 6789 \(Forno Sette Sdn Bhd\)\nPlease put your order code in the payment reference\.\nThen send a photo or screenshot of the payment receipt here\. The team confirms your order after they check it\.$/);
+  assert.match(out.reply ?? "", /^Got it! Your order ORD-[A-Z0-9]{4} is in:\n• 1 × Large Margherita\nTotal RM 52\.\nTo place it, please pay RM 52 to:\n• Bank transfer: Sample Bank, 1234 5678 9012 \(Forno Sette Sdn Bhd\)\n• DuitNow: DuitNow, 012-345 6789 \(Forno Sette Sdn Bhd\)\nPlease put your order code in the payment reference\.\nThen send a photo or screenshot of the payment receipt here within 20 minutes: we hold your order for 20 minutes, and after that it expires\. The team confirms your order after they check the receipt\.\nWe're holding it until \d{1,2}:\d{2}[ap]m\.$/);
   assert.ok(!/passed this to our team/.test(out.reply ?? ""));
   assert.ok(!/confirmed (and|!)|on its way|paid/i.test(out.reply ?? ""), "never claims more than 'received'");
   assert.equal(out.outcome, "ordered");
@@ -329,27 +347,12 @@ test("the AI dies after saving an order: the customer is told their order is in,
   assert.equal(order.status, "pending");
 });
 
-test("the AI dies after saving a booking: the customer gets the booking and its reference", async () => {
-  const today = localDate(new Date(), "Asia/Kuala_Lumpur");
-  let fri = "";
-  for (let i = 1; i <= 7 && !fri; i++) {
-    const d = addLocalDays(today, i);
-    if (localWeekday(zoned(d, "12:00", "Asia/Kuala_Lumpur"), "Asia/Kuala_Lumpur") === "fri") fri = d;
-  }
-  const { out, escalations, run } = await chatWhereAiDiesAfter("create_booking", { customer_name: "Hana", date: fri, time: "19:00", party_size: 2 }, "table for 2 on friday at 7pm, I'm Hana");
-  assert.match(out.reply ?? "", /^You're booked: .*Your reference is [A-Z0-9]{2}-[A-Z0-9]{4}\.$/);
-  assert.equal(out.outcome, "booked");
-  assert.equal(escalations.length, 0);
-  assert.match(run.error ?? "", /AI generation failed/);
-  await db.delete(t.bookings).where(eq(t.bookings.refCode, out.booking!.refCode));
-});
-
 test("if the AI dies before saving anything, the holding reply and the staff card are unchanged", async () => {
   const { out, escalations } = await chatWhereAiDiesAfter("search_catalog", { query: "pizza" }, "what pizzas do you have?");
   assert.match(out.reply ?? "", /passed this to our team/);
   assert.equal(out.outcome, "error");
   assert.equal(escalations.length, 1);
-  assert.match(escalations[0].summary, /^AI couldn't answer \(/);
+  assert.match(escalations[0].summary, /^The customer got the holding reply because no AI could answer \(/);
 });
 
 test("acknowledgement(): delivery orders say 'plus delivery', failed tool calls are ignored, nothing saved means null", () => {
@@ -360,6 +363,4 @@ test("acknowledgement(): delivery orders say 'plus delivery', failed tool calls 
   assert.match(text, /order ORD-AAAA is in:\n• 2 × Small Marinara \(no oregano\)\nTotal RM 48 plus delivery\. The team will confirm it shortly\./);
   const pay = acknowledgement([log("create_order", { refCode: "ORD-CCCC", total: "RM 10", howToPay: "To place it, please pay RM 10 to:\n• Bank", items: [] })])!;
   assert.match(pay, /Total RM 10\.\nTo place it, please pay RM 10 to:/);
-  const both = acknowledgement([log("create_booking", { refCode: "F7-ZZZZ", when: "Fri 24 Oct, 7:00 PM", bookingType: "Table", quantity: 4 }), log("create_order", { refCode: "ORD-BBBB", total: "RM 10", items: [] })])!;
-  assert.match(both, /^You're booked: Table for 4, Fri 24 Oct, 7:00 PM\. Your reference is F7-ZZZZ\.\n\nGot it! Your order ORD-BBBB is in\./);
 });

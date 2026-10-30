@@ -1,8 +1,8 @@
 // Edge-safe session primitives (used by proxy.ts and server code).
 import { SignJWT, jwtVerify } from "jose";
 
-export type Role = "owner" | "service" | "hr";
-export type Session = { userId: string; workspaceId: string; role: Role; name: string; email: string };
+export type Role = "owner" | "service";
+export type Session = { userId: string; workspaceId: string; role: Role; name: string; email: string; /** users.session_version when signed: a newer version in the database revokes this session. */ sv?: number };
 
 export const SESSION_COOKIE = "jawab_session";
 const enc = (s: string) => new TextEncoder().encode(s);
@@ -27,7 +27,7 @@ function secret() {
 }
 
 export async function signSession(s: Session): Promise<string> {
-  return new SignJWT({ ws: s.workspaceId, role: s.role, name: s.name, email: s.email })
+  return new SignJWT({ ws: s.workspaceId, role: s.role, name: s.name, email: s.email, sv: s.sv ?? 0 })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(s.userId)
     .setIssuedAt()
@@ -45,19 +45,19 @@ export async function verifySession(token: string | undefined | null): Promise<S
       role: payload.role as Role,
       name: String(payload.name),
       email: String(payload.email),
+      sv: Number(payload.sv ?? 0),
     };
   } catch {
     return null;
   }
 }
 
-export const ROLE_HOME: Record<Role, string> = { owner: "/app/today", service: "/app/inbox", hr: "/app/hiring" };
+export const ROLE_HOME: Record<Role, string> = { owner: "/app/today", service: "/app/orders" };
 
 /** Which app sections each role may open. */
 export const ROLE_SECTIONS: Record<Role, string[]> = {
-  owner: ["setup", "today", "inbox", "needs-you", "orders", "knowledge", "bookings", "hiring", "settings", "account"],
-  service: ["inbox", "needs-you", "orders", "knowledge", "bookings", "account"],
-  hr: ["hiring", "account"],
+  owner: ["setup", "today", "orders", "calendar", "inbox", "needs-you", "activity", "knowledge", "settings", "account"],
+  service: ["orders", "calendar", "inbox", "needs-you", "activity", "knowledge", "account"],
 };
 
 export function canOpen(role: Role, pathname: string): boolean {

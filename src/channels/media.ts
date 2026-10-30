@@ -1,7 +1,6 @@
 // Fetches the bytes of a file a customer sent in chat. Each channel hands over a reference, not the file:
 //   WhatsApp  media id → Graph API gives a short-lived URL → download with the business's token
 //   Telegram  file id  → the bot's getFile → download
-//   Instagram a CDN URL (only Meta's own hosts are fetched)
 //   data:     inline bytes, for the simulator and tests
 import { whatsappCreds } from "./connections";
 import { downloadTelegramFile } from "./telegram/api";
@@ -9,9 +8,8 @@ import type { Attachment } from "@/db/schema";
 
 export const MAX_MEDIA_BYTES = 8 * 1024 * 1024;
 
-type Thread = { workspaceId: string; channel: "telegram" | "whatsapp" | "instagram" | "simulator"; routing: Record<string, unknown> };
+type Thread = { workspaceId: string; channel: "telegram" | "whatsapp" | "simulator"; routing: Record<string, unknown> };
 
-const META_CDN = /(^|\.)(fbcdn\.net|cdninstagram\.com|fbsbx\.com)$/i;
 
 async function download(url: string, token?: string): Promise<Buffer> {
   const res = await fetch(url, { headers: token ? { authorization: `Bearer ${token}` } : undefined, signal: AbortSignal.timeout(15_000), cache: "no-store" });
@@ -47,11 +45,6 @@ export async function fetchAttachment(thread: Thread, a: Attachment): Promise<Bu
     if (!meta.ok || !j.url) throw new Error(j.error?.message ?? `Meta wouldn't give the file (${meta.status})`);
     if ((j.file_size ?? 0) > MAX_MEDIA_BYTES) throw new Error("File too large");
     return download(j.url, c.token);
-  }
-  if (thread.channel === "instagram") {
-    const u = new URL(ref);
-    if (u.protocol !== "https:" || !META_CDN.test(u.hostname)) throw new Error("Not a Meta file URL");
-    return download(u.toString());
   }
   throw new Error("This channel can't send files");
 }

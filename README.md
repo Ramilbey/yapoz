@@ -52,14 +52,17 @@ AI interprets the request and calls defined business tools. Backend rules valida
 - **Structured orders:** convert conversations into items, quantities and fulfilment details, with clarification when information is missing.
 - **Business-grounded responses:** use each business's catalogue, opening hours and policies.
 - **Human approval:** Owner and Service users review pending orders before confirmation; the backend rechecks stock.
+- **Stock modes:** items can be "Made to order", "Daily quantity" (a fresh count each business day, with future days set on Today) or "Count stock" (on-hand count). Defaults live in Settings → Stock; items can override them in Knowledge.
+- **Stock holds:** a pending order holds its stock. With payments on, the hold lasts 20 minutes unless a receipt passes checks. The AI only says "in stock", "sold out" or "at most N", with N read from the database.
 - **Receipt review:** compare extracted receipt information with the order and configured account details, highlighting inconsistencies and possible duplicates.
 - **Traceable outcomes:** display order status, handling information and timestamps, with backend events recording actions.
 - **Reusable workspaces:** configure different catalogues, product options and policies without rebuilding the workflow.
+- **Appointments:** customers book services in chat; the AI only offers free times (opening hours ∩ each staff member's hours, minus other bookings), staff approve bookings like orders, online services get a meeting link, reminders go out before the start, and staff mark attendance on the Calendar.
 - **Website simulator:** test customer text requests through the same conversation pipeline without a messaging account.
 
 Receipt analysis is advisory. It does not authenticate a receipt, access a bank account or prove payment. **Mark paid** records a staff decision; Yapoz does not process real payments. Staff agree delivery fees separately from catalogue item prices.
 
-The repository also includes booking and hiring functionality. Our Domain 2 submission focuses on customer-order automation; those additional modules are not the core innovation or demonstration.
+Staff can also ask a customer for another receipt with a reason ("pay the remaining RM 10"); the chat then waits for it and the AI knows what to expect. An **Activity** page logs every action with who did it, and each order explains why it needs attention and whether the customer was actually notified.
 
 ### Orbyte Fit and Reuse
 
@@ -88,7 +91,7 @@ Our proposed commercial model is a free entry tier with usage-based charges for 
 | Backend | Next.js route handlers, business tools and validation rules |
 | Database | PostgreSQL hosted on Supabase, with Drizzle ORM |
 | AI for the demo | Groq and Google Gemini, using free-tier access |
-| Messaging | WhatsApp Cloud API, Telegram and Instagram connectors; website simulator |
+| Messaging | WhatsApp Cloud API (Embedded Signup or manual credentials) and Telegram connectors; website simulator |
 | Authentication | Password-based sign-in, signed sessions and workspace/role checks |
 | Development | Replit Agent for the initial code; Claude/Claude Code and Codex for development assistance |
 | Hosting | Vercel |
@@ -104,6 +107,7 @@ The provider router also contains optional adapters for other AI services. Their
 | `src/agent/` | AI routing, shared conversation pipeline and tools |
 | `src/channels/` | Messaging adapters and connection handling |
 | `src/lib/orders.ts` | Order transitions, stock handling and events |
+| `src/lib/stock.ts` | Stock modes, holds, availability, expiry and low-stock alerts |
 | `src/lib/receipts.ts` | Receipt extraction and consistency checks |
 | `src/db/` and `drizzle/` | Database schema, access and migrations |
 | `src/seed/` | Fictional businesses and synthetic sample records |
@@ -121,8 +125,8 @@ The provider router also contains optional adapters for other AI services. Their
 1. A channel webhook or `/api/simulator/message` receives the customer request.
 2. Our shared pipeline stores the conversation and retrieves the relevant workspace context.
 3. The AI calls business tools; backend rules validate catalogue items, quantities and prices.
-4. PostgreSQL stores the pending order.
-5. An authorised staff action rechecks stock, confirms the order and records events.
+4. PostgreSQL stores the pending order and holds its stock.
+5. An authorised staff action rechecks stock, confirms the order (taking the stock) and records events. Reject or cancel gives the stock back.
 6. The dashboard displays the outcome, and the originating channel is used for customer notifications where configured.
 
 Receipt attachments from supported messaging channels follow an extraction and checking path associated with the order. The homepage simulator accepts text only.
@@ -135,7 +139,7 @@ The website simulator and demo dashboard can be inspected without WhatsApp test-
 
 #### 1. Open the staff dashboard
 
-Visit [the login page](https://yapoz.vercel.app/login) and choose the **Owner** or **Service** demo option. Use workspace `FORNO7` if prompted. The HR desk is not part of the order demonstration.
+Visit [the login page](https://yapoz.vercel.app/login) and choose the **Owner** or **Service** demo option. Use workspace `FORNO7` if prompted.
 
 | Role | Email | Default demo password | Workspace |
 | --- | --- | --- | --- |
@@ -153,7 +157,7 @@ These are public test accounts for synthetic data. Use the current demo options 
 5. Request an available item and size from the reply, including a quantity and pickup time. Answer any clarification using made-up details.
 6. Return to **Inbox** to inspect the Simulator conversation, then **Orders** to inspect the pending order.
 
-The widget's WhatsApp, Telegram and Instagram appearances are visual styles for the website simulator. They are not messages sent through those external platforms.
+The widget's WhatsApp and Telegram appearances are visual styles for the website simulator. They are not messages sent through those external platforms.
 
 #### 3. Review receipt advice and approve a sample order
 
@@ -186,7 +190,8 @@ Please use only made-up information when testing. No real payment is required or
 | Symptom | What to check |
 | --- | --- |
 | New order is not visible | Ensure both tabs use Forno Sette / `FORNO7`; check Inbox for missing information, unavailable stock or tool errors. |
-| Confirm order is disabled | Check receipt requirements, current status, stock and account permissions. |
+| Confirm order is disabled | Check receipt requirements, current status, stock (including holds from other pending orders) and account permissions. |
+| Reply says "sold out" but stock looks free | Other pending orders hold the stock. With payments on, a hold expires after 20 minutes. | Check Orders for pending holds; use Keep reserved or Ask for another receipt if needed. |
 | Repeated handoff or delayed AI response | Free-tier providers may be unavailable or rate-limited. Review **Needs you** and retry later. |
 | Simulator reports a limit | Pause before retrying; public requests are rate-limited. |
 | A seeded order is already confirmed | Inspect its status history or another sample order. Avoid resetting shared data during judging. |

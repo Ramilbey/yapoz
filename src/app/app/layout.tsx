@@ -16,7 +16,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     id: s.workspaceId,
     name: ws?.name ?? s.workspaceId,
     city: ws?.city ?? "",
-    hiring: Boolean(st?.modules?.hiring),
     live: Boolean(st?.live),
     setupDone: Boolean(st?.onboarding?.completedAt),
     sample: Boolean(st?.sample),

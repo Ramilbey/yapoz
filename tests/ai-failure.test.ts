@@ -52,10 +52,11 @@ test("every provider down: the customer gets the holding reply, staff see the re
   assert.ok(!/rate limit|Groq|gsk_/i.test(out.reply ?? ""), "the customer never sees the reason");
 
   const [esc] = await db.select().from(t.escalations).where(eq(t.escalations.threadId, r.thread.id));
-  assert.equal(esc.reason, "AI error");
+  assert.equal(esc.category, "ai_failure");
+  assert.equal(esc.reason, "Every AI provider failed");
   assert.equal(esc.priority, "high");
-  assert.match(esc.summary, /^AI couldn't answer \(Groq [a-z0-9.-]+: rate limit \(tokens per minute\)/);
-  assert.match(esc.summary, /Customer wrote: Get me both in large size please/);
+  assert.match(esc.summary, /^The customer got the holding reply because no AI could answer \(Groq [a-z0-9.-]+: rate limit \(tokens per minute\)/);
+  assert.match(esc.summary, /They wrote: “Get me both in large size please/);
   assert.ok(!esc.summary.includes("gsk_"), "keys are redacted");
   assert.ok(esc.summary.length <= 300);
 });

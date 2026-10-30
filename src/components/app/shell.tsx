@@ -9,39 +9,32 @@ import { getJson } from "./fetcher";
 import { cx } from "../ui/cx";
 import type { Session } from "@/lib/session";
 
-type Item = { href: string; label: string; badge?: "needs" | "drafts" | "approvals" | "orders" | "gaps"; sub?: boolean; hiring?: boolean };
-export type ShellWorkspace = { id: string; name: string; city: string; hiring: boolean; live: boolean; setupDone: boolean; sample: boolean };
+type Item = { href: string; label: string; badge?: "needs" | "drafts" | "orders" | "gaps" };
+export type ShellWorkspace = { id: string; name: string; city: string; live: boolean; setupDone: boolean; sample: boolean };
 
+// Orders first: approving them is the main job. Activity is the full log of who did what.
 const NAV: Record<Session["role"], Item[]> = {
   owner: [
     { href: "/app/today", label: "Today" },
+    { href: "/app/orders", label: "Orders", badge: "orders" },
+    { href: "/app/calendar", label: "Calendar" },
     { href: "/app/inbox", label: "Inbox", badge: "drafts" },
     { href: "/app/needs-you", label: "Needs you", badge: "needs" },
-    { href: "/app/orders", label: "Orders", badge: "orders" },
+    { href: "/app/activity", label: "Activity" },
     { href: "/app/knowledge", label: "Knowledge", badge: "gaps" },
-    { href: "/app/bookings", label: "Bookings" },
-    { href: "/app/hiring", label: "Hiring", hiring: true },
-    { href: "/app/hiring/approvals", label: "Approvals", badge: "approvals", sub: true, hiring: true },
-    { href: "/app/hiring/calendar", label: "Interviews", sub: true, hiring: true },
-    { href: "/app/hiring/pipeline", label: "Pipeline", sub: true, hiring: true },
     { href: "/app/settings", label: "Settings" },
   ],
   service: [
+    { href: "/app/orders", label: "Orders", badge: "orders" },
+    { href: "/app/calendar", label: "Calendar" },
     { href: "/app/inbox", label: "Inbox", badge: "drafts" },
     { href: "/app/needs-you", label: "Needs you", badge: "needs" },
-    { href: "/app/orders", label: "Orders", badge: "orders" },
+    { href: "/app/activity", label: "Activity" },
     { href: "/app/knowledge", label: "Knowledge", badge: "gaps" },
-    { href: "/app/bookings", label: "Bookings" },
-  ],
-  hr: [
-    { href: "/app/hiring", label: "Roles and candidates" },
-    { href: "/app/hiring/approvals", label: "Approvals", badge: "approvals" },
-    { href: "/app/hiring/calendar", label: "Interviews" },
-    { href: "/app/hiring/pipeline", label: "Pipeline" },
   ],
 };
 
-const ROLE_NAME = { owner: "Owner", service: "Service", hr: "HR" } as const;
+const ROLE_NAME = { owner: "Owner", service: "Service" } as const;
 
 export function Shell(props: { session: Session; workspace: ShellWorkspace; demoMode: boolean; children: React.ReactNode }) {
   return (
@@ -59,8 +52,9 @@ function ShellInner({ session, workspace, children }: { session: Session; worksp
   const [open, setOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const connected = useLiveStatus();
-  const { data: counts, mutate } = useSWR<{ needs: number; drafts: number; approvals: number; orders: number; gaps: number }>("/api/nav-counts", getJson, { refreshInterval: 30_000 });
-  useLive(["escalations", "messages", "outreach", "orders", "knowledge_gaps"], () => mutate());
+  const { data: counts, mutate } = useSWR<{ needs: number; drafts: number; orders: number; gaps: number }>("/api/nav-counts", getJson, { refreshInterval: 60_000, revalidateOnFocus: false });
+  // Badges only move on real (non-demo) changes, at most every few seconds.
+  useLive(["escalations", "messages", "orders", "knowledge_gaps"], () => mutate(), 1500, (e) => !e.demo);
 
   useEffect(() => {
     let t: "light" | "dark" = "light";
@@ -87,9 +81,9 @@ function ShellInner({ session, workspace, children }: { session: Session; worksp
 
   const items = [
     ...(session.role === "owner" && !workspace.setupDone ? [{ href: "/app/setup", label: "Set up" } as Item] : []),
-    ...NAV[session.role].filter((it) => !it.hiring || workspace.hiring),
+    ...NAV[session.role],
   ];
-  const active = (href: string) => pathname === href || (href !== "/app/hiring" && pathname.startsWith(href + "/")) || (href === "/app/hiring" && /^\/app\/hiring(\/[0-9a-f-]{36})?$/.test(pathname));
+  const active = (href: string) => pathname === href || pathname.startsWith(href + "/");
 
   const rail = (
     <nav className="flex h-full flex-col" aria-label="Main">
@@ -119,7 +113,7 @@ function ShellInner({ session, workspace, children }: { session: Session; worksp
                 aria-current={active(it.href) ? "page" : undefined}
                 className={cx(
                   "group flex items-center justify-between rounded-[10px] px-3 transition-colors",
-                  it.sub ? "ml-3 h-8 text-[13px]" : "h-9 text-[14px]",
+                  "h-9 text-[14px]",
                   active(it.href) ? "bg-raised text-fg font-medium" : "text-fg-2 hover:text-fg hover:bg-raised/60",
                 )}
               >

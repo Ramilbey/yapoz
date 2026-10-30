@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { CATEGORY_LABEL } from "@/components/app/labels";
 import { cx } from "@/components/ui/cx";
 
-type Esc = { id: string; threadId: string; category: string; priority: string; reason: string; summary: string; createdAt: string; channel: string; customerName: string | null; lastCustomerMessage: string | null };
+type Esc = { id: string; threadId: string | null; category: string; priority: string; reason: string; summary: string; createdAt: string; channel: string | null; customerName: string | null; lastCustomerMessage: string | null };
 
 export default function NeedsYou() {
   const toast = useToast();
@@ -52,16 +52,16 @@ export default function NeedsYou() {
               </div>
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <span className="text-[15px] font-medium">{e.customerName ?? "Customer"}</span>
-                  <ChannelMark channel={e.channel} />
+                  {e.threadId ? <span className="text-[15px] font-medium">{e.customerName ?? "Customer"}</span> : null}
+                  {e.threadId && e.channel ? <ChannelMark channel={e.channel} /> : null}
                   <span className="num text-[12px] text-muted">{new Date(e.createdAt).toLocaleString("en-MY", { hour: "numeric", minute: "2-digit", day: "numeric", month: "short" })}</span>
                 </div>
                 <p className="mt-1.5 text-[16px] leading-snug">{e.summary}</p>
                 {e.lastCustomerMessage ? <p className="mt-1.5 text-[14px] text-muted">“{e.lastCustomerMessage}”</p> : null}
               </div>
               <div className="flex gap-2 md:justify-end">
-                <Link href={`/app/inbox?t=${e.threadId}`} className="inline-flex h-8 items-center rounded-[10px] bg-signal px-3 text-[13px] font-medium text-ink hover:brightness-110">
-                  Open conversation
+                <Link href={e.threadId ? `/app/inbox?t=${e.threadId}` : "/app/knowledge"} className="inline-flex h-8 items-center rounded-[10px] bg-signal px-3 text-[13px] font-medium text-ink hover:brightness-110">
+                  {e.threadId ? "Open conversation" : "Open Knowledge"}
                 </Link>
                 <Button size="sm" variant="secondary" loading={busy === e.id} onClick={() => resolve(e.id)}>Resolve</Button>
               </div>

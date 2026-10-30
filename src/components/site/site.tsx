@@ -9,7 +9,7 @@ import { useGSAP } from "@gsap/react";
 import Lenis from "lenis";
 import { Preloader, ScrollProgress, SiteHeader, BellMark, StaticBell } from "./chrome";
 import { Simulator, type SampleBusiness } from "./simulator";
-import { AppIcon, ChatList, InstagramChat, TelegramChat, WhatsAppChat, type Chat } from "./phones";
+import { AppIcon, ChatList, TelegramChat, WhatsAppChat, type Chat } from "./phones";
 import { FilmPlayer } from "./film-player";
 import { cx } from "../ui/cx";
 
@@ -24,27 +24,26 @@ type Mode = "full" | "touch" | "lite";
 
 const STEPS = [
   { n: "01", t: "Sign up", min: 2, d: "Your business name and an owner login. Two minutes, no card." },
-  { n: "02", t: "Explain your business", min: 5, d: "Describe it in your own words, the way you would brief a new hire, or upload a menu, a price list or a photo of the board. Claude drafts your products, prices, hours, booking rules and FAQs; you check each one." },
-  { n: "03", t: "Connect your chats", min: 3, d: "Telegram in one tap, WhatsApp with your Business Platform number, Instagram by signing in. Customers keep using the apps they already use." },
-  { n: "04", t: "Go live", min: 0, d: "Replies in seconds, bookings into free slots, orders held for your yes, and anything it isn't sure of handed to a person." },
+  { n: "02", t: "Explain your business", min: 5, d: "Describe it in your own words, the way you would brief a new hire, or upload a menu, a price list or a photo of the board. Claude drafts your products, prices, hours, delivery rules and FAQs; you check each one." },
+  { n: "03", t: "Connect your chats", min: 3, d: "Telegram in one tap, WhatsApp with your Business Platform number. Customers keep using the apps they already use." },
+  { n: "04", t: "Go live", min: 0, d: "Replies in seconds, orders checked against your stock and held for your yes, and anything it isn't sure of handed to a person." },
 ];
 
 const KINDS = [
-  { t: "Restaurants and cafés", q: "table for 4 fri 8pm?", a: "Booked: Fri 8pm, 4 people. Ref F7-2K9M", how: "Tables by headcount, menu with sizes, delivery zones" },
-  { t: "Salons and clinics", q: "women's cut tmr 3pm?", a: "Thu 3pm is free. Booked with your name, 60 min", how: "Appointments by service length, staff capacity" },
+  { t: "Restaurants and cafés", q: "large margherita, deliver to Bangsar?", a: "RM 52 + RM 5 delivery, about 40 min. Start the order?", how: "Menu with sizes, delivery zones, orders held for your yes" },
+  { t: "Bakeries and home kitchens", q: "20 curry puffs for sat?", a: "RM 36 for 20. Sent to the team to confirm", how: "Prices by quantity, notice period, staff approval" },
   { t: "Shops", q: "this dress in M, black?", a: "Black M: 2 left, RM 129", how: "Stock by size and colour, live from the dashboard" },
-  { t: "Hotels and rentals", q: "room for 2 sat-sun?", a: "1 Deluxe left for Sat–Sun, RM 260 a night", how: "Bookings by the day, units per day" },
-  { t: "Repairs and services", q: "iphone 13 screen how much", a: "RM 380, about 1 hour. Walk-ins until 6pm", how: "Quotes from your price list, slots for drop-offs" },
-  { t: "Classes and studios", q: "yoga sat 9am got space?", a: "3 spots left for Saturday 9am", how: "Group sessions by headcount per class" },
+  { t: "Salons and beauty", q: "heat protect spray got stock?", a: "Yes, 14 in stock, RM 45", how: "Products and prices from your list, hours and policies" },
+  { t: "Repairs and services", q: "iphone 13 screen how much", a: "RM 380, about 1 hour. Walk-ins until 6pm", how: "Quotes from your price list, hours and walk-in rules" },
+  { t: "Florists and gifts", q: "bouquet under RM 100 for tmr?", a: "3 options under RM 100. Same-day delivery before 3pm", how: "Catalogue with photos, delivery cut-offs, staff approval" },
 ];
 
-const ASKS = ["how much for a long hair cut?", "are you open on Sunday?", "got the red one in M?", "can I book Saturday 11am?", "do you deliver to Bangsar?", "is it halal?", "can I change my booking?", "table for 4 tonight?", "how much for keratin?", "parking available?"];
-const ANSWERS = ["Booked: Sat 11:00", "RM 52", "6 in stock", "Delivery RM 5, about 40 min", "Open 11:00 to 22:00", "Yes, halal kitchen", "Moved to Sun 3pm", "Table for 4 at 8:15", "RM 350 for long hair"];
+const ASKS = ["how much for a long hair cut?", "are you open on Sunday?", "got the red one in M?", "can I order for Saturday 11am?", "do you deliver to Bangsar?", "is it halal?", "can I change my order?", "2 large margheritas tonight?", "how much for keratin?", "parking available?"];
+const ANSWERS = ["Order sent to the team", "RM 52", "6 in stock", "Delivery RM 5, about 40 min", "Open 11:00 to 22:00", "Yes, halal kitchen", "Updated, waiting for the team", "RM 104, ready by 8:15", "RM 350 for long hair"];
 
 const CHANNELS: { key: Chat; label: string }[] = [
   { key: "whatsapp", label: "WhatsApp" },
   { key: "telegram", label: "Telegram" },
-  { key: "instagram", label: "Instagram" },
 ];
 
 const H2 = ({ children, className }: { children: ReactNode; className?: string }) => <h2 className={cx("kinetic yp-display yp-h2", className)}>{children}</h2>;
@@ -237,7 +236,7 @@ export function Site({ stats }: { stats: SiteStats }) {
       // 06: any business.
       gsap.from(q(".kind"), { opacity: 0, y: 60, rotateX: 38, transformPerspective: 900, transformOrigin: "50% 100%", stagger: 0.08, duration: 0.8, ease: "power3.out", scrollTrigger: { trigger: "#any", start: "top 68%" } });
 
-      // 07: answered everywhere. Three phones fill with real-looking chats while the page is pinned.
+      // 07: answered everywhere. Two phones fill with real-looking chats while the page is pinned.
       const typeChat = (tl: gsap.core.Timeline, sel: string, start: number) => {
         let at = start;
         gsap.utils.toArray<HTMLElement>(q(`${sel} .typing-row, ${sel} .msg`)).forEach((el) => {
@@ -257,7 +256,6 @@ export function Site({ stats }: { stats: SiteStats }) {
         ev.fromTo(q(".ph"), { y: 420, opacity: 0 }, { y: 0, opacity: 1, stagger: 0.12, duration: 0.55, ease: "power3.out" }, 0);
         typeChat(ev, ".ph-wa", 0.6);
         typeChat(ev, ".ph-tg", 1.0);
-        typeChat(ev, ".ph-ig", 1.4);
         q(".lane-count").forEach((el) => {
           const o = { v: 0 };
           ev.to(o, { v: Number(el.dataset.n), duration: 3.5, ease: "power2.out", onUpdate: () => (el.textContent = Math.round(o.v).toLocaleString("en")) }, 0.8);
@@ -285,26 +283,12 @@ export function Site({ stats }: { stats: SiteStats }) {
         2,
       );
 
-      // 10: hiring, handled.
-      scene(
-        "#hiring",
-        (tl) => {
-          tl.from(q(".resume"), { x: -260, y: (i: number) => (i % 2 ? -80 : 60), rotate: (i: number) => (i % 2 ? -14 : 12), opacity: 0, stagger: 0.07, duration: 0.5, ease: "power2.out" }, 0);
-          tl.from(q(".resume-score"), { opacity: 0, scale: 0.6, stagger: 0.07, duration: 0.25 }, 0.45);
-          tl.fromTo(q(".cal-block"), { y: -140, opacity: 0 }, { y: 0, opacity: 1, ease: "bounce.out", duration: 0.45 }, 0.85);
-          tl.to(q(".approve-btn"), { scale: 0.94, duration: 0.08 }, 1.35).to(q(".approve-btn"), { scale: 1, backgroundColor: "#2CF5BB", color: "#06080E", duration: 0.15 }, 1.43);
-          tl.from(q(".approve-sent"), { opacity: 0, y: 8, duration: 0.15 }, 1.5);
-        },
-        "+=160%",
-        2,
-      );
-
-      // 11: one door, every desk.
+      // 10: one door, every desk.
       scene(
         "#door",
         (tl) => {
           if (full) tl.to(q(".login-card"), { scale: 0.7, opacity: 0, duration: 0.5, ease: "power2.in" }, 0.15);
-          tl.from(q(".desk"), { scale: full ? 0.35 : 0.85, opacity: 0, x: (i: number) => (full ? (i - 1) * -240 : 0), y: 60, rotateX: full ? 0 : 20, transformPerspective: 900, stagger: 0.08, duration: 0.6, ease: "power3.out" }, full ? 0.45 : 0);
+          tl.from(q(".desk"), { scale: full ? 0.35 : 0.85, opacity: 0, x: (i: number) => (full ? (i - 0.5) * -240 : 0), y: 60, rotateX: full ? 0 : 20, transformPerspective: 900, stagger: 0.08, duration: 0.6, ease: "power3.out" }, full ? 0.45 : 0);
         },
         "+=140%",
         1.4,
@@ -401,14 +385,14 @@ export function Site({ stats }: { stats: SiteStats }) {
         </div>
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 mx-auto max-w-[1440px] px-4 pb-8 sm:px-8 sm:pb-12">
           <p className="hero-in yp-mono mb-4 flex items-center gap-2 text-[11px] uppercase text-yp-fog sm:text-[12px]">
-            <span className="h-1.5 w-1.5 rounded-full bg-yp-mint" /> WhatsApp · Telegram · Instagram
+            <span className="h-1.5 w-1.5 rounded-full bg-yp-mint" /> WhatsApp · Telegram
           </p>
           <h1 className="hero-title yp-display text-[clamp(38px,8.6vw,132px)] leading-[0.88] lg:max-w-[12ch] lg:text-[clamp(60px,7vw,128px)]" style={{ fontVariationSettings: '"wdth" 112' }}>
             Every question, <span className="yp-accent text-[1.14em]">answered</span>.
           </h1>
           <div className="mt-6 flex flex-col gap-6 sm:mt-8 lg:flex-row lg:items-end lg:justify-between">
             <p className="hero-in max-w-[50ch] text-[16px] leading-relaxed text-yp-fog sm:text-[18px]">
-              Yapoz is the front desk for your business. It answers customers from your own prices, stock and calendar, takes bookings and orders, and brings in a person only when it should.
+              Yapoz is the front desk for your business. It answers customers from your own prices and stock, turns chats into orders for your approval, and brings in a person only when it should.
             </p>
             <div className="hero-in pointer-events-auto flex flex-wrap gap-3">
               <Link href="/signup" className="mag inline-flex h-[52px] flex-[1.4] items-center justify-center gap-2 rounded-full bg-yp-mint px-7 text-[16px] font-semibold text-yp-ink transition-[filter] hover:brightness-110 sm:flex-none">
@@ -453,7 +437,7 @@ export function Site({ stats }: { stats: SiteStats }) {
             <p className="yp-display mt-6 text-[clamp(22px,2.6vw,38px)] leading-tight text-yp-smoke" style={{ fontVariationSettings: '"wdth" 100', fontWeight: 700 }}>
               And you can&apos;t answer every chat.
             </p>
-            <Lede>The same questions all day: how much, are you open, is it in stock, can I book. Every slow reply is a customer who messaged someone else instead.</Lede>
+            <Lede>The same questions all day: how much, are you open, is it in stock, can I order. Every slow reply is a customer who messaged someone else instead.</Lede>
             <div className="mt-10 flex items-baseline gap-4">
               <span className="pile-counter yp-display text-[clamp(64px,9vw,132px)] leading-none" style={{ fontVariationSettings: '"wdth" 100' }}>
                 {lite ? "148" : "000"}
@@ -466,10 +450,10 @@ export function Site({ stats }: { stats: SiteStats }) {
               <ChatList lite={lite} className="w-[min(300px,78vw,calc((100dvh_-_120px)/2.07))]" />
             </div>
             <Toast ch="WhatsApp" text="are you open on Sunday?" className="left-[-6%] top-[10%] z-10" />
-            <Toast ch="Instagram" text="got the red one in M?" className="right-[-8%] top-[24%] z-10" />
+            <Toast ch="WhatsApp" text="got the red one in M?" className="right-[-8%] top-[24%] z-10" />
             <Toast ch="Telegram" text="how much for a large pizza" className="left-[-12%] top-[50%] z-10" />
-            <Toast ch="WhatsApp" text="can I change my booking?" className="right-[-10%] bottom-[20%] z-10" />
-            <Toast ch="Instagram" text="do you deliver to Bangsar?" className="left-[-2%] bottom-[4%] z-10" />
+            <Toast ch="WhatsApp" text="can I change my order?" className="right-[-10%] bottom-[20%] z-10" />
+            <Toast ch="Telegram" text="do you deliver to Bangsar?" className="left-[-2%] bottom-[4%] z-10" />
           </div>
         </div>
       </section>
@@ -538,14 +522,14 @@ export function Site({ stats }: { stats: SiteStats }) {
             <H2>
               Teach it <span className="yp-accent text-[1.12em]">once</span>.
             </H2>
-            <Lede>Type it, or upload the menu, the price list or a photo of the board. Claude turns it into prices, options, stock, hours, booking rules and FAQs. Change anything later and the next answer already knows.</Lede>
+            <Lede>Type it, or upload the menu, the price list or a photo of the board. Claude turns it into prices, options, stock, hours, delivery rules and FAQs. Change anything later and the next answer already knows.</Lede>
           </div>
         </div>
         <div className={cx("relative mt-12", !full && "yp-no-scrollbar snap-x snap-mandatory overflow-x-auto pb-4")}>
           <div className="teach-track flex w-max gap-5 px-4 sm:px-8">
             <TeachCard title="A voice-note style brief">
               <p className="text-[15px] leading-relaxed text-yp-frost/90">
-                “We&apos;re a small salon in Mont Kiara, three stylists. Women&apos;s cut and blow-dry RM 85 short, RM 110 long. Closed Mondays. Book at least 2 hours ahead, free cancellation up to 24 hours…”
+                “We&apos;re a small salon in Mont Kiara, three stylists. Women&apos;s cut and blow-dry RM 85 short, RM 110 long. Closed Mondays. Delivery RM 5 within 8 km, orders changeable up to 2 hours before dispatch…”
               </p>
             </TeachCard>
             <TeachCard title="Price list, from a photo">
@@ -586,9 +570,9 @@ export function Site({ stats }: { stats: SiteStats }) {
                 ))}
               </div>
             </TeachCard>
-            <TeachCard title="Hours and bookings">
+            <TeachCard title="Hours and delivery">
               <dl className="yp-mono space-y-1 text-[13px]">
-                {[["Mon", "closed"], ["Tue–Fri", "10:00–19:00"], ["Sat", "09:00–19:00"], ["Sun", "10:00–17:00"], ["Capacity", "3 stylists at once"], ["Notice", "2 hours ahead"]].map(([d, h]) => (
+                {[["Mon", "closed"], ["Tue–Fri", "10:00–19:00"], ["Sat", "09:00–19:00"], ["Sun", "10:00–17:00"], ["Delivery", "RM 5 within 8 km"], ["Order notice", "2 hours ahead"]].map(([d, h]) => (
                   <div key={d} className="flex justify-between gap-6">
                     <dt className="font-[family-name:var(--font-familjen)] tracking-normal text-yp-smoke">{d}</dt>
                     <dd>{h}</dd>
@@ -597,11 +581,11 @@ export function Site({ stats }: { stats: SiteStats }) {
               </dl>
             </TeachCard>
             <TeachCard title="House rules">
-              <p className="text-[15px] leading-relaxed text-yp-frost/90">Free cancellation up to 24 hours. Patch test 48 hours before first colour. Basement parking free for 2 hours. Refunds are decided by the owner only.</p>
+              <p className="text-[15px] leading-relaxed text-yp-frost/90">Orders can be changed up to 2 hours before dispatch. Basement parking free for 2 hours. Refunds are decided by the owner only.</p>
             </TeachCard>
             <TeachCard title="FAQ, as customers type it">
               <p className="text-[15px] text-yp-fog">“how much for long hair cut ah”</p>
-              <p className="mt-1 text-[15px] text-yp-fog">“got slot this sat?”</p>
+              <p className="mt-1 text-[15px] text-yp-fog">“got stock this sat?”</p>
               <p className="mt-1 text-[15px] text-yp-fog">“can pay tng?”</p>
             </TeachCard>
             <div className="flex w-[280px] shrink-0 snap-center items-center justify-center">
@@ -623,7 +607,7 @@ export function Site({ stats }: { stats: SiteStats }) {
           <H2>
             Whatever you <span className="yp-accent text-[1.12em]">sell</span>.
           </H2>
-          <Lede>Tables, appointments, rooms or stock on a shelf: you describe how bookings work and Yapoz checks real availability before it promises anything.</Lede>
+          <Lede>Menu items, products or stock on a shelf: you describe what you sell and Yapoz checks real prices and stock before it promises anything.</Lede>
           <ul className="mt-14 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {KINDS.map((k) => (
               <li key={k.t} className="kind">
@@ -652,7 +636,7 @@ export function Site({ stats }: { stats: SiteStats }) {
               Answered <span className="yp-accent text-[1.12em]">everywhere</span>.
             </H2>
             <p className="max-w-[40ch] text-[16px] leading-relaxed text-yp-fog sm:text-[17px]">
-              WhatsApp through your Business Platform number, with a live “typing…” while it writes. Telegram as a bot, or from your own account with Telegram Business. Instagram DMs and comments. One assistant, the same facts behind each.
+              WhatsApp through your Business Platform number, with a live “typing…” while it writes. Telegram as a bot, or from your own account with Telegram Business. One assistant, the same facts behind each.
             </p>
           </div>
 
@@ -663,7 +647,6 @@ export function Site({ stats }: { stats: SiteStats }) {
                   [
                     ["tg", "telegram", <TelegramChat key="tg" className={phoneW} />],
                     ["wa", "whatsapp", <WhatsAppChat key="wa" className={phoneW} />],
-                    ["ig", "instagram", <InstagramChat key="ig" className={phoneW} />],
                   ] as const
                 ).map(([cls, key, phone]) => (
                   <div key={cls} className={`ph ph-${cls} flex flex-col items-center gap-4`}>
@@ -699,9 +682,8 @@ export function Site({ stats }: { stats: SiteStats }) {
               <div className="tab-stage flex justify-center">
                 {tab === "whatsapp" ? <WhatsAppChat className="w-[min(310px,82vw)]" /> : null}
                 {tab === "telegram" ? <TelegramChat className="w-[min(310px,82vw)]" /> : null}
-                {tab === "instagram" ? <InstagramChat className="w-[min(310px,82vw)]" /> : null}
               </div>
-              <div className="mx-auto mt-6 grid max-w-[420px] grid-cols-3 gap-3 text-center">
+              <div className="mx-auto mt-6 grid max-w-[420px] grid-cols-2 gap-3 text-center">
                 {CHANNELS.map((c) => (
                   <div key={c.key} className="rounded-2xl border border-yp-line bg-yp-panel px-2 py-3">
                     <div className="lane-count yp-mono text-[22px] leading-none" data-n={lane(c.key)}>
@@ -746,7 +728,7 @@ export function Site({ stats }: { stats: SiteStats }) {
           </div>
           <div className="relative grid min-h-[460px] grid-cols-[1fr_1fr] gap-6">
             <div className="flex flex-col gap-3 pt-6">
-              {["do u deliver to TTDI?", "how much for keratin", "We'd like to stock your products in our 12 stores", "table for 3 sun lunch", "open on public holiday?"].map((t, i) => (
+              {["do u deliver to TTDI?", "how much for keratin", "We'd like to stock your products in our 12 stores", "3 pizzas for sun lunch", "open on public holiday?"].map((t, i) => (
                 <span key={t} className={cx("stream-pill w-fit max-w-full rounded-2xl border border-yp-line2 bg-yp-panel px-4 py-2.5 text-[14px]", i === 2 && "is-signal")}>
                   {t}
                 </span>
@@ -769,58 +751,7 @@ export function Site({ stats }: { stats: SiteStats }) {
         </div>
       </section>
 
-      {/* 10 HIRING, HANDLED */}
-      <section id="hiring" className="relative flex min-h-dvh items-center overflow-hidden border-t border-yp-line px-4 py-20 sm:px-8">
-        <div className="mx-auto w-full max-w-[1280px]">
-          <H2>
-            Hiring, <span className="yp-accent text-[1.12em]">handled</span>.
-          </H2>
-          <Lede className="max-w-[62ch]">Switch it on when you&apos;re hiring. Say who you need, like “Pizza cook, 3+ years wood-fired, evenings, near Bangsar.” Yapoz ranks people who applied through your bot or CVs you uploaded, quotes the evidence, offers three free times, and waits for your Approve.</Lede>
-          <div className="mt-12 grid grid-cols-1 gap-8 lg:grid-cols-[1.2fr_1fr]">
-            <ol className="space-y-2.5">
-              {[["Aiman H.", 94, "“Ran the wood-fired oven alone on Friday and Saturday nights”"], ["Mei Ling T.", 91, "“4 years on a wood-fired oven doing 48-hour cold-fermented dough”"], ["Yusuf A.", 88, "“Evenings and weekends, 10 minutes from Bangsar”"], ["Priya N.", 84, "“3.5 years on wood-fired oven at Casa Fumo”"]].map(([n, s, ev]) => (
-                <li key={n as string} className="resume flex items-center gap-4 rounded-2xl bg-yp-frost px-4 py-3 text-yp-ink">
-                  <span className="resume-score yp-display w-14 text-[30px] leading-none" style={{ fontVariationSettings: '"wdth" 100', fontWeight: 800 }}>
-                    {s}
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-[15px] font-semibold">{n}</span>
-                    <span className="block truncate text-[14px] text-yp-ink/70 sm:text-[15px]">{ev}</span>
-                  </span>
-                </li>
-              ))}
-              <li className="px-1 pt-1 text-[12px] text-yp-smoke">Illustration with candidates from the sample pizzeria. Scores come from the model, with quotes checked against each CV.</li>
-            </ol>
-            <div className="rounded-3xl border border-yp-line2 bg-yp-panel p-4">
-              <div className="grid grid-cols-5 gap-1.5 text-center text-[12px] text-yp-smoke">
-                {["Mon", "Tue", "Wed", "Thu", "Fri"].map((d) => (
-                  <span key={d}>{d}</span>
-                ))}
-              </div>
-              <div className="mt-2 grid h-[180px] grid-cols-5 gap-1.5">
-                {[0, 1, 2, 3, 4].map((c) => (
-                  <div key={c} className="relative rounded-md bg-yp-frost/[0.04]">
-                    {c === 0 || c === 3 ? <div className="absolute inset-x-1 top-[18%] h-[22%] rounded bg-[repeating-linear-gradient(135deg,#2c3752_0_1px,transparent_1px_7px)]" /> : null}
-                    {c === 2 ? <div className="cal-block absolute inset-x-1 top-[52%] h-[16%] rounded bg-yp-cobalt" /> : null}
-                  </div>
-                ))}
-              </div>
-              <div className="mt-4 flex items-center justify-between gap-3">
-                <span className="text-[14px] text-yp-fog">Invite Aiman, Wed 2:30pm</span>
-                <span className="approve-btn grid h-10 place-items-center rounded-full bg-yp-cobalt px-5 text-[14px] font-semibold text-white" aria-hidden>
-                  Approve
-                </span>
-              </div>
-              <p className="approve-sent mt-2 text-right text-[13px] text-yp-mint">Sent in the bot chat. He picked a time.</p>
-            </div>
-          </div>
-          <p className="mt-8 text-[15px] text-yp-frost">
-            <span className="font-medium">Ranked on skills and availability only.</span> <span className="text-yp-smoke">Never gender, age, religion, ethnicity, marital status or photos.</span>
-          </p>
-        </div>
-      </section>
-
-      {/* 11 ONE DOOR, EVERY DESK */}
+      {/* 10 ONE DOOR, EVERY DESK */}
       <section id="door" className="relative flex min-h-dvh items-center overflow-hidden border-t border-yp-line px-4 py-20 sm:px-8">
         <div className="mx-auto w-full max-w-[1280px]">
           <H2>
@@ -847,11 +778,10 @@ export function Site({ stats }: { stats: SiteStats }) {
                 <div className="mt-4 h-10 rounded-xl bg-yp-cobalt" />
               </div>
             ) : null}
-            <div className={cx("grid grid-cols-1 gap-5 md:grid-cols-3", full && "absolute inset-0")}>
+            <div className={cx("grid grid-cols-1 gap-5 md:grid-cols-2", full && "absolute inset-0")}>
               {[
                 { t: "Owner", d: "Everything: how many chats were answered, first-reply time, top questions, knowledge gaps, channels and team.", rows: [["Auto-resolved", "88%"], ["Median first reply", "2.4s"], ["Knowledge gaps", "3"]] },
-                { t: "Service", d: "Live inbox across channels, the Needs-you queue, takeover, knowledge and bookings.", rows: [["Needs you", "2"], ["Drafts to approve", "1"], ["Bookings today", "14"]] },
-                { t: "HR", d: "Hiring only: ranked candidates with evidence, approvals, interview calendar, pipeline.", rows: [["Shortlisted", "6"], ["Waiting for Approve", "2"], ["Interviews this week", "3"]] },
+                { t: "Service", d: "Live inbox across channels, the Needs-you queue, takeover, orders and knowledge.", rows: [["Needs you", "2"], ["Drafts to approve", "1"], ["Orders today", "14"]] },
               ].map((x) => (
                 <div key={x.t} className="desk rounded-3xl border border-yp-line2 bg-yp-frost p-5 text-yp-ink">
                   <div className="yp-display text-[26px]" style={{ fontVariationSettings: '"wdth" 108', fontWeight: 850 }}>
@@ -874,7 +804,7 @@ export function Site({ stats }: { stats: SiteStats }) {
         </div>
       </section>
 
-      {/* 12 CLOSE */}
+      {/* 11 CLOSE */}
       <section id="open" className="relative overflow-hidden border-t border-yp-line px-4 pb-10 pt-24 sm:px-8">
         <div className="yp-floor pointer-events-none absolute -bottom-[260px] -left-1/3 -right-1/3 h-[620px] opacity-70" aria-hidden />
         <div className="relative mx-auto max-w-[1280px]">
@@ -902,7 +832,7 @@ export function Site({ stats }: { stats: SiteStats }) {
                   Yapoz
                 </span>
               </a>
-              <p className="mt-4 text-[15px] leading-relaxed text-yp-fog">The front desk for your business on WhatsApp, Telegram and Instagram. It only ever talks about your business.</p>
+              <p className="mt-4 text-[15px] leading-relaxed text-yp-fog">The front desk for your business on WhatsApp and Telegram. It only ever talks about your business.</p>
               <a href="https://github.com/gameelacademy/yapoz" target="_blank" rel="noreferrer" className="mt-5 inline-flex items-center gap-2 rounded-full border border-yp-line2 px-3.5 py-2 text-[13px] text-yp-fog transition hover:border-yp-ice hover:text-yp-frost">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
                   <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z" />

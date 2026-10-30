@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { apiSession, handle, HttpError } from "@/lib/auth";
 import { body, ok } from "@/lib/api";
+import { audit } from "@/lib/audit";
 import { hit } from "@/lib/ratelimit";
 import { connectOwnBot, disconnectOwnBot, unlinkBusinessConnection } from "@/channels/telegram/connect";
 
@@ -26,5 +27,6 @@ export const DELETE = handle(async (req: Request) => {
   const connection = new URL(req.url).searchParams.get("connection");
   if (connection) await unlinkBusinessConnection(s.workspaceId, connection);
   else await disconnectOwnBot(s.workspaceId);
+  await audit(s, "channel.disconnected", connection ? { channel: "telegram", kind: "business_connection" } : { channel: "telegram" });
   return ok({ ok: true });
 });

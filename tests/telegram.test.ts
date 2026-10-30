@@ -1,12 +1,11 @@
 // Telegram end to end against recording Bot API clients (no network): the shared Jawab bot (link codes for
-// Business Mode, deep links per business, unknown chats), a business's own bot, /apply with consent,
-// approve → invite with slot buttons → booked interview, and /delete_my_data.
+// Business Mode, deep links per business, unknown chats), a business's own bot, and connecting an own bot.
 import "../scripts/env";
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import { Api } from "grammy";
 import { db, t, sql } from "../src/db";
-import { and, eq, desc, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { encryptJson } from "../src/lib/crypto";
 
 process.env.TELEGRAM_BOT_TOKEN ||= "123456:TEST";
@@ -16,12 +15,10 @@ let msgId = 1000;
 
 const { setTelegramApi } = await import("../src/channels/telegram/api");
 const { handleTelegramUpdateJob } = await import("../src/channels/telegram/handle");
-const { draftInvite, approveAndSend } = await import("../src/hiring/outreach");
 
 const WS = "FORNO7";
 const OWNER = 900001;
 const CUSTOMER = 900002;
-const CANDIDATE = 900003;
 const STRANGER = 900004;
 const BC = "bc_test_connection";
 let updateId = 1;
@@ -48,8 +45,7 @@ async function cleanup() {
   await db.delete(t.telegramLinks).where(inArray(t.telegramLinks.code, ["TESTCODE1"]));
   await db.delete(t.telegramLinks).where(eq(t.telegramLinks.telegramUserId, String(OWNER)));
   await db.delete(t.customers).where(inArray(t.customers.externalId, ["900001", "900002", "900004"]));
-  await db.delete(t.candidates).where(eq(t.candidates.telegramChatId, String(CANDIDATE)));
-  await db.delete(t.telegramChatBindings).where(inArray(t.telegramChatBindings.chatId, ["900002", "900003", "900004"]));
+  await db.delete(t.telegramChatBindings).where(inArray(t.telegramChatBindings.chatId, ["900002", "900004"]));
 }
 
 before(async () => {
@@ -113,53 +109,6 @@ test("a business's own bot routes everything to that business", async () => {
   const [th] = await db.select().from(t.threads).where(eq(t.threads.externalThreadId, `chat:${ownChannelId}:${STRANGER}`));
   assert.equal(th?.workspaceId, "KASIH1");
   assert.equal(last("own").payload.chat_id, STRANGER);
-});
-
-test("/apply via the shared bot collects details, asks for consent, and creates a reachable candidate", async () => {
-  const cand = user(CANDIDATE, "Rizal", "rizal_cooks_test");
-  await run({ message: pm(cand, "/start apply_FORNO7") });
-  await run({ message: pm(cand, "Rizal bin Ahmad") });
-  await run({ callback_query: { id: "cb1", from: cand, chat_instance: "x", data: "apply:role:Pizza cook", message: { message_id: 1, date: 1, chat: { id: CANDIDATE, type: "private" } } } });
-  await run({ message: pm(cand, "5 years on a wood-fired oven at Casa Fumo, Bukit Bintang, dough and evening service") });
-  await run({ message: pm(cand, "evenings and weekends") });
-  await run({ message: pm(cand, "Brickfields") });
-  await run({ message: pm(cand, "skip") });
-  assert.match(String(last().payload.text), /agree/i);
-  await run({ callback_query: { id: "cb2", from: cand, chat_instance: "x", data: "apply:consent:yes", message: { message_id: 2, date: 1, chat: { id: CANDIDATE, type: "private" } } } });
-  const [c] = await db.select().from(t.candidates).where(eq(t.candidates.telegramChatId, String(CANDIDATE)));
-  assert.ok(c, "candidate created");
-  assert.equal(c.workspaceId, WS);
-  assert.equal(c.telegramBot, "platform");
-  assert.equal(c.consent, true);
-});
-
-test("approved invite goes out with slot buttons; tapping one books the interview", async () => {
-  const [c] = await db.select().from(t.candidates).where(eq(t.candidates.telegramChatId, String(CANDIDATE)));
-  const [m] = await db.select().from(t.matches).where(eq(t.matches.candidateId, c.id));
-  const draft = await draftInvite(WS, m.id, "onsite");
-  assert.equal(draft.channel, "telegram");
-  assert.equal(draft.slots.length, 3);
-  const r = await approveAndSend(WS, draft.id, "00000000-0000-4000-8000-000000000003");
-  assert.equal(r.ok, true);
-  const invite = last();
-  assert.equal(invite.payload.chat_id, CANDIDATE);
-  const kb = (invite.payload.reply_markup as { inline_keyboard: { callback_data: string }[][] }).inline_keyboard;
-  assert.equal(kb.length, 3);
-  await run({ callback_query: { id: "cb3", from: user(CANDIDATE, "Rizal"), chat_instance: "x", data: kb[1][0].callback_data, message: { message_id: 3, date: 1, chat: { id: CANDIDATE, type: "private" } } } });
-  const [iv] = await db.select().from(t.interviews).where(eq(t.interviews.candidateId, c.id)).orderBy(desc(t.interviews.createdAt));
-  assert.equal(iv?.status, "scheduled");
-  assert.match(String(last().payload.text), /Confirmed/);
-});
-
-test("/delete_my_data removes the candidate and their documents", async () => {
-  await run({ message: pm(user(CANDIDATE, "Rizal"), "/delete_my_data") });
-  const rows = await db.select().from(t.candidates).where(eq(t.candidates.telegramChatId, String(CANDIDATE)));
-  assert.equal(rows.length, 0);
-});
-
-test("a business's own bot: /start apply respects the hiring switch (off for the salon)", async () => {
-  await run({ message: pm(user(STRANGER, "Sam"), "/start apply") }, ownChannelId);
-  assert.match(String(last("own").payload.text), /isn't taking job applications/);
 });
 
 test("connecting an own bot checks the token with Telegram and stores it encrypted", async () => {

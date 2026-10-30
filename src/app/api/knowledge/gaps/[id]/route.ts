@@ -3,6 +3,7 @@ import { db, t } from "@/db";
 import { and, eq } from "drizzle-orm";
 import { apiSession, handle, HttpError } from "@/lib/auth";
 import { body, ok } from "@/lib/api";
+import { audit } from "@/lib/audit";
 
 const Answer = z.object({ question: z.string().trim().min(2).max(200), answer: z.string().trim().min(2).max(2000), category: z.string().trim().max(40).default("menu") });
 
@@ -18,14 +19,15 @@ export const POST = handle(async (req: Request, ctx: { params: Promise<{ id: str
     .values({ workspaceId: s.workspaceId, kind: "faq", category: b.category, slug: `faq-gap-${gap.key.replace(/[^a-z0-9]+/g, "-")}-${Date.now().toString(36)}`, title: b.question, body: b.answer, sort: 500 })
     .returning();
   await db.update(t.knowledgeGaps).set({ status: "answered", kbItemId: item.id }).where(eq(t.knowledgeGaps.id, id));
-  await db.insert(t.events).values({ workspaceId: s.workspaceId, type: "kb.gap_answered", props: { gap: gap.key, itemId: item.id } });
+  await audit(s, "kb.gap_answered", { gap: gap.key, itemId: item.id, title: item.title });
   return ok({ item });
 });
 
 export const DELETE = handle(async (_req: Request, ctx: { params: Promise<{ id: string }> }) => {
   const s = await apiSession(["owner", "service"]);
   const { id } = await ctx.params;
-  await db.update(t.knowledgeGaps).set({ status: "dismissed" }).where(and(eq(t.knowledgeGaps.id, id), eq(t.knowledgeGaps.workspaceId, s.workspaceId)));
+  const [gap] = await db.update(t.knowledgeGaps).set({ status: "dismissed" }).where(and(eq(t.knowledgeGaps.id, id), eq(t.knowledgeGaps.workspaceId, s.workspaceId))).returning({ key: t.knowledgeGaps.key });
+  if (gap) await audit(s, "kb.gap_dismissed", { gap: gap.key });
   return ok({ ok: true });
 });
 

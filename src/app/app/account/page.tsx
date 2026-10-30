@@ -13,11 +13,12 @@ export default function AccountPage() {
   const [name, setName] = useState("");
   const [pw, setPw] = useState({ current: "", next: "" });
   const [busy, setBusy] = useState<string | null>(null);
-  async function save(kind: "name" | "pw") {
+  async function save(kind: "name" | "pw" | "everywhere") {
+    if (kind === "everywhere" && !window.confirm("Sign out on every other phone and computer? This one stays signed in.")) return;
     setBusy(kind);
     try {
-      await send("/api/account", "PATCH", kind === "name" ? { name } : { currentPassword: pw.current, newPassword: pw.next });
-      toast(kind === "name" ? "Name updated." : "Password changed.");
+      await send("/api/account", "PATCH", kind === "name" ? { name } : kind === "pw" ? { currentPassword: pw.current, newPassword: pw.next } : { signOutEverywhere: true });
+      toast(kind === "name" ? "Name updated." : kind === "pw" ? "Password changed. Other devices were signed out." : "Signed out on every other device.");
       if (kind === "pw") setPw({ current: "", next: "" });
       router.refresh();
     } catch (e) {
@@ -28,7 +29,7 @@ export default function AccountPage() {
   }
   return (
     <div>
-      <PageHeader title="Your account" description="Your name as teammates see it, and your password." />
+      <PageHeader title="Your account" description="Your name as teammates see it, your password, and where you're signed in." />
       <div className="grid max-w-[880px] grid-cols-1 gap-12 md:grid-cols-2">
         <form onSubmit={(e) => { e.preventDefault(); void save("name"); }} className="space-y-3">
           <h2 className="font-display text-[20px] font-bold">Name</h2>
@@ -50,6 +51,11 @@ export default function AccountPage() {
           </div>
           <Button type="submit" loading={busy === "pw"}>Change password</Button>
         </form>
+        <section className="space-y-3 md:col-span-2">
+          <h2 className="font-display text-[20px] font-bold">Signed-in devices</h2>
+          <p className="max-w-[60ch] text-[14px] text-muted">Lost a phone, or used a shared computer? Sign out everywhere else. Changing your password does this too.</p>
+          <Button variant="secondary" loading={busy === "everywhere"} onClick={() => save("everywhere")}>Sign out on every other device</Button>
+        </section>
       </div>
     </div>
   );

@@ -2,7 +2,7 @@ import { db, t } from "@/db";
 import { and, eq, sql } from "drizzle-orm";
 import { apiSession, handle, HttpError } from "@/lib/auth";
 import { ok } from "@/lib/api";
-import { extractPdfText } from "@/hiring/pdf";
+import { extractPdfText } from "@/lib/pdf";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
