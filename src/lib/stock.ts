@@ -6,7 +6,7 @@
 import { and, asc, eq, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { db, t } from "@/db";
 import type { StockMode, StockSettings } from "@/db/schema";
-import { addLocalDays, fmt, localDate, minutesOf, zoned } from "./time";
+import { addLocalDays, fmt, human, localDate, minutesOf, zoned } from "./time";
 import { hoursForDate, type HoursData } from "./hours";
 import { lockStaff, slotTaken, when } from "./schedule";
 
@@ -286,6 +286,9 @@ export const expiryMessage = (refCode: string, minutes: number, kind: "order" | 
     ? `Your booking ${refCode} expired because we didn't receive payment within ${minutes} minutes, so the time is free again. Just message us to book again.`
     : `Your order ${refCode} expired because we didn't receive payment within ${minutes} minutes. Just message us to order again.`;
 
+/** The one open Needs you card about an order's receipt (see handOver in receipts.ts). */
+export const receiptCardKey = (orderId: string) => `receipt:${orderId}`;
+
 /**
  * Orders whose timer ran out: mark them expired, give their stock back, tell the customer once, and log it. Safe to run
  * from anywhere at any time (page loads, new messages, the sweep): each order is claimed by one conditional update, so
@@ -318,6 +321,11 @@ export async function expireDueOrders(workspaceId?: string): Promise<number> {
   const wss = await db.select().from(t.workspaces).where(inArray(t.workspaces.id, [...new Set(claimed.map((o) => o.workspaceId))]));
   for (const o of claimed) {
     const ws = wss.find((w) => w.id === o.workspaceId);
+    // A receipt card still warning that this order "expires unless you act" would be stale now: say what happened instead.
+    await db
+      .update(t.escalations)
+      .set({ reason: "Order expired with a doubtful receipt", summary: `${o.refCode} expired${o.expiredAt && ws ? ` at ${human(o.expiredAt, ws.timezone)}` : ""} while its receipt was waiting for you, and its stock went back. If the customer did pay, refund them or place the order again.` })
+      .where(and(eq(t.escalations.workspaceId, o.workspaceId), eq(t.escalations.dedupeKey, receiptCardKey(o.id)), eq(t.escalations.status, "open")));
     await notifyCustomer(o, "expired", expiryMessage(o.refCode, ws ? stockSettings(ws).holdMinutes : STOCK_DEFAULTS.holdMinutes, o.kind), null).catch((e) => console.error("[stock] couldn't tell the customer about an expired order", e));
   }
   return claimed.length;

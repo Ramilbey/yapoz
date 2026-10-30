@@ -8,7 +8,7 @@ import type { Attendance } from "@/db/schema";
 import type { AppointmentView, StaffView } from "./appointment-types";
 import { formatMoney } from "./money";
 import { placeLine, placeOrder, recentBooking, StockProblem, type OrderItemRow, type OrderRow } from "./orders";
-import { handOver } from "./receipts";
+import { handOver, resolveCards } from "./receipts";
 import { appointmentSettings, bookableStaff, bookingFacts, checkTime, isTaken, lockStaff, serviceMinutes, SlotTaken, slotTaken, when, type BookingFacts, type TimeCheck } from "./schedule";
 import { releaseForOrder } from "./stock";
 import { addLocalDays, localDate, zoned } from "./time";
@@ -145,6 +145,7 @@ export async function changeAppointment(ws: Ws, o: { threadId: string; orderId: 
       return done;
     });
     if (!r) return no("That booking isn't active any more.");
+    await resolveCards(ws.id, { orderId: r.id }, null);
     const paid = await hasPayment(r);
     if (paid) await handOver(ws.id, o.threadId, { category: "refund", priority: "normal", reason: "Paid booking cancelled by the customer", summary: `${r.customerName} cancelled booking ${r.refCode} (${when(ws, found.a.startsAt)}), which was paid (${formatMoney(r.totalMinor, r.currency)}). Arrange the refund or a credit with them.`, isDemo: o.isDemo });
     return { ok: true, action: "cancelled", order: r, paid };

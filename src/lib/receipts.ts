@@ -14,7 +14,7 @@ import { env } from "./env";
 import { formatMoney } from "./money";
 import { fetchAttachment } from "@/channels/media";
 import { human, zoned } from "./time";
-import { firmHolds, reopenExpired, stockSettings } from "./stock";
+import { firmHolds, receiptCardKey, reopenExpired, stockSettings } from "./stock";
 
 type Ws = typeof t.workspaces.$inferSelect;
 type Thread = typeof t.threads.$inferSelect;
@@ -383,11 +383,11 @@ export async function receiptIntake(ws: Ws, thread: Thread, inbound: Message, op
     const when = order.expiredAt ? ` at ${human(order.expiredAt, ws.timezone)}` : "";
     const back = receiptFirms(verdict, checks) ? await reopenExpired(ws, order.id) : null;
     if (back?.ok) {
-      await handOver(ws.id, thread.id, { category: "receipt_problem", priority: "normal", reason: "Late payment: order reopened", summary: `${order.refCode} expired${when}, then a receipt that passes the checks arrived. It's back in Pending with its stock reserved: check the payment and confirm it.`, isDemo });
+      await handOver(ws.id, thread.id, { category: "receipt_problem", orderId: order.id, priority: "normal", reason: "Late payment: order reopened", summary: `${order.refCode} expired${when}, then a receipt that passes the checks arrived. It's back in Pending with its stock reserved: check the payment and confirm it.`, isDemo });
       return { reply: `Thanks! I've received your payment receipt for ${word} ${order.refCode}. Your ${word} is back with the team, and they'll confirm it after checking the payment.`, orderRef: order.refCode, verdict, firmed: true };
     }
     const why = back ? `it can't be reopened: ${back.problems.join(" ")} Refund the customer, or offer them something else.` : "the receipt doesn't pass the checks. Check it, then place the order again or arrange a refund.";
-    await handOver(ws.id, thread.id, { category: "receipt_problem", priority: "high", reason: "Receipt arrived after the order expired", summary: `A receipt for ${order.refCode} arrived after it expired${when}, and ${why}`, isDemo });
+    await handOver(ws.id, thread.id, { category: "receipt_problem", orderId: order.id, priority: "high", reason: "Receipt arrived after the order expired", summary: `A receipt for ${order.refCode} arrived after it expired${when}, and ${why}`, isDemo });
     return { reply: `Thanks! I've received your payment receipt for ${word} ${order.refCode}. That ${word} had already expired, so I've passed this to the team and they'll reply here shortly.`, orderRef: order.refCode, verdict };
   }
   // The receipt staff asked for has arrived (if it's readable): the order stops waiting and goes back to them.
@@ -398,7 +398,7 @@ export async function receiptIntake(ws: Ws, thread: Thread, inbound: Message, op
     // Twice unreadable for the same order: a person takes it from here instead of asking a third time.
     const [n] = await db.select({ n: sql<number>`count(*)::int` }).from(t.orderReceipts).where(and(eq(t.orderReceipts.orderId, order.id), eq(t.orderReceipts.verdict, "unreadable"), isNull(t.orderReceipts.rejectedAt)));
     if ((n?.n ?? 0) >= 2) {
-      await handOver(ws.id, thread.id, { category: "receipt_problem", priority: "normal", reason: "Receipt unreadable twice", summary: `Couldn't read ${n.n} receipts for ${order.refCode}${reading && !reading.looksLikeReceipt ? " (they don't look like payment receipts)" : " (too blurry or cropped)"}. Check the files on the order, or ask the customer for the transaction reference.`, isDemo });
+      await handOver(ws.id, thread.id, { category: "receipt_problem", orderId: order.id, priority: "normal", reason: "Receipt unreadable twice", summary: `Couldn't read ${n.n} receipts for ${order.refCode}${reading && !reading.looksLikeReceipt ? " (they don't look like payment receipts)" : " (too blurry or cropped)"}. Check the files on the order, or ask the customer for the transaction reference.`, isDemo });
       return { reply: `Sorry, I still couldn't read that clearly. I've asked the team to check your payment for ${word} ${order.refCode} and they'll reply here shortly.`, orderRef: order.refCode, verdict };
     }
     return { reply: askAgain(reading && !reading.looksLikeReceipt ? "that doesn't look like a payment receipt." : "I couldn't read that clearly."), orderRef: order.refCode, verdict };
@@ -410,7 +410,7 @@ export async function receiptIntake(ws: Ws, thread: Thread, inbound: Message, op
     else {
       const why = checks.find((c) => c.level === "fail") ?? checks.find((c) => c.level === "warn" && !MINOR_WARNINGS.has(c.code));
       await handOver(ws.id, thread.id, {
-        category: "receipt_problem", priority: "normal", reason: "Receipt didn't pass the checks",
+        category: "receipt_problem", orderId: order.id, priority: "normal", reason: "Receipt didn't pass the checks",
         summary: `Receipt for ${order.refCode}: ${why?.message ?? "needs a look"} The order expires at ${human(order.holdExpiresAt, ws.timezone).split(", ")[1]} unless you act (Keep reserved, or Ask for another receipt).`, isDemo,
       });
     }
@@ -443,15 +443,42 @@ async function expiredAwaitingReceipt(threadId: string) {
 
 /**
  * A problem a person has to look at, without stopping the assistant: it lands in Needs you with the reason. At most one open
- * card per chat and category, so a customer repeating themselves doesn't stack them up.
+ * card per chat and category, so a customer repeating themselves doesn't stack them up. A card about an order's receipt is
+ * one per order instead: news about that order rewrites it, and confirming, rejecting or cancelling the order resolves it.
  */
-export async function handOver(workspaceId: string, threadId: string, e: { category: string; priority: "low" | "normal" | "high"; reason: string; summary: string; isDemo?: boolean }) {
-  const [open] = await db.select({ id: t.escalations.id }).from(t.escalations).where(and(eq(t.escalations.threadId, threadId), eq(t.escalations.category, e.category), eq(t.escalations.status, "open"))).limit(1);
-  if (open) return open.id;
-  const [row] = await db.insert(t.escalations).values({ workspaceId, threadId, category: e.category, priority: e.priority, reason: e.reason, summary: e.summary.slice(0, 300), isDemo: Boolean(e.isDemo) }).returning({ id: t.escalations.id });
+export async function handOver(workspaceId: string, threadId: string, e: { category: string; priority: "low" | "normal" | "high"; reason: string; summary: string; orderId?: string; isDemo?: boolean }) {
+  const key = e.orderId ? receiptCardKey(e.orderId) : null;
+  const [open] = await db
+    .select({ id: t.escalations.id })
+    .from(t.escalations)
+    .where(and(eq(t.escalations.status, "open"), key ? and(eq(t.escalations.workspaceId, workspaceId), eq(t.escalations.dedupeKey, key)) : and(eq(t.escalations.threadId, threadId), eq(t.escalations.category, e.category))))
+    .limit(1);
+  if (open) {
+    if (key) await db.update(t.escalations).set({ priority: e.priority, reason: e.reason, summary: e.summary.slice(0, 300) }).where(eq(t.escalations.id, open.id));
+    return open.id;
+  }
+  const [row] = await db.insert(t.escalations).values({ workspaceId, threadId, dedupeKey: key, category: e.category, priority: e.priority, reason: e.reason, summary: e.summary.slice(0, 300), isDemo: Boolean(e.isDemo) }).returning({ id: t.escalations.id });
   await db.update(t.threads).set({ status: "needs_human" }).where(eq(t.threads.id, threadId));
   await db.insert(t.events).values({ workspaceId, type: "escalation.created", props: { threadId, category: e.category, priority: e.priority, reason: e.reason, summary: e.summary.slice(0, 300) }, isDemo: Boolean(e.isDemo) });
   return row.id;
+}
+
+/** Close open Needs you cards (`by` null = automatically), and put the chat back to open once none are left on it. */
+export async function resolveCards(workspaceId: string, where: { id: string } | { orderId: string }, by: string | null) {
+  const done = await db
+    .update(t.escalations)
+    .set({ status: "resolved", resolvedAt: new Date(), resolvedBy: by })
+    .where(and(eq(t.escalations.workspaceId, workspaceId), eq(t.escalations.status, "open"), "id" in where ? eq(t.escalations.id, where.id) : eq(t.escalations.dedupeKey, receiptCardKey(where.orderId))))
+    .returning();
+  for (const e of done) {
+    await db.insert(t.events).values({ workspaceId, type: "escalation.resolved", props: { threadId: e.threadId, category: e.category, summary: e.summary, by }, isDemo: e.isDemo });
+    // Low-stock cards aren't about a chat.
+    if (e.threadId) {
+      const open = await db.select({ id: t.escalations.id }).from(t.escalations).where(and(eq(t.escalations.threadId, e.threadId), eq(t.escalations.status, "open")));
+      if (!open.length) await db.update(t.threads).set({ status: "open" }).where(eq(t.threads.id, e.threadId));
+    }
+  }
+  return done.length;
 }
 
 async function findDuplicates(workspaceId: string, orderId: string, hash: string, reference: string | null): Promise<Duplicate[]> {
