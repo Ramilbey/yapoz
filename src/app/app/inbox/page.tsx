@@ -125,7 +125,8 @@ function Inbox() {
             ) : null}
           </div>
         </div>
-        <ul className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
+        {/* relative: the sr-only labels inside are absolutely positioned and would otherwise escape this scroller and stretch the page */}
+        <ul className="relative min-h-0 flex-1 overflow-y-auto scrollbar-thin">
           {!data ? (
             <li className="p-5 text-[14px] text-muted">Loading…</li>
           ) : data.threads.length === 0 ? (
@@ -310,7 +311,7 @@ function ThreadView({ id, onBack, onChanged }: { id: string; onBack: () => void;
             const el = e.currentTarget;
             pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
           }}
-          className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-6 scrollbar-thin sm:px-8"
+          className="relative min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-6 scrollbar-thin sm:px-8"
         >
           {data.more ? <p className="text-center text-[12px] text-muted">Showing the latest 200 messages.</p> : null}
           {data.messages.map((m) => (
