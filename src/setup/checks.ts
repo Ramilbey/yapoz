@@ -19,6 +19,7 @@ export async function setupSelling(ws: Ws, ownerId: string): Promise<SetupSellin
   const owner = team.find((u) => u.userId === ownerId);
   const stock = stockSettings(ws);
   return {
+    businessName: ws.name,
     businessType: ws.settings.business.type,
     address: ws.settings.business.address,
     stock,

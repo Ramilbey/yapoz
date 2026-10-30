@@ -61,6 +61,7 @@ export type SetupSource = { id: string; kind: "file" | "notes" | "website"; file
 
 /** GET /api/setup → selling: what the "How you sell" step starts from (settings with their defaults filled in). */
 export type SetupSelling = {
+  businessName: string;
   businessType: string;
   address: string;
   stock: StockSettings;

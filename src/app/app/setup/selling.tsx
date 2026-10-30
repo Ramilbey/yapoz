@@ -174,7 +174,7 @@ export function SellingStep({ data, currency: _currency, onSaved, onNext, onBack
         {pay === "on" ? (
           <>
             <p className="text-[13px] text-muted">Press &ldquo;Save payment details&rdquo; below the accounts before you continue.</p>
-            <Payments initial={data.payments ?? undefined} patch={patch} />
+            <Payments initial={data.payments ?? undefined} businessName={data.businessName} patch={patch} />
           </>
         ) : null}
       </Section>

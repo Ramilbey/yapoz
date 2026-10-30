@@ -137,7 +137,7 @@ export default function SettingsPage() {
             />
           </section>
 
-          <Payments key={ws.id} initial={st.payments} patch={patch} />
+          <Payments key={ws.id} initial={st.payments} businessName={ws.name} patch={patch} />
 
           <Stock key={ws.id} initial={data.stock} patch={patch} />
 
