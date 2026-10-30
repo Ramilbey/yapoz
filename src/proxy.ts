@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { SESSION_COOKIE, verifySession, canOpen, ROLE_HOME } from "@/lib/session";
+import { SESSION_COOKIE, verifySession, canOpen, canOpenDuringSetup, ROLE_HOME } from "@/lib/session";
 
 const SAFE = new Set(["GET", "HEAD", "OPTIONS"]);
 
@@ -29,6 +29,11 @@ export async function proxy(req: NextRequest) {
     const url = req.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", pathname);
+    return NextResponse.redirect(url);
+  }
+  if (session.setupPending && !canOpenDuringSetup(pathname)) {
+    const url = req.nextUrl.clone();
+    url.pathname = "/app/setup";
     return NextResponse.redirect(url);
   }
   if (pathname === "/app" || pathname === "/app/") {

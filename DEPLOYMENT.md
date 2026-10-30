@@ -109,7 +109,8 @@ Do not enable `prepare: true` when running against Supabase port 6543, as PgBoun
 4. `drizzle/0004_cleanup_and_orders.sql`: removes the old booking, hiring and Instagram tables and data and adds order notifications and session revocation; run once on an existing database before 0005; it deletes data, so back up first; safe to run twice.
 5. `drizzle/0005_stock.sql`: the stock tables, columns and `expired` order status. **An existing database needs this run once** (same as 0002). It is safe to run twice, and it is also appended to `supabase_setup.sql`.
 6. `drizzle/0006_appointments.sql`: the `staff` and `appointments` tables, `kb_items.in_person` and `orders.kind`, with live-update triggers and row-level security. **An existing database needs this run once** (same as 0002), after 0005. It is safe to run twice, and it is also appended to `supabase_setup.sql`.
-7. Seeding via terminal:
+7. `drizzle/0007_email_verification.sql`: email verification. **An existing database needs this run once, before the new code is deployed**, or every login fails on the missing column. It marks all existing users as verified and is safe to run twice. It is also appended to `supabase_setup.sql`.
+8. Seeding via terminal:
    ```bash
    DATABASE_URL="<Supabase-Pooler-URL>" npm run db:seed
    ```
@@ -174,6 +175,8 @@ The following variables are active in Vercel Production:
 | `DEMO_WORKSPACE_ID` | Set to `"FORNO7"` |
 | `GROQ_API_KEY` | Primary ultra-fast free tier model provider |
 | `GEMINI_API_KEY` | Secondary free tier provider (15 RPM, 1M TPM) |
+| `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile human check on sign-up. **Required:** production refuses sign-ups without them |
+| `RESEND_API_KEY`, `EMAIL_FROM` | Sends sign-up verification codes. **Required:** production refuses sign-ups without the key. `EMAIL_FROM` must use a domain verified in Resend |
 
 ---
 

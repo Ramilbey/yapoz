@@ -8,8 +8,9 @@ import { audit } from "@/lib/audit";
 import { hit } from "@/lib/ratelimit";
 import { startSession } from "@/lib/login";
 import { ROLE_HOME } from "@/lib/session";
+import { password } from "@/lib/validation";
 
-const Body = z.object({ name: z.string().trim().min(1).max(80), password: z.string().min(8, "Use at least 8 characters").max(200) });
+const Body = z.object({ name: z.string().trim().min(1).max(80), password });
 
 export const POST = handle(async (req: Request, ctx: { params: Promise<{ token: string }> }) => {
   if (!(await hit(`accept:${clientIp(req)}`, "hour", 20)).ok) throw new HttpError(429, "Too many attempts.");

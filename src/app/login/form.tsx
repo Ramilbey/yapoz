@@ -31,6 +31,7 @@ export function LoginForm({ demo, next, initialWorkspace }: { demo: Demo; next: 
     const j = await res.json().catch(() => ({}));
     setBusy(false);
     if (!res.ok) {
+      if (j.needVerification) return router.replace(j.home);
       if (j.needWorkspace) setShowWs(true);
       return setError(j.error ?? "Sign-in failed.");
     }

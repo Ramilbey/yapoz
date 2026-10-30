@@ -2,6 +2,7 @@
 import { useMemo, useState } from "react";
 import { Input, Label, Textarea } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
+import { BusinessDetails, businessName } from "@/lib/validation";
 
 export type BusinessValues = {
   name: string;
@@ -26,6 +27,7 @@ export function BusinessForm({ initial, onSave, saveLabel = "Save", withDescript
   const [v, setV] = useState(initial);
   const [langs, setLangs] = useState(initial.business.languages.join(", "));
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const tzs = useMemo(timezones, []);
   const b = (k: keyof BusinessValues["business"]) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setV({ ...v, business: { ...v.business, [k]: e.target.value } });
   return (
@@ -33,17 +35,18 @@ export function BusinessForm({ initial, onSave, saveLabel = "Save", withDescript
       className="grid max-w-[760px] gap-4 sm:grid-cols-2"
       onSubmit={async (e) => {
         e.preventDefault();
+        const business = {
+          ...v.business,
+          phone: v.business.phone?.trim() || null,
+          website: v.business.website?.trim() || null,
+          languages: langs.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 8),
+        };
+        const problem = businessName.safeParse(v.name).error ?? BusinessDetails.safeParse(business).error;
+        setError(problem?.issues[0].message ?? null);
+        if (problem) return;
         setBusy(true);
         try {
-          await onSave({
-            ...v,
-            business: {
-              ...v.business,
-              phone: v.business.phone?.trim() || null,
-              website: v.business.website?.trim() || null,
-              languages: langs.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 8),
-            },
-          });
+          await onSave({ ...v, business });
         } finally {
           setBusy(false);
         }
@@ -102,6 +105,7 @@ export function BusinessForm({ initial, onSave, saveLabel = "Save", withDescript
         <Input id="bf-langs" value={langs} onChange={(e) => setLangs(e.target.value)} placeholder="English, Malay" />
       </div>
       <div className="sm:col-span-2">
+        {error ? <p className="mb-3 text-[14px] text-signal-ink" role="alert">{error}</p> : null}
         <Button type="submit" variant="brass" loading={busy}>
           {saveLabel}
         </Button>

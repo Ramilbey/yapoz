@@ -62,6 +62,10 @@ export const env = {
       embeddedConfigId: process.env.META_EMBEDDED_SIGNUP_CONFIG_ID ?? "",
     };
   },
+  /** Cloudflare Turnstile, the human check on sign-up. */
+  get turnstile() {
+    return { siteKey: process.env.TURNSTILE_SITE_KEY ?? "", secretKey: process.env.TURNSTILE_SECRET_KEY ?? "" };
+  },
   get cronSecret() {
     return process.env.CRON_SECRET ?? "";
   },

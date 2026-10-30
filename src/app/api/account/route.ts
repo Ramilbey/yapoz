@@ -8,13 +8,14 @@ import { hit } from "@/lib/ratelimit";
 import { startSession } from "@/lib/login";
 import { audit } from "@/lib/audit";
 import { sql } from "drizzle-orm";
+import { password } from "@/lib/validation";
 
 const Body = z.object({
   /** Sign out on every other device: bumps the session version, then re-signs this one. */
   signOutEverywhere: z.boolean().optional(),
   name: z.string().trim().min(1).max(80).optional(),
   currentPassword: z.string().max(200).optional(),
-  newPassword: z.string().min(8, "Use at least 8 characters").max(200).optional(),
+  newPassword: password.optional(),
 });
 
 export const PATCH = handle(async (req: Request) => {

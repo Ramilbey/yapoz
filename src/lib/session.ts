@@ -2,7 +2,7 @@
 import { SignJWT, jwtVerify } from "jose";
 
 export type Role = "owner" | "service";
-export type Session = { userId: string; workspaceId: string; role: Role; name: string; email: string; /** users.session_version when signed: a newer version in the database revokes this session. */ sv?: number };
+export type Session = { userId: string; workspaceId: string; role: Role; name: string; email: string; /** users.session_version when signed: a newer version in the database revokes this session. */ sv?: number; setupPending?: boolean };
 
 export const SESSION_COOKIE = "jawab_session";
 const enc = (s: string) => new TextEncoder().encode(s);
@@ -27,7 +27,7 @@ function secret() {
 }
 
 export async function signSession(s: Session): Promise<string> {
-  return new SignJWT({ ws: s.workspaceId, role: s.role, name: s.name, email: s.email, sv: s.sv ?? 0 })
+  return new SignJWT({ ws: s.workspaceId, role: s.role, name: s.name, email: s.email, sv: s.sv ?? 0, setup: Boolean(s.setupPending) })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(s.userId)
     .setIssuedAt()
@@ -46,6 +46,7 @@ export async function verifySession(token: string | undefined | null): Promise<S
       name: String(payload.name),
       email: String(payload.email),
       sv: Number(payload.sv ?? 0),
+      setupPending: payload.setup === true,
     };
   } catch {
     return null;
@@ -64,4 +65,9 @@ export function canOpen(role: Role, pathname: string): boolean {
   const section = pathname.split("/")[2] ?? "";
   if (!section) return true;
   return ROLE_SECTIONS[role].includes(section);
+}
+
+/** What an owner can open before finishing setup: Account for sign-out, and the pages the wizard's steps link out to. */
+export function canOpenDuringSetup(pathname: string): boolean {
+  return ["setup", "knowledge", "settings", "calendar", "account"].includes(pathname.split("/")[2] ?? "");
 }

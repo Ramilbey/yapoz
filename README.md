@@ -6,6 +6,10 @@ We built Yapoz to help Malaysian micro and small businesses turn customer conver
 
 **SDC Hackathon 2026 · Domain 2 · Orbyte Smart SME Challenge: Less Busywork, Better Business**
 
+## New accounts
+
+Sign-up has a Cloudflare Turnstile human check, then a 6-digit emailed code (`/verify`, valid 15 minutes, five tries): nobody can sign in until it's entered, and signing in to an unverified account sends a new code. Invited staff skip this. Without `RESEND_API_KEY`, local dev prints the code in the server console. After that, setup is compulsory for owners: until it's finished, `proxy.ts` only opens setup and the pages it links to, and it can't finish without business basics and at least one knowledge entry.
+
 ## Team Information
 
 | Field | Details |

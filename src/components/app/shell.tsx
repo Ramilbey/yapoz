@@ -86,10 +86,7 @@ function ShellInner({ session, workspace, children }: { session: Session; worksp
     router.replace("/login");
   }
 
-  const items = [
-    ...(session.role === "owner" && !workspace.setupDone ? [{ href: "/app/setup", label: "Set up" } as Item] : []),
-    ...NAV[session.role],
-  ];
+  const items: Item[] = session.role === "owner" && !workspace.setupDone ? [{ href: "/app/setup", label: "Set up" }] : NAV[session.role];
   const active = (href: string) => pathname === href || pathname.startsWith(href + "/");
 
   const rail = (

@@ -147,6 +147,8 @@ export const users = pgTable(
     /** Bumped on password change, role change and "sign out everywhere": older sessions stop working. */
     sessionVersion: integer("session_version").notNull().default(0),
     createdAt: ts("created_at").defaultNow().notNull(),
+    /** Null until a self-serve sign-up enters its emailed code. Invited staff and seeded users start verified. */
+    emailVerifiedAt: ts("email_verified_at").defaultNow(),
   },
   (t) => [uniqueIndex("users_ws_email").on(t.workspaceId, t.email)],
 );
@@ -667,6 +669,16 @@ export const telegramChatBindings = pgTable(
   },
   (t) => [uniqueIndex("tg_bind_bot_chat").on(t.botId, t.chatId)],
 );
+
+/** The current sign-up code for an unverified user, stored only as an HMAC. */
+export const emailVerifications = pgTable("email_verifications", {
+  userId: uuid("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  codeHash: text("code_hash").notNull(),
+  attempts: integer("attempts").notNull().default(0),
+  expiresAt: ts("expires_at").notNull(),
+  sentAt: ts("sent_at").defaultNow().notNull(),
+});
 
 /** Files and links the owner gave during onboarding (menus, price lists, website text). */
 export const setupSources = pgTable("setup_sources", {

@@ -1,7 +1,7 @@
 // Creating a business on Jawab: a short readable workspace ID, sensible defaults, the channel rows and the owner's staff row.
 import { randomInt } from "node:crypto";
 import { db, t } from "@/db";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { WorkspaceSettings } from "@/db/schema";
 
 /** Currency guess from the browser's time zone; the owner confirms it during setup. */
@@ -104,12 +104,18 @@ export async function ensureOnboarding<W extends { id: string; settings: Workspa
   return { ...ws, settings };
 }
 
+/** Signing up again replaces an unverified attempt: nobody ever got into it, so it holds nothing worth keeping. */
+export async function dropUnverifiedSignups(email: string) {
+  const stale = await db.select({ workspaceId: t.users.workspaceId }).from(t.users).where(and(eq(sql`lower(${t.users.email})`, email.toLowerCase()), isNull(t.users.emailVerifiedAt)));
+  if (stale.length) await db.delete(t.workspaces).where(inArray(t.workspaces.id, stale.map((s) => s.workspaceId)));
+}
+
 export async function createWorkspace(input: { name: string; timezone: string; owner: { name: string; email: string; passwordHash: string } }) {
   const id = await makeWorkspaceId(input.name);
   const timezone = isTimezone(input.timezone) ? input.timezone : "UTC";
   return db.transaction(async (tx) => {
     await tx.insert(t.workspaces).values({ id, name: input.name.trim(), city: cityFor(timezone), timezone, currency: currencyFor(timezone), settings: defaultSettings() });
-    const [user] = await tx.insert(t.users).values({ workspaceId: id, email: input.owner.email.trim().toLowerCase(), name: input.owner.name.trim(), role: "owner", passwordHash: input.owner.passwordHash }).returning();
+    const [user] = await tx.insert(t.users).values({ workspaceId: id, email: input.owner.email.trim().toLowerCase(), name: input.owner.name.trim(), role: "owner", passwordHash: input.owner.passwordHash, emailVerifiedAt: null }).returning();
     // The owner is on the team from the start, switched off until setup (or Calendar) turns bookings on.
     await tx.insert(t.staff).values({ userId: user.id, workspaceId: id, takesAppointments: false });
     await tx.insert(t.channels).values([

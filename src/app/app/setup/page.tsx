@@ -493,10 +493,11 @@ function GoLive({ data }: { data: SetupData }) {
         <Button variant="primary" size="lg" loading={busy === "live"} disabled={!checks[0].ok} onClick={() => finish(true)}>
           Go live
         </Button>
-        <Button size="lg" loading={busy === "later"} onClick={() => finish(false)}>
+        <Button size="lg" loading={busy === "later"} disabled={!checks[0].ok} onClick={() => finish(false)}>
           Finish, go live later
         </Button>
       </div>
+      {!checks[0].ok ? <p className="mt-3 text-[13.5px] text-muted">Setup can&apos;t finish until the assistant has something to answer from. Go back to step 3 and add what you sell or offer.</p> : null}
     </div>
   );
 }
