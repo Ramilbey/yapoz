@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/field";
 import { Switch } from "@/components/ui/switch";
 import { cx } from "@/components/ui/cx";
 import { CATEGORY_LABEL } from "@/components/app/labels";
+import { KineticTitle } from "@/components/app/shell";
 
 type ThreadRow = {
   id: string; channel: string; status: "open" | "needs_human" | "resolved"; aiPaused: boolean; isDemo: boolean; lastMessageAt: string; lastPreview: string | null;
@@ -88,11 +89,13 @@ function Inbox() {
   const open = (id: string) => router.replace(`/app/inbox?t=${id}`, { scroll: false });
 
   return (
-    <div className="-mx-4 -my-6 grid h-[calc(100dvh-56px)] grid-cols-1 sm:-mx-8 sm:-my-8 lg:h-dvh lg:grid-cols-[360px_1fr] xl:grid-cols-[360px_1fr_300px]">
-      <aside className={cx("flex min-h-0 flex-col border-r border-line", selected ? "max-lg:hidden" : "")}>
+    <div className="grid h-[calc(100dvh-104px)] grid-cols-1 gap-5 sm:h-[calc(100dvh-120px)] lg:h-[calc(100dvh-64px)] lg:grid-cols-[360px_1fr] xl:grid-cols-[360px_1fr_300px]">
+      <aside className={cx("panel flex min-h-0 flex-col overflow-hidden !p-0", selected ? "max-lg:hidden" : "")}>
         <div className="border-b border-line px-5 pb-4 pt-6">
-          <h1 className="font-display text-[30px] font-extrabold leading-none">Inbox</h1>
-          <p className="mt-1.5 text-[13px] text-muted">Every channel, one list. Newest first.</p>
+          <h1 aria-label="Inbox" className="font-display flex gap-x-[0.26em] text-[34px] font-extrabold leading-none">
+            <KineticTitle text="Inbox" />
+          </h1>
+          <p className="k-fade mt-2 text-[13px] text-muted" style={{ "--d": 200 } as React.CSSProperties}>Every channel, one list. Newest first.</p>
           <div className="mt-4 flex flex-wrap gap-1.5" role="tablist">
             {FILTERS.map((f) => (
               <button
@@ -134,7 +137,7 @@ function Inbox() {
               <li key={t.id} className={cx(fresh.has(`${t.id}:${t.lastMessageAt}`) && "row-new")}>
                 <button
                   onClick={() => open(t.id)}
-                  className={cx("block w-full border-b border-line px-5 py-3.5 text-left transition-colors", selected === t.id ? "bg-raised" : "hover:bg-raised/60")}
+                  className={cx("block w-full border-b border-line px-5 py-3.5 text-left transition-colors", selected === t.id ? "bg-raised shadow-[inset_3px_0_0_var(--accent)]" : "hover:bg-raised/60")}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="truncate text-[14px] font-medium">{t.customerName ?? t.username ?? "Customer"}</span>
@@ -162,7 +165,7 @@ function Inbox() {
       {selected ? (
         <ThreadView id={selected} onBack={() => router.replace("/app/inbox", { scroll: false })} onChanged={() => mutate()} />
       ) : (
-        <div className="hidden items-center justify-center p-10 text-center lg:flex xl:col-span-2">
+        <div className="panel hidden items-center justify-center p-10 text-center lg:flex xl:col-span-2">
           <div className="max-w-[40ch]">
             <p className="font-display text-[26px] font-bold">Pick a conversation</p>
             <p className="mt-2 text-[14px] text-muted">You&apos;ll see what the customer asked, what the AI checked before answering, and you can take over at any time.</p>
@@ -261,7 +264,7 @@ function ThreadView({ id, onBack, onChanged }: { id: string; onBack: () => void;
 
   return (
     <>
-      <section className="flex min-h-0 flex-col">
+      <section className="panel flex min-h-0 flex-col overflow-hidden !p-0">
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4 sm:px-6">
           <div className="min-w-0">
             <button onClick={onBack} className="mb-1 text-[12px] text-muted hover:text-fg lg:hidden">Back to inbox</button>
@@ -341,8 +344,8 @@ function ThreadView({ id, onBack, onChanged }: { id: string; onBack: () => void;
         </form>
       </section>
 
-      <aside className="hidden min-h-0 overflow-y-auto border-l border-line px-5 py-6 scrollbar-thin xl:block">
-        <h3 className="text-[13px] text-muted">Customer</h3>
+      <aside className="panel hidden min-h-0 overflow-y-auto px-5 py-6 scrollbar-thin xl:block">
+        <h3 className="eyebrow">Customer</h3>
         <dl className="mt-2 space-y-2 text-[14px]">
           <Row k="Name" v={name} />
           {data.customer.username ? <Row k="Username" v={`@${data.customer.username}`} /> : null}
@@ -350,7 +353,7 @@ function ThreadView({ id, onBack, onChanged }: { id: string; onBack: () => void;
           <Row k="Language" v={data.customer.language ?? "not detected yet"} />
           <Row k="First message" v={new Date(data.customer.createdAt).toLocaleDateString("en-MY", { day: "numeric", month: "short" })} />
         </dl>
-        <h3 className="mt-8 text-[13px] text-muted">Orders from this chat</h3>
+        <h3 className="eyebrow mt-8">Orders from this chat</h3>
         {data.orders.length ? (
           <ul className="mt-2 space-y-2">
             {data.orders.map((o) => (
@@ -371,7 +374,7 @@ function ThreadView({ id, onBack, onChanged }: { id: string; onBack: () => void;
         ) : (
           <p className="mt-2 text-[13px] text-muted">None yet.</p>
         )}
-        <h3 className="mt-8 text-[13px] text-muted">Escalations</h3>
+        <h3 className="eyebrow mt-8">Escalations</h3>
         {data.escalations.length ? (
           <ul className="mt-2 space-y-2">
             {data.escalations.map((e) => (
@@ -385,7 +388,7 @@ function ThreadView({ id, onBack, onChanged }: { id: string; onBack: () => void;
         ) : (
           <p className="mt-2 text-[13px] text-muted">None.</p>
         )}
-        <a href={`/app/activity?thread=${th.id}`} className="mt-8 block text-[13px] text-brass-ink underline-offset-4 hover:underline">Activity for this chat</a>
+        <a href={`/app/activity?thread=${th.id}`} className="mt-8 block text-[13px] text-accent underline-offset-4 hover:underline">Activity for this chat</a>
         {data.canDelete ? (
           <button onClick={eraseCustomer} disabled={busy === "erase"} className="mt-3 block text-[13px] text-signal-ink underline-offset-4 hover:underline disabled:opacity-50">
             Delete customer data
@@ -417,10 +420,10 @@ function MessageRow({ m, busy, onApprove, onDiscard }: { m: Msg; busy: boolean; 
         <div
           className={cx(
             "inline-block whitespace-pre-wrap rounded-2xl px-4 py-2.5 text-left text-[14.5px] leading-relaxed",
-            inbound && "rounded-bl-md bg-raised",
-            !inbound && m.author === "ai" && !draft && "rounded-br-md border border-brass/45 bg-brass/[0.08]",
-            !inbound && m.author === "staff" && "rounded-br-md bg-fg text-bg",
-            draft && "rounded-br-md border border-dashed border-brass bg-transparent",
+            inbound && "rounded-bl-md border border-line-strong bg-raised",
+            !inbound && m.author === "ai" && !draft && "rounded-br-md bg-fg text-bg",
+            !inbound && m.author === "staff" && "rounded-br-md bg-accent text-on-primary",
+            draft && "rounded-br-md border border-dashed border-accent bg-transparent",
             m.status === "failed" && "border border-signal/60",
             m.status === "discarded" && "opacity-40 line-through",
           )}
@@ -430,7 +433,7 @@ function MessageRow({ m, busy, onApprove, onDiscard }: { m: Msg; busy: boolean; 
         <div className={cx("mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-muted", inbound ? "" : "justify-end")}>
           {who ? <span>{who}</span> : null}
           <span className="num">{clock(m.createdAt)}</span>
-          {draft ? <span className="text-brass-ink">Draft, waiting for approval</span> : null}
+          {draft ? <span className="text-accent">Draft, waiting for approval</span> : null}
           {m.status === "sending" || (m.status === "received" && !inbound) ? <span>Sending…</span> : null}
           {m.status === "failed" ? <span className="text-signal-ink">Not delivered{m.error ? `: ${m.error}` : ""}</span> : null}
           {!inbound && m.status === "sent" ? <span title={m.readAt ? "Read by the customer" : m.deliveredAt ? "Delivered to the customer's phone" : "Sent to the channel"}>{m.readAt ? "✓✓ read" : m.deliveredAt ? "✓✓ delivered" : "✓ sent"}</span> : null}
