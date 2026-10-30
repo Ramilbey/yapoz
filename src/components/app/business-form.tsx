@@ -1,7 +1,8 @@
 "use client";
 import { useMemo, useState } from "react";
-import { Input, Label, Textarea } from "@/components/ui/field";
+import { Input, Label, Select, Textarea } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
+import places from "@/lib/places.json";
 import { BusinessDetails, businessName } from "@/lib/validation";
 
 export type BusinessValues = {
@@ -9,7 +10,7 @@ export type BusinessValues = {
   city: string;
   timezone: string;
   currency: string;
-  business: { type: string; description: string; address: string; phone: string | null; website: string | null; languages: string[] };
+  business: { type: string; description: string; address: string; country?: string; phone: string | null; website: string | null; languages: string[] };
 };
 
 const CURRENCIES = ["MYR", "SGD", "IDR", "THB", "PHP", "VND", "INR", "PKR", "BDT", "AED", "SAR", "QAR", "EGP", "NGN", "KES", "ZAR", "GBP", "EUR", "CHF", "TRY", "USD", "CAD", "AUD", "NZD", "JPY", "KRW", "CNY", "HKD", "BRL", "MXN"];
@@ -22,9 +23,23 @@ function timezones(): string[] {
   }
 }
 
+const PLACES: Record<string, { zones: string[]; cities: string[] }> = places;
+const COUNTRIES = Object.keys(PLACES);
+const OTHER_CITY = "__other";
+
+/** Businesses saved before the country field: worked out from the time zone, preferring a country that has their city. */
+function guessCountry(v: BusinessValues) {
+  const inZone = COUNTRIES.filter((c) => PLACES[c].zones.includes(v.timezone));
+  return inZone.find((c) => PLACES[c].cities.includes(v.city)) ?? inZone[0] ?? "";
+}
+
 /** Business basics, used by the setup wizard and by Settings. */
 export function BusinessForm({ initial, onSave, saveLabel = "Save", withDescription = false }: { initial: BusinessValues; onSave: (v: BusinessValues) => Promise<void>; saveLabel?: string; withDescription?: boolean }) {
-  const [v, setV] = useState(initial);
+  const [v, setV] = useState(() => ({ ...initial, business: { ...initial.business, country: initial.business.country || guessCountry(initial) } }));
+  const country = v.business.country ?? "";
+  const cities = PLACES[country]?.cities ?? [];
+  // Only major cities are listed, so a smaller town goes in by hand.
+  const [otherCity, setOtherCity] = useState(() => Boolean(v.city) && !cities.includes(v.city));
   const [langs, setLangs] = useState(initial.business.languages.join(", "));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -71,9 +86,52 @@ export function BusinessForm({ initial, onSave, saveLabel = "Save", withDescript
         <Input id="bf-addr" value={v.business.address} onChange={b("address")} placeholder="Street, area, postcode" />
       </div>
       <div>
-        <Label htmlFor="bf-city">City</Label>
-        <Input id="bf-city" value={v.city} onChange={(e) => setV({ ...v, city: e.target.value })} />
+        <Label htmlFor="bf-country">Country</Label>
+        <Select
+          id="bf-country"
+          value={country}
+          required
+          onChange={(e) => {
+            setV({ ...v, city: "", business: { ...v.business, country: e.target.value } });
+            setOtherCity(false);
+          }}
+        >
+          <option value="">Choose a country</option>
+          {COUNTRIES.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </Select>
       </div>
+      <div>
+        <Label htmlFor="bf-city">City</Label>
+        <Select
+          id="bf-city"
+          value={otherCity ? OTHER_CITY : v.city}
+          required
+          disabled={!country}
+          onChange={(e) => {
+            const other = e.target.value === OTHER_CITY;
+            setOtherCity(other);
+            setV({ ...v, city: other ? "" : e.target.value });
+          }}
+        >
+          <option value="">{country ? "Choose a city" : "Choose a country first"}</option>
+          {cities.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+          <option value={OTHER_CITY}>Other (type it in)</option>
+        </Select>
+      </div>
+      {otherCity ? (
+        <div>
+          <Label htmlFor="bf-city-other">Your city or town</Label>
+          <Input id="bf-city-other" value={v.city} onChange={(e) => setV({ ...v, city: e.target.value })} required maxLength={80} />
+        </div>
+      ) : null}
       <div>
         <Label htmlFor="bf-phone" hint="optional">Phone for customers</Label>
         <Input id="bf-phone" value={v.business.phone ?? ""} onChange={b("phone")} inputMode="tel" />

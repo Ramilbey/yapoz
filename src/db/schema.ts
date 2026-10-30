@@ -51,6 +51,7 @@ export type BusinessProfile = {
   type: string;
   description: string;
   address: string;
+  country?: string;
   phone?: string | null;
   website?: string | null;
   languages: string[];

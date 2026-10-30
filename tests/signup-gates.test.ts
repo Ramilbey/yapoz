@@ -2,6 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { BusinessDetails, SignupFields, fieldErrors, verificationCode } from "../src/lib/validation";
+import places from "../src/lib/places.json";
 import { canOpenDuringSetup, signSession, verifySession } from "../src/lib/session";
 
 const good = { businessName: "Kasih Hair Studio", name: "Nadia Lim", email: "NADIA@Example.com ", password: "blue-kettle-42" };
@@ -33,10 +34,19 @@ test("verification codes are exactly six digits", () => {
 });
 
 test("business details reject junk phones and websites", () => {
-  const ok = { type: "hair salon", description: "", address: "", phone: "+60 12-345 6789", website: "kasih.my/book", languages: ["English"] };
+  const ok = { type: "hair salon", description: "", address: "", country: "Malaysia", phone: "+60 12-345 6789", website: "kasih.my/book", languages: ["English"] };
   assert.ok(BusinessDetails.safeParse(ok).success);
   assert.ok(BusinessDetails.safeParse({ ...ok, phone: null, website: null }).success);
-  for (const bad of [{ phone: "call me" }, { website: "not a site" }, { website: "nodot" }, { type: "" }, { languages: [] }]) assert.equal(BusinessDetails.safeParse({ ...ok, ...bad }).success, false);
+  for (const bad of [{ phone: "call me" }, { website: "not a site" }, { website: "nodot" }, { type: "" }, { country: "" }, { languages: [] }]) assert.equal(BusinessDetails.safeParse({ ...ok, ...bad }).success, false);
+});
+
+test("every country in the form has cities, and they belong to it", () => {
+  const list: Record<string, { zones: string[]; cities: string[] }> = places;
+  assert.ok(Object.keys(list).length > 200);
+  for (const [name, c] of Object.entries(list)) assert.ok(c.cities.length && c.zones.length, name);
+  assert.ok(list.Malaysia.cities.includes("Kuala Lumpur"));
+  assert.ok(list.Singapore.zones.includes("Asia/Singapore"));
+  assert.equal(list.Malaysia.cities.includes("Jakarta"), false);
 });
 
 test("an owner mid-setup can only reach setup and the pages it links to", () => {

@@ -56,7 +56,7 @@ function renderBlock(ws: Workspace, c: Catalog): string {
   const infos = c.all.filter((i) => i.kind === "info" && i.slug !== "extras");
   const faqs = c.all.filter((i) => i.kind === "faq");
   const hours = c.all.find((i) => i.kind === "hours");
-  lines.push(`KNOWLEDGE for ${ws.name}${biz?.type ? `, a ${biz.type}` : ""} in ${ws.city}. Currency: ${ws.currency}.`);
+  lines.push(`KNOWLEDGE for ${ws.name}${biz?.type ? `, a ${biz.type}` : ""} in ${ws.city}${biz?.country ? `, ${biz.country}` : ""}. Currency: ${ws.currency}.`);
   if (biz?.description) lines.push(`About: ${biz.description}`);
   if (biz?.address) lines.push(`Address: ${biz.address}`);
   if (biz?.phone) lines.push(`Phone: ${biz.phone}`);

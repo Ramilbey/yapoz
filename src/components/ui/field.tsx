@@ -12,6 +12,10 @@ export const Textarea = forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttrib
   return <textarea ref={ref} className={cx(base, "py-2.5 leading-relaxed resize-y", className)} {...p} />;
 });
 
+export const Select = forwardRef<HTMLSelectElement, React.SelectHTMLAttributes<HTMLSelectElement>>(function Select({ className, ...p }, ref) {
+  return <select ref={ref} className={cx(base, "h-10 disabled:opacity-60", className)} {...p} />;
+});
+
 export function Label({ children, hint, htmlFor }: { children: React.ReactNode; hint?: React.ReactNode; htmlFor?: string }) {
   return (
     <label htmlFor={htmlFor} className="mb-1.5 flex items-baseline justify-between gap-3 text-[13px] text-fg-2">

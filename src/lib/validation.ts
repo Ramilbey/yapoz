@@ -29,6 +29,7 @@ export const BusinessDetails = z.object({
   type: z.string().trim().min(2, "Say what kind of business this is").max(80, "Keep the kind of business short"),
   description: z.string().trim().max(2000, "Keep the description under 2000 characters"),
   address: z.string().trim().max(300, "That address is too long"),
+  country: z.string().trim().min(2, "Choose your country").max(80, "That country name is too long"),
   phone: z.string().trim().regex(/^\+?[\d\s().-]{6,25}$/, "Enter a valid phone number, like +60 12 345 6789").nullable(),
   website: z.string().trim().max(300, "That website address is too long").regex(/^(https?:\/\/)?[^\s/.]+(\.[^\s/.]+)+(\/\S*)?$/i, "Enter a valid website, like yourbusiness.com").nullable(),
   languages: z.array(z.string().trim().min(1).max(40, "That language name is too long")).min(1, "Add at least one language").max(8, "Add 8 languages at most"),
