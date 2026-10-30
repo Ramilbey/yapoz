@@ -35,6 +35,7 @@ export function Columns({ values, labels, height = 180, format = (v: number) => 
   const [tip, setTip] = useState<Tip>(null);
   const [hover, setHover] = useState<number | null>(null);
   const max = niceMax(Math.max(1, ...values));
+  const peak = Math.max(0, ...values);
   const ticks = [0, max / 2, max];
   const padL = 30;
   const padB = 22;
@@ -61,7 +62,9 @@ export function Columns({ values, labels, height = 180, format = (v: number) => 
               {v > 0 ? (
                 <path
                   d={`M${x},${h - padB} V${top + r} Q${x},${top} ${x + r},${top} H${x + bw - r} Q${x + bw},${top} ${x + bw},${top + r} V${h - padB} Z`}
-                  fill="var(--brass-mark)"
+                  className="k-grow"
+                  fill={v === peak ? "var(--peak-mark)" : "var(--brass-mark)"}
+                  style={{ "--i": i, ...(v === peak ? { filter: "drop-shadow(0 0 8px var(--peak-glow))" } : {}) } as React.CSSProperties}
                   opacity={hover === null || hover === i ? 1 : 0.45}
                 />
               ) : null}

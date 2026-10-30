@@ -10,6 +10,8 @@ import { Switch } from "@/components/ui/switch";
 import { Chip } from "@/components/ui/chip";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import { Card } from "@/components/ui/card";
+import { useCountUp } from "@/components/app/motion";
 import { Input, Textarea, Label } from "@/components/ui/field";
 import { useToast } from "@/components/app/toast";
 import { cx } from "@/components/ui/cx";
@@ -48,7 +50,7 @@ function GettingStarted({ live, setupDone }: { live: boolean; setupDone: boolean
     { done: false, title: "Bring in your team", body: "Give service staff the inbox, and HR the hiring desk.", href: "/app/settings#team", cta: "Invite" },
   ];
   return (
-    <section className="mb-10 rounded-2xl border border-line p-6">
+    <Card className="mb-8">
       <h2 className="font-display text-[22px] font-bold">No customer messages yet</h2>
       <p className="mt-1 text-[14px] text-muted">Numbers fill in as customers message you on your channels (simulator tests count too). Meanwhile:</p>
       <ol className="mt-5 grid gap-5 md:grid-cols-4">
@@ -57,13 +59,13 @@ function GettingStarted({ live, setupDone }: { live: boolean; setupDone: boolean
             <span className="num text-[12px] text-muted">{String(i + 1).padStart(2, "0")}</span>
             <p className="mt-0.5 text-[15px] font-medium">{s.title}</p>
             <p className="mt-1 text-[13px] text-fg-2">{s.body}</p>
-            <Link href={s.done && s.alt ? s.alt : s.href} className="mt-2 inline-block text-[13px] font-medium text-brass-ink underline-offset-4 hover:underline">
+            <Link href={s.done && s.alt ? s.alt : s.href} className="mt-2 inline-block text-[13px] font-medium text-accent underline-offset-4 hover:underline">
               {s.done && s.alt ? s.cta : s.cta}
             </Link>
           </li>
         ))}
       </ol>
-    </section>
+    </Card>
   );
 }
 
@@ -103,8 +105,10 @@ export default function TodayPage() {
   return (
     <div>
       <PageHeader
-        title={<>Today at the counter</>}
-        description={data ? `${data.workspace.name}, ${new Date(data.today + "T12:00:00").toLocaleDateString("en-MY", { weekday: "long", day: "numeric", month: "long" })}. Every number below comes from logged events.` : "Loading…"}
+        eyebrow={data ? `${data.workspace.name} · ${new Date(data.today + "T12:00:00").toLocaleDateString("en-MY", { weekday: "long", day: "numeric", month: "long" })}` : undefined}
+        title="Today at the counter"
+        accent="counter"
+        description={data ? "Every number below comes from logged events. Yapoz answered the chats; the decisions are waiting for you." : "Loading…"}
         actions={
           data?.demoMode ? (
             <div className="flex flex-wrap items-center gap-4 rounded-xl border border-line px-4 py-2.5">
@@ -133,23 +137,23 @@ export default function TodayPage() {
 
       {data && !data.demoMode && data.channels.every((c) => c.channel === "simulator") ? <GettingStarted live={data.live} setupDone={data.setupDone} /> : null}
 
-      <section aria-label="Key numbers" className="grid grid-cols-2 border-y border-line md:grid-cols-3 xl:grid-cols-5">
-        <Kpi label="Messages handled" value={k ? String(k.handled) : "–"} delta={k ? diff(k.handled, k.yesterday.handled, "") : null} />
-        <Kpi label="Auto-resolved" value={k?.autoResolvedPct != null ? `${k.autoResolvedPct}%` : "–"} delta={k && k.autoResolvedPct != null && k.yesterday.autoResolvedPct != null ? diff(k.autoResolvedPct, k.yesterday.autoResolvedPct, " pts") : null} />
-        <Kpi label="Median first reply" value={secs(k?.medianFirstResponseMs ?? null)} delta={k?.yesterday.medianFirstResponseMs ? `yesterday ${secs(k.yesterday.medianFirstResponseMs)}` : null} />
-        <Kpi label="Bookings created" value={k ? String(k.bookingsCreated) : "–"} delta="by the agent, today" />
-        <Link href="/app/needs-you" className="group col-span-2 md:col-span-1">
-          <Kpi label="Needs you" value={k ? String(k.openEscalations) : "–"} tone={k && k.openEscalations > 0 ? "signal" : undefined} delta={k ? (k.urgentEscalations ? `${k.urgentEscalations} high priority` : "open escalations") : null} />
+      <section aria-label="Key numbers" className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
+        <Kpi label="Messages handled" value={k ? k.handled : null} delta={k ? diff(k.handled, k.yesterday.handled, "") : null} delay={0} />
+        <Kpi label="Auto-resolved" value={k?.autoResolvedPct ?? null} fmt={(n) => `${Math.round(n)}%`} delta={k && k.autoResolvedPct != null && k.yesterday.autoResolvedPct != null ? diff(k.autoResolvedPct, k.yesterday.autoResolvedPct, " pts") : null} delay={90} />
+        <Kpi label="Median first reply" value={k?.medianFirstResponseMs ?? null} fmt={secs} delta={k?.yesterday.medianFirstResponseMs ? `yesterday ${secs(k.yesterday.medianFirstResponseMs)}` : null} delay={180} />
+        <Kpi label="Bookings created" value={k ? k.bookingsCreated : null} delta="by the agent, today" delay={270} />
+        <Link href="/app/needs-you" className="group col-span-2 block md:col-span-1">
+          <Kpi label="Needs you" value={k ? k.openEscalations : null} hot={Boolean(k && k.openEscalations > 0)} delta={k ? (k.urgentEscalations ? `${k.urgentEscalations} high priority` : "open escalations") : null} delay={360} />
         </Link>
       </section>
 
-      <div className="mt-10 grid grid-cols-1 gap-x-10 gap-y-12 lg:grid-cols-12">
-        <section className="lg:col-span-8">
+      <div className="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-12">
+        <section className="panel p-6 lg:col-span-8">
           <SectionTitle title="Messages by hour" sub="Today, local time" />
           {data ? <Columns values={data.hourly} labels={data.hourly.map((_, h) => (h % 3 === 0 ? `${h}` : ""))} tipLabel={(h) => `${String(h).padStart(2, "0")}:00–${String(h).padStart(2, "0")}:59`} format={(v) => `${v} message${v === 1 ? "" : "s"}`} /> : <Skeleton h={180} />}
         </section>
 
-        <section className="lg:col-span-4">
+        <section className="panel p-6 lg:col-span-4">
           <SectionTitle title="Knowledge gaps" sub="Questions the agent couldn't answer this week" />
           {data ? (
             data.gaps.length ? (
@@ -176,27 +180,27 @@ export default function TodayPage() {
           )}
         </section>
 
-        <section className="lg:col-span-6">
+        <section className="panel p-6 lg:col-span-6">
           <SectionTitle title="Top questions" sub="Last 7 days, by topic" />
           {data ? <BarList items={data.topics.map((t) => ({ label: t.topic, value: t.n, note: `${Math.round((t.resolved / Math.max(1, t.n)) * 100)}% resolved` }))} empty="No questions yet." /> : <Skeleton h={220} />}
         </section>
-        <section className="lg:col-span-3">
+        <section className="panel p-6 lg:col-span-3">
           <SectionTitle title="Language mix" sub="Last 7 days" />
           {data ? <BarList items={data.langs.map((l) => ({ label: LANG[l.language] ?? l.language, value: l.n }))} total={totalLang} empty="No messages yet." /> : <Skeleton h={120} />}
         </section>
-        <section className="lg:col-span-3">
+        <section className="panel p-6 lg:col-span-3">
           <SectionTitle title="Channels" sub="Last 7 days" />
           {data ? <BarList items={data.channels.map((c) => ({ label: CH[c.channel] ?? c.channel, value: c.n }))} total={totalCh} empty="No messages yet." /> : <Skeleton h={120} />}
         </section>
 
-        <section className="lg:col-span-8">
+        <section className="panel p-6 lg:col-span-8">
           <SectionTitle title="Sentiment" sub="Customer messages per day, last 7 days" />
           {data ? (
             <StackedColumns
               rows={data.sentiment}
               labelOf={(r) => new Date(String(r.day) + "T12:00:00").toLocaleDateString("en-MY", { weekday: "short", day: "numeric" })}
               series={[
-                { key: "positive", label: "Positive", color: "var(--brass-mark)" },
+                { key: "positive", label: "Positive", color: "var(--positive-mark)" },
                 { key: "neutral", label: "Neutral", color: "var(--neutral-mark)" },
                 { key: "negative", label: "Negative", color: "var(--signal-mark)" },
               ]}
@@ -206,7 +210,7 @@ export default function TodayPage() {
           )}
         </section>
 
-        {data && !data.hiringModule ? null : <section className="lg:col-span-4">
+        {data && !data.hiringModule ? null : <section className="panel p-6 lg:col-span-4">
           <SectionTitle title="Hiring" sub="Open roles and candidates" />
           {data ? (
             <dl className="grid grid-cols-2 border-t border-line">
@@ -220,7 +224,7 @@ export default function TodayPage() {
           ) : (
             <Skeleton h={160} />
           )}
-          <Link href="/app/hiring" className="mt-4 inline-block text-[14px] text-brass-ink underline-offset-4 hover:underline">
+          <Link href="/app/hiring" className="mt-4 inline-block text-[14px] text-accent underline-offset-4 hover:underline">
             Open hiring
           </Link>
         </section>}
@@ -237,13 +241,18 @@ function diff(now: number, before: number, unit: string) {
   return `${d >= 0 ? "+" : "−"}${Math.abs(d)}${unit} vs yesterday`;
 }
 
-function Kpi({ label, value, delta, tone }: { label: string; value: string; delta?: string | null; tone?: "signal" }) {
+/** One headline number: counts up on load and on live updates. `hot` fills the card with the accent (needs a person). */
+function Kpi({ label, value, fmt = (n) => String(Math.round(n)), delta, hot, delay = 0 }: { label: string; value: number | null; fmt?: (n: number) => string; delta?: string | null; hot?: boolean; delay?: number }) {
+  const shown = useCountUp(value);
   return (
-    <div className="border-line px-4 py-5 [&:not(:first-child)]:border-l max-md:[&:nth-child(odd)]:border-l-0 max-md:border-b">
-      <div className="text-[13px] text-muted">{label}</div>
-      <div className={cx("num mt-1 text-[44px] font-medium leading-none tracking-[-0.04em]", tone === "signal" ? "text-signal-ink" : "text-fg")}>{value}</div>
-      <div className="mt-2 h-4 text-[12px] text-muted">{delta ?? ""}</div>
-    </div>
+    <Card as="div" hot={hot} className="k-fade h-full px-5 pb-[18px] pt-5 transition-transform duration-300 group-hover:-translate-y-0.5 hover:-translate-y-0.5" style={{ "--d": 400 + delay } as React.CSSProperties}>
+      <div className="flex items-center justify-between text-[13px] text-muted">
+        {label}
+        {hot ? <span className="ping" aria-hidden /> : null}
+      </div>
+      <div className="num mt-2 text-[44px] font-medium leading-none tracking-[-0.05em]">{shown === null ? "–" : fmt(shown)}</div>
+      <div className="mt-3 h-4 text-[12.5px] text-muted">{delta ?? ""}</div>
+    </Card>
   );
 }
 

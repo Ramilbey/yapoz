@@ -53,7 +53,7 @@ function ReceiptCard({ order, r, tz }: { order: Order; r: Receipt; tz: string })
   const url = `/api/orders/${order.id}/receipts/${r.id}`;
   const rd = r.reading;
   return (
-    <div className="mt-3 flex gap-3 rounded-xl border border-line p-3">
+    <div className="mt-3 flex gap-3 rounded-xl border border-line-strong bg-raised p-3.5">
       <a href={url} target="_blank" rel="noreferrer" className="block h-20 w-16 shrink-0 overflow-hidden rounded-lg border border-line bg-raised" aria-label="Open the receipt">
         {r.mime === "application/pdf" ? <span className="grid h-full place-items-center text-[12px] text-muted">PDF</span> : /* eslint-disable-next-line @next/next/no-img-element */ <img src={url} alt="Payment receipt" className="h-full w-full object-cover" />}
       </a>
@@ -148,7 +148,9 @@ export default function OrdersPage() {
   return (
     <div>
       <PageHeader
-        title="Orders"
+        eyebrow={data ? `Orders · ${orders.filter((o) => o.status === "pending").length} waiting for you` : undefined}
+        title="Orders, approved by you"
+        accent="approved"
         description="Orders customers place in chat. Yapoz checks prices and stock, then waits for you: nothing is promised until you confirm, and the customer hears from you at each step."
       />
       {!data ? (
@@ -162,7 +164,7 @@ export default function OrdersPage() {
                 role="tab"
                 aria-selected={current === t.key}
                 onClick={() => setTab(t.key)}
-                className={cx("h-8 rounded-full border px-3.5 text-[13px]", current === t.key ? "border-fg bg-fg text-bg" : "border-line-strong text-fg-2 hover:text-fg")}
+                className={cx("h-9 rounded-full border px-4 text-[13.5px] transition-colors", current === t.key ? "border-fg bg-fg font-semibold text-bg" : "border-line-strong text-fg-2 hover:border-fg hover:text-fg")}
               >
                 {t.label}
                 <span className={cx("num ml-1.5 text-[12px]", t.key === "pending" && counts.pending && current !== t.key ? "text-signal-ink" : "opacity-70")}>{counts[t.key]}</span>
@@ -179,11 +181,11 @@ export default function OrdersPage() {
               </p>
             </div>
           ) : (
-            <ul className="divide-y divide-line border-y border-line">
+            <ul className="space-y-4">
               {shown.map((o) => {
                 const pending = busy?.startsWith(o.id) ?? false;
                 return (
-                  <li key={o.id} className={cx("grid grid-cols-1 gap-4 py-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:gap-8", fresh.has(o.id) && "row-new", o.status === "cancelled" && "opacity-60")}>
+                  <li key={o.id} className={cx("panel k-slide grid grid-cols-1 gap-4 p-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:gap-8", o.status === "pending" && "border-accent!", fresh.has(o.id) && "row-new", o.status === "cancelled" && "opacity-60")}>
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
                         <span className="num text-[15px] font-semibold">{o.refCode}</span>

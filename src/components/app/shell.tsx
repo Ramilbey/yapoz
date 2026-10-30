@@ -43,6 +43,19 @@ const NAV: Record<Session["role"], Item[]> = {
 
 const ROLE_NAME = { owner: "Owner", service: "Service", hr: "HR" } as const;
 
+/** 18px stroke icons for top-level items. Sub-items keep their dot. */
+const ICON: Record<string, string> = {
+  "/app/setup": "M12 3l2.2 5.3L20 9l-4.2 3.8L17 18.5 12 15.6 7 18.5l1.2-5.7L4 9l5.8-.7z",
+  "/app/today": "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z",
+  "/app/inbox": "M4 13l2-8h12l2 8M4 13v6h16v-6M4 13h5l1 2h4l1-2h5",
+  "/app/needs-you": "M6 9a6 6 0 1 1 12 0c0 6 2 7 2 7H4s2-1 2-7M10 20a2 2 0 0 0 4 0",
+  "/app/orders": "M5 8h14l-1 12H6zM9 8V6a3 3 0 0 1 6 0v2",
+  "/app/knowledge": "M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3zM5 17a3 3 0 0 1 3-3h11",
+  "/app/bookings": "M4 6h16v14H4zM4 10h16M8 3v4M16 3v4",
+  "/app/hiring": "M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6M3 20a6 6 0 0 1 12 0M16 5.5a3 3 0 0 1 0 5.5M18 14.5a6 6 0 0 1 3 5.5",
+  "/app/settings": "M4 7h10M18 7h2M4 17h2M10 17h10M14 5v4M6 15v4",
+};
+
 export function Shell(props: { session: Session; workspace: ShellWorkspace; demoMode: boolean; children: React.ReactNode }) {
   return (
     <ToastProvider>
@@ -57,23 +70,17 @@ function ShellInner({ session, workspace, children }: { session: Session; worksp
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [theme, setTheme] = useState<"light" | "dark">("dark");
   const connected = useLiveStatus();
   const { data: counts, mutate } = useSWR<{ needs: number; drafts: number; approvals: number; orders: number; gaps: number }>("/api/nav-counts", getJson, { refreshInterval: 30_000 });
   useLive(["escalations", "messages", "outreach", "orders", "knowledge_gaps"], () => mutate());
 
-  useEffect(() => {
-    let t: "light" | "dark" = "light";
-    try {
-      t = localStorage.getItem("jawab-theme") === "dark" ? "dark" : "light";
-    } catch {}
-    document.documentElement.dataset.theme = t;
-    setTheme(t);
-  }, []);
+  // The boot script in the app layout has already applied the user's choice (or their system setting); mirror it.
+  useEffect(() => setTheme(document.documentElement.dataset.theme === "light" ? "light" : "dark"), []);
   useEffect(() => setOpen(false), [pathname]);
 
   function toggleTheme() {
-    const next = theme === "light" ? "dark" : "light";
+    const next = theme === "dark" ? "light" : "dark";
     setTheme(next);
     document.documentElement.dataset.theme = next;
     try {
@@ -95,13 +102,13 @@ function ShellInner({ session, workspace, children }: { session: Session; worksp
     <nav className="flex h-full flex-col" aria-label="Main">
       <div className="px-5 pt-6 pb-5">
         <Link href="/" className="flex items-center gap-2.5">
-          <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden>
-            <path d="M16 7.2a1.7 1.7 0 0 1 1.7 1.7v.6c4.3.8 7.3 4.6 7.3 9.2v1.1H7v-1.1c0-4.6 3-8.4 7.3-9.2v-.6A1.7 1.7 0 0 1 16 7.2Z" fill="var(--color-brass)" />
-            <rect x="5" y="21.2" width="22" height="3.2" rx="1.6" fill="var(--color-brass)" />
+          <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden>
+            <path d="M16 7.2a1.7 1.7 0 0 1 1.7 1.7v.6c4.3.8 7.3 4.6 7.3 9.2v1.1H7v-1.1c0-4.6 3-8.4 7.3-9.2v-.6A1.7 1.7 0 0 1 16 7.2Z" fill="var(--accent)" />
+            <rect x="5" y="21.2" width="22" height="3.2" rx="1.6" fill="var(--accent)" />
           </svg>
-          <span className="font-display text-[22px] font-extrabold">Yapoz</span>
+          <span className="font-display text-[24px] font-extrabold">Yapoz</span>
         </Link>
-        <div className="mt-5 rounded-xl border border-line px-3 py-2.5">
+        <div className="mt-5 rounded-xl border border-line-strong px-3.5 py-3">
           <div className="text-[14px] font-medium leading-tight">{workspace.name}</div>
           <div className="mt-0.5 flex items-center justify-between text-[12px] text-muted">
             <span>{workspace.city}</span>
@@ -118,17 +125,23 @@ function ShellInner({ session, workspace, children }: { session: Session; worksp
                 href={it.href}
                 aria-current={active(it.href) ? "page" : undefined}
                 className={cx(
-                  "group flex items-center justify-between rounded-[10px] px-3 transition-colors",
-                  it.sub ? "ml-3 h-8 text-[13px]" : "h-9 text-[14px]",
-                  active(it.href) ? "bg-raised text-fg font-medium" : "text-fg-2 hover:text-fg hover:bg-raised/60",
+                  "group relative flex items-center justify-between rounded-[10px] px-3 transition-colors",
+                  it.sub ? "ml-3 h-8 text-[13px]" : "h-10 text-[14.5px]",
+                  active(it.href) ? "nav-on font-semibold text-fg" : "text-fg-2 hover:bg-fg/[0.06] hover:text-fg",
                 )}
               >
                 <span className="flex items-center gap-2.5">
-                  <span className={cx("h-1.5 w-1.5 rounded-full transition-colors", active(it.href) ? "bg-brass" : "bg-transparent")} aria-hidden />
+                  {ICON[it.href] && !it.sub ? (
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden className={cx("shrink-0 transition-transform duration-300 group-hover:translate-x-0.5 group-hover:scale-110", active(it.href) ? "text-accent" : "opacity-75")}>
+                      <path d={ICON[it.href]} />
+                    </svg>
+                  ) : (
+                    <span className={cx("h-1.5 w-1.5 rounded-full transition-colors", active(it.href) ? "bg-accent" : "bg-transparent")} aria-hidden />
+                  )}
                   {it.label}
                 </span>
                 {n > 0 ? (
-                  <span className={cx("num rounded-full px-1.5 text-[11px] leading-[18px]", it.badge === "needs" || it.badge === "gaps" ? "bg-signal text-ink" : "bg-line text-fg")}>{n}</span>
+                  <span className={cx("num rounded-full px-1.5 text-[11px] leading-[18px]", it.badge === "needs" || it.badge === "gaps" ? "bg-accent text-on-primary" : "bg-line-strong text-fg")}>{n}</span>
                 ) : null}
               </Link>
             </li>
@@ -142,15 +155,17 @@ function ShellInner({ session, workspace, children }: { session: Session; worksp
             <div className="text-[12px] text-muted">{ROLE_NAME[session.role]} desk</div>
           </Link>
           <span className="flex items-center gap-1.5 text-[12px] text-muted" title={connected ? "Live updates connected" : "Reconnecting; refreshing every few seconds"}>
-            <span className={cx("h-2 w-2 rounded-full", connected ? "live-dot bg-brass" : "bg-line-strong")} />
+            {connected ? <span className="ping text-accent" aria-hidden /> : <span className="h-2 w-2 rounded-full bg-line-strong" aria-hidden />}
             {connected ? "Live" : "Polling"}
           </span>
         </div>
-        <div className="mt-3 flex gap-2">
-          <button onClick={toggleTheme} className="h-8 flex-1 rounded-lg border border-line text-[12px] text-fg-2 hover:bg-raised">
-            {theme === "light" ? "Dark theme" : "Light theme"}
+        <div className="mt-3 flex flex-col items-start gap-3">
+          <button type="button" role="switch" aria-checked={theme === "light"} aria-label="Light theme" onClick={toggleTheme} className="tswitch">
+            <i />
+            <span className="a">DARK</span>
+            <span className="b">LIGHT</span>
           </button>
-          <button onClick={signOut} className="h-8 flex-1 rounded-lg border border-line text-[12px] text-fg-2 hover:bg-raised">
+          <button onClick={signOut} className="h-8 rounded-[10px] border border-line-strong px-3 text-[13px] font-medium text-fg hover:bg-raised">
             Sign out
           </button>
         </div>
@@ -170,10 +185,10 @@ function ShellInner({ session, workspace, children }: { session: Session; worksp
       {open ? <div className="fixed inset-0 top-14 z-20 bg-panel lg:hidden">{rail}</div> : null}
       <main className="lg:pl-[248px]">
         {session.role === "owner" && !workspace.live && pathname !== "/app/setup" ? (
-          <div className="border-b border-line bg-brass/10 px-4 py-2.5 text-[13px] sm:px-8">
+          <div className="border-b border-line bg-accent/10 px-4 py-2.5 text-[13px] sm:px-8">
             <span className="font-medium">Your assistant isn&apos;t answering customers yet.</span>{" "}
             <span className="text-fg-2">It only replies in the simulator until you go live.</span>{" "}
-            <Link href={workspace.setupDone ? "/app/settings#assistant" : "/app/setup"} className="font-medium underline decoration-brass underline-offset-4">
+            <Link href={workspace.setupDone ? "/app/settings#assistant" : "/app/setup"} className="font-medium underline decoration-accent underline-offset-4">
               {workspace.setupDone ? "Go live" : "Finish setup"}
             </Link>
           </div>
@@ -184,14 +199,43 @@ function ShellInner({ session, workspace, children }: { session: Session; worksp
   );
 }
 
-export function PageHeader({ title, description, actions }: { title: React.ReactNode; description?: React.ReactNode; actions?: React.ReactNode }) {
+/** A heading whose letters rise in one by one. The word matching `accent` is set in the serif italic, in the accent colour. */
+export function KineticTitle({ text, accent }: { text: string; accent?: string }) {
+  let i = 0;
   return (
-    <div className="mb-8 flex flex-col gap-4 border-b border-line pb-6 sm:flex-row sm:items-end sm:justify-between">
-      <div>
-        <h1 className="font-display text-[34px] font-extrabold leading-[1.02] sm:text-[42px]">{title}</h1>
-        {description ? <p className="mt-2 max-w-[68ch] text-[15px] text-muted">{description}</p> : null}
+    <>
+      {text.split(" ").map((w, wi) => {
+        const isAccent = Boolean(accent) && w.replace(/[^\p{L}\p{N}]/gu, "").toLowerCase() === accent!.toLowerCase();
+        return (
+          <span key={wi} className={cx("k-word", isAccent && "accent-word text-[1.1em] leading-[0.9]")} aria-hidden>
+            {Array.from(w).map((ch, ci) => (
+              <span key={ci} className="k-ch" style={{ "--i": i++ } as React.CSSProperties}>
+                {ch}
+              </span>
+            ))}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
+/** Page title block. Pass `title` as a string (with an optional `accent` word) for the kinetic heading, or a node to render as is. */
+export function PageHeader({ title, accent, description, actions, eyebrow }: { title: React.ReactNode; accent?: string; description?: React.ReactNode; actions?: React.ReactNode; eyebrow?: React.ReactNode }) {
+  return (
+    <div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+      <div className="min-w-0">
+        {eyebrow ? <div className="eyebrow k-fade mb-2.5">{eyebrow}</div> : null}
+        {typeof title === "string" ? (
+          <h1 aria-label={title} className="font-display flex flex-wrap gap-x-[0.26em] text-[36px] font-extrabold leading-none sm:text-[52px]">
+            <KineticTitle text={title} accent={accent} />
+          </h1>
+        ) : (
+          <h1 className="font-display text-[36px] font-extrabold leading-none sm:text-[52px]">{title}</h1>
+        )}
+        {description ? <p className="k-fade mt-3 max-w-[68ch] text-[15px] text-muted" style={{ "--d": 200 } as React.CSSProperties}>{description}</p> : null}
       </div>
-      {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+      {actions ? <div className="k-fade flex flex-wrap items-center gap-2" style={{ "--d": 350 } as React.CSSProperties}>{actions}</div> : null}
     </div>
   );
 }
