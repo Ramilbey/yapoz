@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { apiSession, handle, HttpError } from "@/lib/auth";
 import { body, ok } from "@/lib/api";
+import { audit } from "@/lib/audit";
 import { hit } from "@/lib/ratelimit";
 import { MetaError, removeMetaApp, saveMetaApp } from "@/channels/meta";
 import { clearWebhookIssue, whatsappDependsOnMetaApp } from "@/channels/connections";
@@ -12,7 +13,7 @@ const Save = z.object({
   appSecret: z.string().trim().regex(/^[0-9a-f]{32}$/i, "App secret is the 32-character value in App settings → Basic (press Show)"),
 });
 
-/** The business's Meta app, shared by WhatsApp and Instagram. Meta confirms the App ID and App secret belong together before they're saved. */
+/** The business's own Meta app, for a manually connected WhatsApp number. Meta confirms the App ID and App secret belong together before they're saved. */
 export const POST = handle(async (req: Request) => {
   const s = await apiSession(["owner"]);
   if (!(await hit(`connect:${s.workspaceId}`, "hour", 20)).ok) throw new HttpError(429, "Too many attempts. Try again in an hour.");
@@ -31,5 +32,6 @@ export const DELETE = handle(async () => {
   const s = await apiSession(["owner"]);
   if (await whatsappDependsOnMetaApp(s.workspaceId)) throw new HttpError(409, "Disconnect WhatsApp first: its messages are checked with this app's secret.");
   await removeMetaApp(s.workspaceId);
+  await audit(s, "channel.meta_app_removed");
   return ok({ ok: true });
 });

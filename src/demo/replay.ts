@@ -1,15 +1,12 @@
 import { db, t } from "@/db";
 import { and, eq, sql } from "drizzle-orm";
 import { DEMO_NAMES, type DemoTurn, weightedLibrary, rng } from "./library";
-import { shortCode } from "@/lib/crypto";
-import { addLocalDays, localDate, zoned } from "@/lib/time";
 
-type Channel = "telegram" | "whatsapp" | "instagram" | "simulator";
+type Channel = "telegram" | "whatsapp" | "simulator";
 
 function pickChannel(r: number): Channel {
   if (r < 0.55) return "telegram";
-  if (r < 0.8) return "whatsapp";
-  if (r < 0.95) return "instagram";
+  if (r < 0.85) return "whatsapp";
   return "simulator";
 }
 
@@ -73,16 +70,6 @@ export async function insertDemoTurn(workspaceId: string, timeZone: string, turn
         set: { count: sql`${t.knowledgeGaps.count} + 1`, lastAskedAt: sql`greatest(${t.knowledgeGaps.lastAskedAt}, excluded.last_asked_at)` },
       });
   }
-  if (turn.booking) {
-    const day = addLocalDays(localDate(at, timeZone), turn.booking.dayOffset);
-    const startsAt = zoned(day, turn.booking.time, timeZone);
-    await db.insert(t.bookings).values({
-      workspaceId, threadId: thread.id, customerId: customer.id, customerName: name, partySize: turn.booking.partySize,
-      startsAt, endsAt: new Date(startsAt.getTime() + 90 * 60_000), refCode: shortCode("F7"), status: "confirmed",
-      // Replayed bookings never consume real capacity, so live demo bookings always behave the same.
-      kind: "demo_replay", channel, isDemo: true, createdAt: replyAt,
-    });
-  }
   await db.insert(t.events).values([
     { workspaceId, type: "message.received", props: { channel, topic: turn.topic }, isDemo: true, createdAt: at },
     { workspaceId, type: "message.answered", props: { channel, outcome: turn.outcome, latencyMs: latency }, isDemo: true, createdAt: replyAt },
@@ -103,6 +90,5 @@ export async function clearDemoData(workspaceId: string) {
   await db.delete(t.threads).where(and(eq(t.threads.workspaceId, workspaceId), eq(t.threads.isDemo, true)));
   await db.delete(t.knowledgeGaps).where(and(eq(t.knowledgeGaps.workspaceId, workspaceId), eq(t.knowledgeGaps.isDemo, true)));
   await db.delete(t.events).where(and(eq(t.events.workspaceId, workspaceId), eq(t.events.isDemo, true)));
-  await db.delete(t.bookings).where(and(eq(t.bookings.workspaceId, workspaceId), eq(t.bookings.isDemo, true)));
   await db.execute(sql`delete from customers c where c.workspace_id = ${workspaceId} and c.external_id like 'demo-%'`);
 }

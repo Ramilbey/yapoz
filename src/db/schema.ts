@@ -12,7 +12,9 @@ import {
   uniqueIndex,
   index,
   serial,
+  date,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 const bytea = customType<{ data: Buffer; driverData: Buffer }>({
   dataType() {
@@ -22,31 +24,28 @@ const bytea = customType<{ data: Buffer; driverData: Buffer }>({
 
 const ts = (name: string) => timestamp(name, { withTimezone: true, mode: "date" });
 
-export const roleEnum = pgEnum("role", ["owner", "service", "hr"]);
-export const channelTypeEnum = pgEnum("channel_type", ["telegram", "whatsapp", "instagram", "simulator"]);
+// The database type still lists "hr" and "instagram" (removed modules); nothing writes them any more.
+export const roleEnum = pgEnum("role", ["owner", "service"]);
+export const channelTypeEnum = pgEnum("channel_type", ["telegram", "whatsapp", "simulator"]);
 export const channelModeEnum = pgEnum("channel_mode", ["autopilot", "copilot"]);
 export const threadStatusEnum = pgEnum("thread_status", ["open", "needs_human", "resolved"]);
 export const directionEnum = pgEnum("direction", ["in", "out"]);
 export const authorEnum = pgEnum("author", ["customer", "ai", "staff", "system"]);
 export const messageStatusEnum = pgEnum("message_status", ["received", "pending_approval", "sent", "failed", "discarded"]);
-export const outcomeEnum = pgEnum("run_outcome", ["auto_resolved", "booked", "ordered", "escalated", "drafted", "declined", "error"]);
+export const outcomeEnum = pgEnum("run_outcome", ["auto_resolved", "ordered", "escalated", "drafted", "declined", "error"]);
 export const priorityEnum = pgEnum("priority", ["low", "normal", "high", "urgent"]);
 export const escalationStatusEnum = pgEnum("escalation_status", ["open", "resolved"]);
 export const kbKindEnum = pgEnum("kb_kind", ["product", "service", "policy", "faq", "hours", "info"]);
-export const bookingStatusEnum = pgEnum("booking_status", ["confirmed", "cancelled", "seated", "no_show"]);
 /** pending = waiting for the owner's approval; nothing is promised to the customer until confirmed. */
-export const orderStatusEnum = pgEnum("order_status", ["pending", "confirmed", "ready", "completed", "cancelled"]);
+export const orderStatusEnum = pgEnum("order_status", ["pending", "confirmed", "ready", "completed", "cancelled", "expired"]);
+/** none = made to order (on or off); daily = a fresh quantity every business day; tracked = an on-hand count. */
+export const stockModeEnum = pgEnum("stock_mode", ["none", "daily", "tracked"]);
+/** held = reserved by an order (may expire); firm = paid or kept by staff; consumed = the order was confirmed; released = given back. */
+export const holdStatusEnum = pgEnum("hold_status", ["held", "firm", "consumed", "released"]);
 export const fulfilmentEnum = pgEnum("fulfilment", ["pickup", "delivery"]);
 /** What Jawab makes of a payment receipt next to its order. It is advice for the owner: Jawab can't see the bank. */
 export const receiptVerdictEnum = pgEnum("receipt_verdict", ["consistent", "review", "mismatch", "unreadable"]);
-export const stageEnum = pgEnum("stage", ["sourced", "shortlisted", "invited", "scheduled", "interviewed", "hired", "rejected"]);
-export const outreachKindEnum = pgEnum("outreach_kind", ["invite", "rejection"]);
-export const outreachStatusEnum = pgEnum("outreach_status", ["draft", "approved", "sent", "failed", "cancelled"]);
-export const interviewStatusEnum = pgEnum("interview_status", ["offered", "scheduled", "done", "cancelled"]);
-export const candidateSourceEnum = pgEnum("candidate_source", ["telegram_channel", "bot_apply", "upload"]);
 export const jobStatusEnum = pgEnum("job_status", ["queued", "running", "done", "failed"]);
-
-export const bookingUnitEnum = pgEnum("booking_unit", ["party", "appointment", "day"]);
 
 export type BusinessProfile = {
   type: string;
@@ -71,16 +70,59 @@ export type PaymentSettings = {
 export type WorkspaceSettings = {
   confidenceThreshold: number;
   demoTraffic: boolean;
-  resumeRetentionDays: number;
   business: BusinessProfile;
-  modules: { hiring: boolean };
   /** Channels only get AI replies once the owner presses Go live. */
   live: boolean;
-  onboarding: { step: number; completedAt?: string | null };
+  /** version 2: the wizard has the "How you sell" step (4), so Channels is 5, Try it 6 and Go live 7. */
+  onboarding: { step: number; completedAt?: string | null; version?: number };
   /** Shown publicly as a "try a sample business" demo on the site. */
   sample?: boolean;
-  hr: { interviewMinutes: number; workdayStart: string; workdayEnd: string; location: string };
   payments?: PaymentSettings;
+  /** Conversations and receipt files older than this are deleted by the daily sweep; null keeps them. */
+  privacy?: { retentionDays: number | null };
+  stock?: StockSettings;
+  appointments?: AppointmentSettings;
+};
+
+export type AppointmentSettings = {
+  /** Offered start times are on this grid (30 = :00 and :30). A customer can still ask for any free time. */
+  slotMinutes: number;
+  /** anyone = every staff member who takes appointments does every service; specific = each person's own list. */
+  assignment: "anyone" | "specific";
+  /** How far ahead customers can book. */
+  bookingDays: number;
+  /** The earliest a customer can book, from now. */
+  minNoticeMinutes: number;
+  /** Customers can change or cancel up to this many hours before; closer than that, staff decide. */
+  changeCutoffHours: number;
+  /** The reminder goes this long before the start. */
+  reminderMinutes: number;
+  /** Kept free after each appointment. */
+  bufferMinutes: number;
+  /** Online appointments get a room on this Jitsi server. */
+  meetBase: string;
+  /** WhatsApp only allows approved templates more than 24 hours after the customer's last message: used for reminders then. Params: service, time, link or place. */
+  whatsappTemplate?: { name: string; lang: string } | null;
+};
+
+/** A person's working hours for appointments, like opening hours: a weekly pattern and per-date changes ([] = off that day). */
+export type StaffSchedule = {
+  weekly: Record<string, [string, string][]>;
+  exceptions: { date: string; hours: [string, string][]; note: string }[];
+};
+
+export type StockMode = "none" | "daily" | "tracked";
+export type StockSettings = {
+  /** Items without their own mode use this. */
+  defaultMode: StockMode;
+  /** Local time the business day starts ("00:00"); daily quantities and "sold out today" roll over then. */
+  dayStartsAt: string;
+  /** With payments on, an order's stock is held this long for a passing receipt. */
+  holdMinutes: number;
+  /** How many days ahead customers can order daily items. */
+  preorderDays: number;
+  /** Options without their own threshold alert below this many left. */
+  lowStockDefault: number;
 };
 
 export const workspaces = pgTable("workspaces", {
@@ -102,6 +144,8 @@ export const users = pgTable(
     name: text("name").notNull(),
     passwordHash: text("password_hash").notNull(),
     role: roleEnum("role").notNull(),
+    /** Bumped on password change, role change and "sign out everywhere": older sessions stop working. */
+    sessionVersion: integer("session_version").notNull().default(0),
     createdAt: ts("created_at").defaultNow().notNull(),
   },
   (t) => [uniqueIndex("users_ws_email").on(t.workspaceId, t.email)],
@@ -114,7 +158,7 @@ export const channels = pgTable(
     workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
     type: channelTypeEnum("type").notNull(),
     mode: channelModeEnum("mode").notNull().default("autopilot"),
-    /** Non-secret config: bot username, phone number id, IG account id, HR channel id. */
+    /** Non-secret config: bot username, phone number id, connection health. */
     config: jsonb("config").$type<Record<string, string | number | boolean | null>>().notNull().default({}),
     /** AES-256-GCM encrypted JSON of secrets (tokens). Env vars are used when null. */
     credentialsEnc: text("credentials_enc"),
@@ -152,7 +196,7 @@ export const threads = pgTable(
     status: threadStatusEnum("status").notNull().default("open"),
     aiPaused: boolean("ai_paused").notNull().default(false),
     takenOverBy: uuid("taken_over_by").references(() => users.id, { onDelete: "set null" }),
-    /** Channel routing data: telegram chat id, business_connection_id, IG comment id, etc. */
+    /** Channel routing data: telegram chat id, business_connection_id, WhatsApp number, etc. */
     routing: jsonb("routing").$type<Record<string, string | number | null>>().notNull().default({}),
     accent: text("accent"),
     isDemo: boolean("is_demo").notNull().default(false),
@@ -184,10 +228,20 @@ export const messages = pgTable(
     externalMessageId: text("external_message_id"),
     agentRunId: uuid("agent_run_id"),
     error: text("error"),
+    /** From the channel's delivery receipts (WhatsApp status webhooks): the customer's phone got it / opened it. */
+    deliveredAt: ts("delivered_at"),
+    readAt: ts("read_at"),
     isDemo: boolean("is_demo").notNull().default(false),
     createdAt: ts("created_at").defaultNow().notNull(),
   },
-  (t) => [index("messages_thread_created").on(t.threadId, t.createdAt), index("messages_ws_created").on(t.workspaceId, t.createdAt)],
+  (t) => [
+    index("messages_thread_created").on(t.threadId, t.createdAt),
+    index("messages_ws_created").on(t.workspaceId, t.createdAt),
+    // A channel retrying a webhook must not create the same customer message twice.
+    uniqueIndex("messages_inbound_ext").on(t.threadId, t.externalMessageId).where(sql`direction = 'in' and external_message_id is not null`),
+    index("messages_ws_ext").on(t.workspaceId, t.externalMessageId).where(sql`external_message_id is not null`),
+    index("messages_drafts").on(t.threadId).where(sql`status = 'pending_approval'`),
+  ],
 );
 
 export type ToolCallLog = { name: string; input: unknown; output: unknown; ms: number; ok: boolean; label: string };
@@ -226,8 +280,11 @@ export const escalations = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-    threadId: uuid("thread_id").notNull().references(() => threads.id, { onDelete: "cascade" }),
+    /** null for cards about the business rather than a chat (low stock). */
+    threadId: uuid("thread_id").references(() => threads.id, { onDelete: "cascade" }),
     agentRunId: uuid("agent_run_id"),
+    /** At most one open card per key, e.g. "low_stock:<variant>". */
+    dedupeKey: text("dedupe_key"),
     reason: text("reason").notNull(),
     category: text("category").notNull(),
     priority: priorityEnum("priority").notNull().default("normal"),
@@ -238,7 +295,11 @@ export const escalations = pgTable(
     isDemo: boolean("is_demo").notNull().default(false),
     createdAt: ts("created_at").defaultNow().notNull(),
   },
-  (t) => [index("esc_ws_status").on(t.workspaceId, t.status)],
+  (t) => [
+    index("esc_ws_status").on(t.workspaceId, t.status),
+    index("esc_thread_open").on(t.threadId).where(sql`status = 'open'`),
+    uniqueIndex("esc_dedupe_open").on(t.workspaceId, t.dedupeKey).where(sql`status = 'open' and dedupe_key is not null`),
+  ],
 );
 
 export const kbItems = pgTable(
@@ -253,41 +314,20 @@ export const kbItems = pgTable(
     body: text("body").notNull().default(""),
     data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
     tags: text("tags").array().notNull().default([]),
-    /** For products: false = sold out today. */
+    /** false = off until the owner turns it back on. */
     available: boolean("available").notNull().default(true),
+    /** Sold out until this business day (YYYY-MM-DD): it switches itself back on then. */
+    unavailableUntil: date("unavailable_until", { mode: "string" }),
+    /** null = the business's default (Settings → Stock). */
+    stockMode: stockModeEnum("stock_mode"),
+    /** Services: in person, so no meeting link. Otherwise an appointment gets an online meeting room. */
+    inPerson: boolean("in_person").notNull().default(false),
     availabilityNote: text("availability_note"),
     sort: integer("sort").notNull().default(0),
     active: boolean("active").notNull().default(true),
     updatedAt: ts("updated_at").defaultNow().notNull(),
   },
   (t) => [uniqueIndex("kb_ws_slug").on(t.workspaceId, t.slug), index("kb_ws_kind").on(t.workspaceId, t.kind)],
-);
-
-/**
- * What can be booked, defined by the owner (or drafted by Claude from their description):
- * party = tables/classes by headcount, appointment = one service at a time per staff/station,
- * day = whole days (rooms, rentals, tours).
- */
-export const bookingTypes = pgTable(
-  "booking_types",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-    key: text("key").notNull(),
-    name: text("name").notNull(),
-    unit: bookingUnitEnum("unit").notNull(),
-    /** party: seats per slot; appointment: parallel staff/stations; day: units per day. */
-    capacity: integer("capacity").notNull(),
-    durationMinutes: integer("duration_minutes").notNull().default(60),
-    slotMinutes: integer("slot_minutes").notNull().default(30),
-    maxPerBooking: integer("max_per_booking").notNull().default(1),
-    leadMinutes: integer("lead_minutes").notNull().default(60),
-    notes: text("notes").notNull().default(""),
-    active: boolean("active").notNull().default(true),
-    sort: integer("sort").notNull().default(0),
-    updatedAt: ts("updated_at").defaultNow().notNull(),
-  },
-  (t) => [uniqueIndex("booking_types_ws_key").on(t.workspaceId, t.key)],
 );
 
 export const kbVariants = pgTable(
@@ -302,8 +342,12 @@ export const kbVariants = pgTable(
     option: text("option"),
     /** Price in minor units (sen for MYR). */
     priceMinor: integer("price_minor").notNull(),
-    /** null = made to order (no stock count). */
+    /** Tracked mode: on hand. null = not counted. */
     stock: integer("stock"),
+    /** Daily mode: the usual quantity each business day. null = not counted. */
+    dailyQty: integer("daily_qty"),
+    /** Tracked mode: alert when fewer than this are left. null = the business's default; 0 = never. */
+    lowStockAt: integer("low_stock_at"),
     sku: text("sku"),
   },
   (t) => [index("variants_item").on(t.itemId)],
@@ -326,33 +370,6 @@ export const knowledgeGaps = pgTable(
   (t) => [uniqueIndex("gaps_ws_key").on(t.workspaceId, t.key)],
 );
 
-export const bookings = pgTable(
-  "bookings",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-    threadId: uuid("thread_id").references(() => threads.id, { onDelete: "set null" }),
-    customerId: uuid("customer_id").references(() => customers.id, { onDelete: "set null" }),
-    customerName: text("customer_name").notNull(),
-    phone: text("phone"),
-    kind: text("kind").notNull().default("booking"),
-    bookingTypeId: uuid("booking_type_id").references(() => bookingTypes.id, { onDelete: "set null" }),
-    serviceItemId: uuid("service_item_id"),
-    serviceName: text("service_name"),
-    /** Headcount for party bookings, units for day bookings, 1 for appointments. */
-    partySize: integer("party_size").notNull(),
-    startsAt: ts("starts_at").notNull(),
-    endsAt: ts("ends_at").notNull(),
-    notes: text("notes"),
-    refCode: text("ref_code").notNull(),
-    status: bookingStatusEnum("status").notNull().default("confirmed"),
-    channel: channelTypeEnum("channel"),
-    isDemo: boolean("is_demo").notNull().default(false),
-    createdAt: ts("created_at").defaultNow().notNull(),
-  },
-  (t) => [uniqueIndex("bookings_ref").on(t.refCode), index("bookings_ws_start").on(t.workspaceId, t.startsAt)],
-);
-
 export const orders = pgTable(
   "orders",
   {
@@ -361,6 +378,8 @@ export const orders = pgTable(
     threadId: uuid("thread_id").references(() => threads.id, { onDelete: "set null" }),
     customerId: uuid("customer_id").references(() => customers.id, { onDelete: "set null" }),
     refCode: text("ref_code").notNull(),
+    /** appointment = a booked service; its time and staff are in appointments. Same approval and payment flow. */
+    kind: text("kind").$type<"order" | "appointment">().notNull().default("order"),
     customerName: text("customer_name").notNull(),
     phone: text("phone"),
     fulfilment: fulfilmentEnum("fulfilment").notNull().default("pickup"),
@@ -380,6 +399,15 @@ export const orders = pgTable(
     channel: channelTypeEnum("channel"),
     handledBy: uuid("handled_by").references(() => users.id, { onDelete: "set null" }),
     cancelReason: text("cancel_reason"),
+    receiptRequest: jsonb("receipt_request").$type<ReceiptRequest | null>(),
+    /** The business day a daily-stock order is for (YYYY-MM-DD). */
+    wantedDate: date("wanted_date", { mode: "string" }),
+    /** Payments on: the order expires (and its stock goes back) at this time unless a passing receipt or staff firm it. null = no timer. */
+    holdExpiresAt: ts("hold_expires_at"),
+    /** What stopped the timer: a receipt that passed the checks, or staff pressing Keep reserved. */
+    firmedBy: text("firmed_by").$type<"receipt" | "staff" | null>(),
+    expiredAt: ts("expired_at"),
+    notifications: jsonb("notifications").$type<OrderNotification[]>().notNull().default([]),
     isDemo: boolean("is_demo").notNull().default(false),
     createdAt: ts("created_at").defaultNow().notNull(),
     confirmedAt: ts("confirmed_at"),
@@ -387,8 +415,102 @@ export const orders = pgTable(
     completedAt: ts("completed_at"),
     cancelledAt: ts("cancelled_at"),
   },
-  (t) => [uniqueIndex("orders_ws_ref").on(t.workspaceId, t.refCode), index("orders_ws_status_created").on(t.workspaceId, t.status, t.createdAt)],
+  (t) => [
+    uniqueIndex("orders_ws_ref").on(t.workspaceId, t.refCode),
+    index("orders_ws_status_created").on(t.workspaceId, t.status, t.createdAt),
+    index("orders_thread").on(t.threadId),
+    index("orders_hold_due").on(t.holdExpiresAt).where(sql`status = 'pending' and hold_expires_at is not null`),
+  ],
 );
+
+/** Staff who take appointments: everyone with a login can, once switched on. */
+export const staff = pgTable("staff", {
+  userId: uuid("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  takesAppointments: boolean("takes_appointments").notNull().default(false),
+  /** null = the business's opening hours. */
+  schedule: jsonb("schedule").$type<StaffSchedule | null>(),
+  /** The services this person does, when the business assigns services to specific staff. */
+  serviceIds: uuid("service_ids").array().notNull().default([]),
+  updatedAt: ts("updated_at").defaultNow().notNull(),
+});
+
+export type Attendance = "present" | "late" | "no_show";
+
+/**
+ * A booked service: who, when, and the meeting room. Its order carries the approval, payment and status. The time is
+ * taken while the order is confirmed (or done), or pending and its payment timer hasn't run out.
+ */
+export const appointments = pgTable(
+  "appointments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    orderId: uuid("order_id").notNull().references(() => orders.id, { onDelete: "cascade" }),
+    staffId: uuid("staff_id").references(() => users.id, { onDelete: "set null" }),
+    itemId: uuid("item_id").references(() => kbItems.id, { onDelete: "set null" }),
+    variantId: uuid("variant_id").references(() => kbVariants.id, { onDelete: "set null" }),
+    startsAt: ts("starts_at").notNull(),
+    endsAt: ts("ends_at").notNull(),
+    /** null for in-person services. */
+    meetLink: text("meet_link"),
+    attendance: text("attendance").$type<Attendance | null>(),
+    attendanceBy: uuid("attendance_by").references(() => users.id, { onDelete: "set null" }),
+    attendanceAt: ts("attendance_at"),
+    remindedAt: ts("reminded_at"),
+    isDemo: boolean("is_demo").notNull().default(false),
+    createdAt: ts("created_at").defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("appointments_order").on(t.orderId), index("appointments_staff_start").on(t.staffId, t.startsAt), index("appointments_ws_start").on(t.workspaceId, t.startsAt)],
+);
+
+/** Daily mode: the quantity for one day when it differs from the usual. Rows never need resetting: the date is the reset. */
+export const dailyStock = pgTable(
+  "daily_stock",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    variantId: uuid("variant_id").notNull().references(() => kbVariants.id, { onDelete: "cascade" }),
+    date: date("date", { mode: "string" }).notNull(),
+    qty: integer("qty").notNull(),
+    updatedAt: ts("updated_at").defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("daily_stock_variant_date").on(t.variantId, t.date)],
+);
+
+/**
+ * Stock an order reserves when it is placed. Daily holds carry the day (date); tracked holds don't (date null).
+ * Available = base minus firm holds and held ones not yet expired (and, for a day, the consumed ones).
+ */
+export const stockHolds = pgTable(
+  "stock_holds",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    orderId: uuid("order_id").notNull().references(() => orders.id, { onDelete: "cascade" }),
+    variantId: uuid("variant_id").notNull().references(() => kbVariants.id, { onDelete: "cascade" }),
+    date: date("date", { mode: "string" }),
+    qty: integer("qty").notNull(),
+    status: holdStatusEnum("status").notNull().default("held"),
+    expiresAt: ts("expires_at"),
+    isDemo: boolean("is_demo").notNull().default(false),
+    createdAt: ts("created_at").defaultNow().notNull(),
+  },
+  (t) => [index("holds_variant_status").on(t.variantId, t.status), index("holds_order").on(t.orderId)],
+);
+
+/** Staff asked the customer for another receipt: why, and what the next one should show. Cleared (fulfilledAt) when it arrives. */
+export type ReceiptRequest = {
+  reason: string;
+  /** replace: send a correct receipt for the full amount; top_up: pay the difference and send that receipt. */
+  kind: "replace" | "top_up";
+  expectedMinor: number;
+  requestedAt: string;
+  requestedBy: string | null;
+  fulfilledAt?: string | null;
+};
+/** Every message staff actions sent the customer about this order, and whether it reached them. */
+export type OrderNotification = { kind: string; messageId: string | null; status: "sent" | "failed" | "no_chat" | "draft"; error?: string | null; at: string };
 
 /** What the AI read off a receipt. Every field is null when it wasn't visible: nothing here is a guess. */
 export type ReceiptReading = {
@@ -423,6 +545,9 @@ export const orderReceipts = pgTable(
     verdict: receiptVerdictEnum("verdict").notNull(),
     /** The reading's model, e.g. "Google Gemini: gemini-3.8-flash". */
     model: text("model"),
+    /** Staff turned this receipt down and asked for another; it no longer counts towards the order. */
+    rejectedAt: ts("rejected_at"),
+    rejectedReason: text("rejected_reason"),
     isDemo: boolean("is_demo").notNull().default(false),
     createdAt: ts("created_at").defaultNow().notNull(),
   },
@@ -444,159 +569,6 @@ export const orderItems = pgTable(
     note: text("note"),
   },
   (t) => [index("order_items_order").on(t.orderId)],
-);
-
-export type Criteria = {
-  role: string;
-  skills: { name: string; minYears?: number; required: boolean }[];
-  availability: string[];
-  near?: { district: string; maxKm: number } | null;
-  languages: string[];
-  minTotalYears?: number | null;
-  ignored: string[];
-};
-
-export const requisitions = pgTable("requisitions", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-  title: text("title").notNull(),
-  description: text("description").notNull().default(""),
-  rawRequest: text("raw_request"),
-  criteria: jsonb("criteria").$type<Criteria>(),
-  fairnessNotice: boolean("fairness_notice").notNull().default(false),
-  status: text("status").notNull().default("open"),
-  createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
-  rankedAt: ts("ranked_at"),
-  createdAt: ts("created_at").defaultNow().notNull(),
-});
-
-export type CandidateProfile = {
-  headline: string;
-  skills: { name: string; years: number }[];
-  pastRoles: { title: string; place: string; years: number }[];
-  availability: string[];
-  district: string | null;
-  languages: string[];
-  totalYears: number;
-  contact: { channel: string; value: string | null };
-  summary: string;
-};
-
-export const candidates = pgTable(
-  "candidates",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-    fullName: text("full_name").notNull(),
-    source: candidateSourceEnum("source").notNull(),
-    sourceRef: text("source_ref"),
-    roleInterest: text("role_interest"),
-    telegramChatId: text("telegram_chat_id"),
-    /** Which bot can message them: "platform" (shared Jawab bot) or the business's own bot channel id. */
-    telegramBot: text("telegram_bot"),
-    telegramUsername: text("telegram_username"),
-    phone: text("phone"),
-    email: text("email"),
-    language: text("language").notNull().default("en"),
-    district: text("district"),
-    totalYears: numeric("total_years", { mode: "number" }),
-    availability: text("availability").array().notNull().default([]),
-    profile: jsonb("profile").$type<CandidateProfile>(),
-    rawText: text("raw_text").notNull(),
-    consent: boolean("consent").notNull().default(false),
-    consentAt: ts("consent_at"),
-    parsedBy: text("parsed_by"),
-    parsedAt: ts("parsed_at"),
-    createdAt: ts("created_at").defaultNow().notNull(),
-  },
-  (t) => [index("cand_ws").on(t.workspaceId)],
-);
-
-export const candidateDocuments = pgTable("candidate_documents", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-  candidateId: uuid("candidate_id").notNull().references(() => candidates.id, { onDelete: "cascade" }),
-  filename: text("filename").notNull(),
-  mime: text("mime").notNull(),
-  bytes: bytea("bytes").notNull(),
-  text: text("text").notNull().default(""),
-  createdAt: ts("created_at").defaultNow().notNull(),
-});
-
-export type Evidence = { quote: string; why: string };
-
-export const matches = pgTable(
-  "matches",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-    requisitionId: uuid("requisition_id").notNull().references(() => requisitions.id, { onDelete: "cascade" }),
-    candidateId: uuid("candidate_id").notNull().references(() => candidates.id, { onDelete: "cascade" }),
-    score: integer("score"),
-    evidence: jsonb("evidence").$type<Evidence[]>().notNull().default([]),
-    summary: text("summary"),
-    distanceKm: numeric("distance_km", { mode: "number" }),
-    stage: stageEnum("stage").notNull().default("sourced"),
-    updatedAt: ts("updated_at").defaultNow().notNull(),
-    createdAt: ts("created_at").defaultNow().notNull(),
-  },
-  (t) => [uniqueIndex("matches_req_cand").on(t.requisitionId, t.candidateId)],
-);
-
-export type SlotOffer = { start: string; end: string };
-
-export const outreach = pgTable("outreach", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-  matchId: uuid("match_id").notNull().references(() => matches.id, { onDelete: "cascade" }),
-  candidateId: uuid("candidate_id").notNull().references(() => candidates.id, { onDelete: "cascade" }),
-  kind: outreachKindEnum("kind").notNull(),
-  channel: text("channel").notNull(),
-  language: text("language").notNull().default("en"),
-  interviewMode: text("interview_mode"),
-  slots: jsonb("slots").$type<SlotOffer[]>().notNull().default([]),
-  draft: text("draft").notNull(),
-  finalText: text("final_text"),
-  status: outreachStatusEnum("status").notNull().default("draft"),
-  approverId: uuid("approver_id").references(() => users.id, { onDelete: "set null" }),
-  approvedAt: ts("approved_at"),
-  sentAt: ts("sent_at"),
-  error: text("error"),
-  createdAt: ts("created_at").defaultNow().notNull(),
-});
-
-export const interviews = pgTable("interviews", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-  matchId: uuid("match_id").notNull().references(() => matches.id, { onDelete: "cascade" }),
-  candidateId: uuid("candidate_id").notNull().references(() => candidates.id, { onDelete: "cascade" }),
-  requisitionId: uuid("requisition_id").notNull().references(() => requisitions.id, { onDelete: "cascade" }),
-  outreachId: uuid("outreach_id"),
-  startsAt: ts("starts_at").notNull(),
-  endsAt: ts("ends_at").notNull(),
-  mode: text("mode").notNull().default("onsite"),
-  location: text("location"),
-  meetUrl: text("meet_url"),
-  provider: text("provider").notNull().default("builtin"),
-  externalEventId: text("external_event_id"),
-  status: interviewStatusEnum("status").notNull().default("scheduled"),
-  createdAt: ts("created_at").defaultNow().notNull(),
-});
-
-/** Built-in calendar: HR busy blocks + interviews mirror. */
-export const calendarEvents = pgTable(
-  "calendar_events",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
-    title: text("title").notNull(),
-    kind: text("kind").notNull().default("busy"),
-    interviewId: uuid("interview_id"),
-    startsAt: ts("starts_at").notNull(),
-    endsAt: ts("ends_at").notNull(),
-  },
-  (t) => [index("cal_ws_start").on(t.workspaceId, t.startsAt)],
 );
 
 export const integrations = pgTable(
@@ -626,22 +598,6 @@ export const telegramBusinessConnections = pgTable("telegram_business_connection
   updatedAt: ts("updated_at").defaultNow().notNull(),
 });
 
-/** Conversational state for bot flows such as /apply. */
-export const botSessions = pgTable(
-  "bot_sessions",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-    channel: channelTypeEnum("channel").notNull(),
-    chatId: text("chat_id").notNull(),
-    flow: text("flow").notNull(),
-    step: text("step").notNull(),
-    data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
-    updatedAt: ts("updated_at").defaultNow().notNull(),
-  },
-  (t) => [uniqueIndex("bot_sessions_chat").on(t.workspaceId, t.channel, t.chatId)],
-);
-
 export const events = pgTable(
   "events",
   {
@@ -652,7 +608,7 @@ export const events = pgTable(
     isDemo: boolean("is_demo").notNull().default(false),
     createdAt: ts("created_at").defaultNow().notNull(),
   },
-  (t) => [index("events_ws_type_created").on(t.workspaceId, t.type, t.createdAt)],
+  (t) => [index("events_ws_type_created").on(t.workspaceId, t.type, t.createdAt), index("events_ws_created").on(t.workspaceId, t.createdAt)],
 );
 
 export const jobs = pgTable(

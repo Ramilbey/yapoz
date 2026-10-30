@@ -6,7 +6,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Yapoz: every question, answered",
-  description: "Yapoz is the AI front desk for any business: it answers your customers on WhatsApp, Telegram and Instagram from your own prices, stock and calendar, takes bookings, and hands the tricky ones to you.",
+  description: "Yapoz is the AI front desk for any business: it answers your customers on WhatsApp and Telegram from your own prices and stock, turns chats into orders for your approval, and hands the tricky ones to you.",
   icons: { icon: "/yapoz.svg" },
 };
 

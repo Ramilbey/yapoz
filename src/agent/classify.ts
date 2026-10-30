@@ -14,7 +14,7 @@ export type Classification = {
   holding_reply: string;
 };
 
-const INTENTS = ["greeting", "question", "price", "stock", "booking", "booking_change", "order", "delivery", "complaint", "refund", "partnership", "negotiation", "allergy", "legal", "abuse", "feedback", "jobs", "off_topic", "other"];
+const INTENTS = ["greeting", "question", "price", "stock", "order", "order_change", "payment", "delivery", "appointment", "complaint", "refund", "partnership", "negotiation", "allergy", "legal", "abuse", "feedback", "off_topic", "other"];
 
 const TOOL: Anthropic.Messages.Tool = {
   name: "classify",
@@ -23,7 +23,7 @@ const TOOL: Anthropic.Messages.Tool = {
     type: "object",
     properties: {
       intent: { type: "string", enum: INTENTS },
-      topic: { type: "string", description: "2-4 word topic, lowercase, e.g. 'opening hours', 'gluten-free base', 'table booking'" },
+      topic: { type: "string", description: "2-4 word topic, lowercase, e.g. 'opening hours', 'gluten-free base', 'delivery area'" },
       language: { type: "string", description: "BCP-47 code of the customer's language, e.g. en, ms, zh, ta, ru, uz-Latn" },
       sentiment: { type: "string", enum: ["positive", "neutral", "negative"] },
       confidence: { type: "number", description: "0-1: how clearly the request can be understood and handled as a normal customer question" },
@@ -41,7 +41,7 @@ export async function classify(businessName: string, businessType: string, recen
     const res = await claude().messages.create({
       model: env.fastModel,
       max_tokens: 300,
-      system: `You classify customer messages sent to ${businessName}${businessType ? `, a ${businessType}` : ""}. Questions, orders, bookings, casual chat, slang, asking for recommendations or what's available, and follow-ups are normal business messages: confidence >= 0.85 and must_escalate = false. Set must_escalate only for the categories in its description, when the customer actually expresses one.`,
+      system: `You classify customer messages sent to ${businessName}${businessType ? `, a ${businessType}` : ""}. Questions, orders, payment receipts, casual chat, slang, asking for recommendations or what's available, and follow-ups are normal business messages: confidence >= 0.85 and must_escalate = false. Set must_escalate only for the categories in its description, when the customer actually expresses one.`,
       tools: [TOOL],
       tool_choice: { type: "tool", name: "classify" },
       messages: [{ role: "user", content: `${recent ? `Earlier in the chat:\n${recent}\n\n` : ""}Latest customer message:\n${latest}` }],

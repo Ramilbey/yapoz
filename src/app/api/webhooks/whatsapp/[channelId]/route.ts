@@ -5,6 +5,7 @@ import { decryptJson, safeEqual, verifyMetaSignature } from "@/lib/crypto";
 import { webhookAppSecret } from "@/channels/meta";
 import type { WhatsAppSecrets } from "@/channels/connections";
 import { createHash } from "node:crypto";
+import { applyWhatsAppStatuses } from "@/channels/whatsapp";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -30,7 +31,7 @@ async function note(channelId: string, info: { issue: "signature" | null; test: 
     .catch((e) => console.error("[whatsapp:webhook] couldn't record status", e));
 }
 
-type Change = { field?: string; value?: { messages?: unknown[]; metadata?: { phone_number_id?: string } } };
+type Change = { field?: string; value?: { messages?: unknown[]; statuses?: unknown[]; metadata?: { phone_number_id?: string } } };
 type Body = { object?: string; entry?: { id?: string; changes?: Change[] }[] };
 
 export async function GET(req: Request, ctx: { params: Promise<{ channelId: string }> }) {
@@ -65,6 +66,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ channelId: str
   // Only messages to this business's number. Meta's "Test" button sends a sample for a made-up number:
   // record that it arrived (proof the webhook works) but don't answer it.
   const mine = String(c.ch.config.phoneNumberId ?? "");
+  const statuses = (body.entry ?? []).flatMap((e) => (e.changes ?? []).filter((x) => x.value?.statuses?.length && (!x.value.metadata?.phone_number_id || x.value.metadata.phone_number_id === mine)));
+  if (statuses.length) await applyWhatsAppStatuses(c.ch.workspaceId, { entry: [{ id: "", changes: statuses as never }] });
   const ours = (x: Change) => Boolean(x.value?.messages?.length) && (!x.value?.metadata?.phone_number_id || x.value.metadata.phone_number_id === mine);
   const entry = (body.entry ?? []).map((e) => ({ ...e, changes: (e.changes ?? []).filter(ours) })).filter((e) => e.changes.length);
   const sample = !entry.length && (body.entry ?? []).some((e) => e.changes?.some((x) => x.value?.messages?.length));
@@ -72,11 +75,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ channelId: str
   if (sample) console.log(`[whatsapp:webhook] Test webhook for another number received on channel ${c.ch.id}; not answered.`);
 
   if (entry.length) {
-    // Answer before responding: Meta retries slow deliveries, and the dedupe key drops the repeats.
+    // Answer Meta first and reply to the customer right after (after()): Meta retries slow deliveries, and the dedupe key drops the repeats.
     await enqueue(
       "whatsapp.webhook",
       { workspaceId: c.ch.workspaceId, body: { object: body.object, entry } },
-      { dedupeKey: `wa:${c.ch.workspaceId}:${createHash("sha256").update(raw).digest("hex")}`, workspaceId: c.ch.workspaceId, run: "now" },
+      { dedupeKey: `wa:${c.ch.workspaceId}:${createHash("sha256").update(raw).digest("hex")}`, workspaceId: c.ch.workspaceId },
     );
   }
   return Response.json({ ok: true });

@@ -18,8 +18,8 @@ export default async function SignupPage() {
           {[
             ["Sign up", "your business and your owner account."],
             ["Explain your business", "in your own words, or upload your menu or price list. Yapoz drafts the rest."],
-            ["Connect", "Telegram, WhatsApp and Instagram."],
-            ["Go live.", "Customers get answers, bookings land in your diary, anything tricky comes to you."],
+            ["Connect", "Telegram and WhatsApp."],
+            ["Go live.", "Customers get answers, orders wait for your yes, anything tricky comes to you."],
           ].map(([a, b], i) => (
             <li key={a} className="flex gap-3">
               <span className="num mt-0.5 text-[13px] text-brass">{String(i + 1).padStart(2, "0")}</span>

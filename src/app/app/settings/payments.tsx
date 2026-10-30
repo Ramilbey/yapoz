@@ -10,17 +10,17 @@ type Draft = Omit<PayAccount, "id">;
 const TYPES: Record<Draft["type"], string> = { bank_transfer: "Bank transfer", duitnow: "DuitNow", ewallet: "E-wallet" };
 const blank = (): Draft => ({ type: "bank_transfer", provider: "", accountName: "", accountNumber: "" });
 
-/** Made-up details, for trying receipts without anyone's real account. */
-const SAMPLE: Draft[] = [
-  { type: "bank_transfer", provider: "Sample Bank", accountName: "USA Pizza Sdn Bhd", accountNumber: "1234 5678 9012" },
-  { type: "duitnow", provider: "DuitNow", accountName: "USA Pizza Sdn Bhd", accountNumber: "012-345 6789" },
+/** Made-up numbers under this business's own name, for trying receipts without anyone's real account. */
+const sample = (name: string): Draft[] => [
+  { type: "bank_transfer", provider: "Sample Bank", accountName: name, accountNumber: "1234 5678 9012" },
+  { type: "duitnow", provider: "DuitNow", accountName: name, accountNumber: "012-345 6789" },
 ];
 
 /**
  * Where customers pay. After an order, the assistant gives them these details and asks for the receipt; each receipt
  * is read and compared with the order and with these accounts, so the owner sees at a glance whether it adds up.
  */
-export function Payments({ initial, patch }: { initial: PaymentSettings | undefined; patch: Patch }) {
+export function Payments({ initial, businessName, patch }: { initial: PaymentSettings | undefined; businessName: string; patch: Patch }) {
   const [enabled, setEnabled] = useState(Boolean(initial?.enabled));
   const [requireReceipt, setRequireReceipt] = useState(initial?.requireReceipt !== false);
   const [note, setNote] = useState(initial?.note ?? "");
@@ -95,7 +95,7 @@ export function Payments({ initial, patch }: { initial: PaymentSettings | undefi
             </Button>
           ) : null}
           {!accounts.length ? (
-            <button type="button" className="text-[13px] text-fg-2 underline decoration-brass underline-offset-4" onClick={() => setAccounts(SAMPLE)}>
+            <button type="button" className="text-[13px] text-fg-2 underline decoration-brass underline-offset-4" onClick={() => setAccounts(sample(businessName))}>
               Fill in made-up sample details
             </button>
           ) : null}

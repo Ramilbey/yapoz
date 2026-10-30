@@ -634,3 +634,206 @@ CREATE POLICY "orders_ws" ON "orders" USING (workspace_id = current_setting('app
 ALTER TABLE "order_items" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 DROP POLICY IF EXISTS "order_items_ws" ON "order_items";--> statement-breakpoint
 CREATE POLICY "order_items_ws" ON "order_items" USING (workspace_id = current_setting('app.workspace_id', true)) WITH CHECK (workspace_id = current_setting('app.workspace_id', true));
+
+-- 0004_cleanup_and_orders
+-- Booking, hiring and Instagram are removed. Their tables go, rows that only made sense for them go
+-- (HR accounts, Instagram customers and their conversations), and the enums lose the old values.
+-- New: receipt re-requests, customer-notification tracking, delivery receipts, session revocation, and
+-- indexes that keep the inbox fast and stop a retried webhook from saving the same message twice.
+-- Safe to run more than once (it can also be pasted into the Supabase SQL editor).
+DROP TABLE IF EXISTS "calendar_events", "interviews", "outreach", "matches", "candidate_documents", "candidates", "requisitions", "bookings", "booking_types", "bot_sessions" CASCADE;
+DROP TYPE IF EXISTS "public"."booking_status";
+DROP TYPE IF EXISTS "public"."booking_unit";
+DROP TYPE IF EXISTS "public"."candidate_source";
+DROP TYPE IF EXISTS "public"."interview_status";
+DROP TYPE IF EXISTS "public"."outreach_kind";
+DROP TYPE IF EXISTS "public"."outreach_status";
+DROP TYPE IF EXISTS "public"."stage";
+DELETE FROM "integrations" WHERE "provider" = 'google';
+UPDATE "workspaces" SET "settings" = "settings" - 'modules' - 'hr' - 'resumeRetentionDays' WHERE "settings" ?| array['modules', 'hr', 'resumeRetentionDays'];
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid WHERE t.typname = 'role' AND e.enumlabel = 'hr') THEN
+    DELETE FROM "invites" WHERE "role" = 'hr';
+    DELETE FROM "users" WHERE "role" = 'hr';
+    ALTER TABLE "invites" ALTER COLUMN "role" SET DATA TYPE text;
+    ALTER TABLE "users" ALTER COLUMN "role" SET DATA TYPE text;
+    DROP TYPE "public"."role";
+    CREATE TYPE "public"."role" AS ENUM('owner', 'service');
+    ALTER TABLE "invites" ALTER COLUMN "role" SET DATA TYPE "public"."role" USING "role"::"public"."role";
+    ALTER TABLE "users" ALTER COLUMN "role" SET DATA TYPE "public"."role" USING "role"::"public"."role";
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid WHERE t.typname = 'channel_type' AND e.enumlabel = 'instagram') THEN
+    UPDATE "orders" SET "channel" = NULL WHERE "channel" = 'instagram';
+    DELETE FROM "customers" WHERE "channel" = 'instagram';
+    DELETE FROM "threads" WHERE "channel" = 'instagram';
+    DELETE FROM "agent_runs" WHERE "channel" = 'instagram';
+    DELETE FROM "channels" WHERE "type" = 'instagram';
+    ALTER TABLE "agent_runs" ALTER COLUMN "channel" SET DATA TYPE text;
+    ALTER TABLE "channels" ALTER COLUMN "type" SET DATA TYPE text;
+    ALTER TABLE "customers" ALTER COLUMN "channel" SET DATA TYPE text;
+    ALTER TABLE "orders" ALTER COLUMN "channel" SET DATA TYPE text;
+    ALTER TABLE "threads" ALTER COLUMN "channel" SET DATA TYPE text;
+    DROP TYPE "public"."channel_type";
+    CREATE TYPE "public"."channel_type" AS ENUM('telegram', 'whatsapp', 'simulator');
+    ALTER TABLE "agent_runs" ALTER COLUMN "channel" SET DATA TYPE "public"."channel_type" USING "channel"::"public"."channel_type";
+    ALTER TABLE "channels" ALTER COLUMN "type" SET DATA TYPE "public"."channel_type" USING "type"::"public"."channel_type";
+    ALTER TABLE "customers" ALTER COLUMN "channel" SET DATA TYPE "public"."channel_type" USING "channel"::"public"."channel_type";
+    ALTER TABLE "orders" ALTER COLUMN "channel" SET DATA TYPE "public"."channel_type" USING "channel"::"public"."channel_type";
+    ALTER TABLE "threads" ALTER COLUMN "channel" SET DATA TYPE "public"."channel_type" USING "channel"::"public"."channel_type";
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid WHERE t.typname = 'run_outcome' AND e.enumlabel = 'booked') THEN
+    ALTER TABLE "agent_runs" ALTER COLUMN "outcome" SET DATA TYPE text;
+    UPDATE "agent_runs" SET "outcome" = 'auto_resolved' WHERE "outcome" = 'booked';
+    DROP TYPE "public"."run_outcome";
+    CREATE TYPE "public"."run_outcome" AS ENUM('auto_resolved', 'ordered', 'escalated', 'drafted', 'declined', 'error');
+    ALTER TABLE "agent_runs" ALTER COLUMN "outcome" SET DATA TYPE "public"."run_outcome" USING "outcome"::"public"."run_outcome";
+  END IF;
+END $$;
+ALTER TABLE "messages" ADD COLUMN IF NOT EXISTS "delivered_at" timestamp with time zone;
+ALTER TABLE "messages" ADD COLUMN IF NOT EXISTS "read_at" timestamp with time zone;
+ALTER TABLE "order_receipts" ADD COLUMN IF NOT EXISTS "rejected_at" timestamp with time zone;
+ALTER TABLE "order_receipts" ADD COLUMN IF NOT EXISTS "rejected_reason" text;
+ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "receipt_request" jsonb;
+ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "notifications" jsonb DEFAULT '[]'::jsonb NOT NULL;
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "session_version" integer DEFAULT 0 NOT NULL;
+-- Earlier duplicates of the same inbound message (a retried webhook racing the first delivery) would block the unique index.
+DELETE FROM "messages" m USING "messages" d
+  WHERE m.direction = 'in' AND m.external_message_id IS NOT NULL AND d.direction = 'in'
+    AND d.thread_id = m.thread_id AND d.external_message_id = m.external_message_id AND (d.created_at, d.id) < (m.created_at, m.id);
+CREATE UNIQUE INDEX IF NOT EXISTS "messages_inbound_ext" ON "messages" USING btree ("thread_id","external_message_id") WHERE direction = 'in' and external_message_id is not null;
+CREATE INDEX IF NOT EXISTS "messages_ws_ext" ON "messages" USING btree ("workspace_id","external_message_id") WHERE external_message_id is not null;
+CREATE INDEX IF NOT EXISTS "messages_drafts" ON "messages" USING btree ("thread_id") WHERE status = 'pending_approval';
+CREATE INDEX IF NOT EXISTS "esc_thread_open" ON "escalations" USING btree ("thread_id") WHERE status = 'open';
+CREATE INDEX IF NOT EXISTS "events_ws_created" ON "events" USING btree ("workspace_id","created_at");
+CREATE INDEX IF NOT EXISTS "orders_thread" ON "orders" USING btree ("thread_id");
+-- Receipts carry the file: the generic notify function would serialize megabytes per insert just to send five fields.
+CREATE OR REPLACE FUNCTION jawab_notify_receipt() RETURNS trigger AS $$
+DECLARE
+  r record;
+BEGIN
+  IF TG_OP = 'DELETE' THEN r := OLD; ELSE r := NEW; END IF;
+  PERFORM pg_notify('ws_' || lower(r.workspace_id), json_build_object('t', TG_TABLE_NAME, 'op', TG_OP, 'id', r.id, 'thread', r.thread_id, 'demo', r.is_demo)::text);
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS "order_receipts_notify" ON "order_receipts";
+CREATE TRIGGER "order_receipts_notify" AFTER INSERT OR UPDATE OR DELETE ON "order_receipts" FOR EACH ROW EXECUTE FUNCTION jawab_notify_receipt();
+-- The Activity page follows new events live.
+DROP TRIGGER IF EXISTS "events_notify" ON "events";
+CREATE TRIGGER "events_notify" AFTER INSERT ON "events" FOR EACH ROW EXECUTE FUNCTION jawab_notify();
+
+-- 0005_stock
+-- Stock modes (made to order, daily quantity, tracked count), holds that reserve stock when an order is placed, an
+-- "expired" order status for orders whose payment didn't arrive in time, and low-stock cards that aren't about a chat.
+-- Existing data: items whose options already had a stock count become "tracked"; everything else follows the
+-- business's default mode. Existing orders get no holds and no timer. Safe to run more than once (Supabase SQL editor too).
+DO $$ BEGIN
+  CREATE TYPE "public"."hold_status" AS ENUM('held', 'firm', 'consumed', 'released');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE "public"."stock_mode" AS ENUM('none', 'daily', 'tracked');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+ALTER TYPE "public"."order_status" ADD VALUE IF NOT EXISTS 'expired';
+CREATE TABLE IF NOT EXISTS "daily_stock" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" text NOT NULL REFERENCES "public"."workspaces"("id") ON DELETE cascade,
+	"variant_id" uuid NOT NULL REFERENCES "public"."kb_variants"("id") ON DELETE cascade,
+	"date" date NOT NULL,
+	"qty" integer NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+CREATE TABLE IF NOT EXISTS "stock_holds" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" text NOT NULL REFERENCES "public"."workspaces"("id") ON DELETE cascade,
+	"order_id" uuid NOT NULL REFERENCES "public"."orders"("id") ON DELETE cascade,
+	"variant_id" uuid NOT NULL REFERENCES "public"."kb_variants"("id") ON DELETE cascade,
+	"date" date,
+	"qty" integer NOT NULL,
+	"status" "hold_status" DEFAULT 'held' NOT NULL,
+	"expires_at" timestamp with time zone,
+	"is_demo" boolean DEFAULT false NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+ALTER TABLE "escalations" ALTER COLUMN "thread_id" DROP NOT NULL;
+ALTER TABLE "escalations" ADD COLUMN IF NOT EXISTS "dedupe_key" text;
+ALTER TABLE "kb_items" ADD COLUMN IF NOT EXISTS "unavailable_until" date;
+ALTER TABLE "kb_items" ADD COLUMN IF NOT EXISTS "stock_mode" "stock_mode";
+ALTER TABLE "kb_variants" ADD COLUMN IF NOT EXISTS "daily_qty" integer;
+ALTER TABLE "kb_variants" ADD COLUMN IF NOT EXISTS "low_stock_at" integer;
+ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "wanted_date" date;
+ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "hold_expires_at" timestamp with time zone;
+ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "firmed_by" text;
+ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "expired_at" timestamp with time zone;
+CREATE UNIQUE INDEX IF NOT EXISTS "daily_stock_variant_date" ON "daily_stock" USING btree ("variant_id","date");
+CREATE INDEX IF NOT EXISTS "holds_variant_status" ON "stock_holds" USING btree ("variant_id","status");
+CREATE INDEX IF NOT EXISTS "holds_order" ON "stock_holds" USING btree ("order_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "esc_dedupe_open" ON "escalations" USING btree ("workspace_id","dedupe_key") WHERE status = 'open' and dedupe_key is not null;
+CREATE INDEX IF NOT EXISTS "orders_hold_due" ON "orders" USING btree ("hold_expires_at") WHERE status = 'pending' and hold_expires_at is not null;
+-- Options that already counted stock keep counting it, whatever the business default turns out to be.
+UPDATE "kb_items" i SET "stock_mode" = 'tracked'
+  WHERE i."stock_mode" IS NULL AND EXISTS (SELECT 1 FROM "kb_variants" v WHERE v."item_id" = i."id" AND v."stock" IS NOT NULL);
+-- Live updates (jawab_notify() comes from 0001/0002) and the same workspace row-level policy as every other table.
+DROP TRIGGER IF EXISTS "stock_holds_notify" ON "stock_holds";
+CREATE TRIGGER "stock_holds_notify" AFTER INSERT OR UPDATE OR DELETE ON "stock_holds" FOR EACH ROW EXECUTE FUNCTION jawab_notify();
+DROP TRIGGER IF EXISTS "daily_stock_notify" ON "daily_stock";
+CREATE TRIGGER "daily_stock_notify" AFTER INSERT OR UPDATE OR DELETE ON "daily_stock" FOR EACH ROW EXECUTE FUNCTION jawab_notify();
+ALTER TABLE "stock_holds" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "stock_holds_ws" ON "stock_holds";
+CREATE POLICY "stock_holds_ws" ON "stock_holds" USING (workspace_id = current_setting('app.workspace_id', true)) WITH CHECK (workspace_id = current_setting('app.workspace_id', true));
+ALTER TABLE "daily_stock" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "daily_stock_ws" ON "daily_stock";
+CREATE POLICY "daily_stock_ws" ON "daily_stock" USING (workspace_id = current_setting('app.workspace_id', true)) WITH CHECK (workspace_id = current_setting('app.workspace_id', true));
+
+-- 0006_appointments
+-- Appointments: customers book a service with a staff member in chat. Each booking is an order (kind = 'appointment')
+-- so approval, payment receipts and the payment timer work the same as for orders; the time, staff member and meeting
+-- room live in "appointments". Staff (any login) switch on taking appointments and set their own hours in "staff".
+-- Existing data is untouched: every existing order is kind 'order', every service is online until marked in person.
+-- Safe to run more than once (Supabase SQL editor too).
+CREATE TABLE IF NOT EXISTS "staff" (
+	"user_id" uuid PRIMARY KEY NOT NULL REFERENCES "public"."users"("id") ON DELETE cascade,
+	"workspace_id" text NOT NULL REFERENCES "public"."workspaces"("id") ON DELETE cascade,
+	"takes_appointments" boolean DEFAULT false NOT NULL,
+	"schedule" jsonb,
+	"service_ids" uuid[] DEFAULT '{}' NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+CREATE TABLE IF NOT EXISTS "appointments" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" text NOT NULL REFERENCES "public"."workspaces"("id") ON DELETE cascade,
+	"order_id" uuid NOT NULL REFERENCES "public"."orders"("id") ON DELETE cascade,
+	"staff_id" uuid REFERENCES "public"."users"("id") ON DELETE set null,
+	"item_id" uuid REFERENCES "public"."kb_items"("id") ON DELETE set null,
+	"variant_id" uuid REFERENCES "public"."kb_variants"("id") ON DELETE set null,
+	"starts_at" timestamp with time zone NOT NULL,
+	"ends_at" timestamp with time zone NOT NULL,
+	"meet_link" text,
+	"attendance" text,
+	"attendance_by" uuid REFERENCES "public"."users"("id") ON DELETE set null,
+	"attendance_at" timestamp with time zone,
+	"reminded_at" timestamp with time zone,
+	"is_demo" boolean DEFAULT false NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+ALTER TABLE "kb_items" ADD COLUMN IF NOT EXISTS "in_person" boolean DEFAULT false NOT NULL;
+ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "kind" text DEFAULT 'order' NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS "appointments_order" ON "appointments" USING btree ("order_id");
+CREATE INDEX IF NOT EXISTS "appointments_staff_start" ON "appointments" USING btree ("staff_id","starts_at");
+CREATE INDEX IF NOT EXISTS "appointments_ws_start" ON "appointments" USING btree ("workspace_id","starts_at");
+-- Live updates (jawab_notify() comes from 0001/0002) and the same workspace row-level policy as every other table.
+DROP TRIGGER IF EXISTS "appointments_notify" ON "appointments";
+CREATE TRIGGER "appointments_notify" AFTER INSERT OR UPDATE OR DELETE ON "appointments" FOR EACH ROW EXECUTE FUNCTION jawab_notify();
+DROP TRIGGER IF EXISTS "staff_notify" ON "staff";
+CREATE TRIGGER "staff_notify" AFTER INSERT OR UPDATE OR DELETE ON "staff" FOR EACH ROW EXECUTE FUNCTION jawab_notify();
+ALTER TABLE "appointments" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "appointments_ws" ON "appointments";
+CREATE POLICY "appointments_ws" ON "appointments" USING (workspace_id = current_setting('app.workspace_id', true)) WITH CHECK (workspace_id = current_setting('app.workspace_id', true));
+ALTER TABLE "staff" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "staff_ws" ON "staff";
+CREATE POLICY "staff_ws" ON "staff" USING (workspace_id = current_setting('app.workspace_id', true)) WITH CHECK (workspace_id = current_setting('app.workspace_id', true));

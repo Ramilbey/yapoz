@@ -3,7 +3,7 @@ import type { ChannelAdapter } from ".";
 import { env } from "@/lib/env";
 import { whatsappCreds } from "./connections";
 import { db, t } from "@/db";
-import { and, eq, desc, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { ingest, respond } from "@/agent/pipeline";
 import type { Attachment } from "@/db/schema";
 
@@ -54,7 +54,7 @@ export async function sendWhatsAppButtons(workspaceId: string, to: string, body:
   });
 }
 
-/** Approved templates only (interview_invite, booking_reminder). Required outside the 24-hour window. */
+/** Approved templates only. Required outside the 24-hour window. */
 export async function sendWhatsAppTemplate(workspaceId: string, to: string, name: string, lang: string, params: string[]) {
   return post(workspaceId, {
     to: digits(to),
@@ -113,10 +113,38 @@ type WaMessage = {
   document?: { id: string; filename?: string; mime_type?: string; caption?: string };
   audio?: { id: string; mime_type?: string };
 };
+type WaStatus = { id: string; status: "sent" | "delivered" | "read" | "failed" | string; timestamp?: string; errors?: { code?: number; title?: string; message?: string; error_data?: { details?: string } }[] };
 type WaPayload = {
   object?: string;
-  entry?: { id: string; changes?: { field: string; value: { metadata?: { phone_number_id?: string }; contacts?: { profile?: { name?: string }; wa_id: string }[]; messages?: WaMessage[] } }[] }[];
+  entry?: { id: string; changes?: { field: string; value: { metadata?: { phone_number_id?: string }; contacts?: { profile?: { name?: string }; wa_id: string }[]; messages?: WaMessage[]; statuses?: WaStatus[] } }[] }[];
 };
+
+/**
+ * Meta's delivery receipts for messages we sent: delivered (on the customer's phone), read, or failed after it left us
+ * (number not on WhatsApp, blocked, outside the 24-hour window). This is what tells "sent" apart from "customer got it".
+ */
+export async function applyWhatsAppStatuses(workspaceId: string, payload: WaPayload): Promise<number> {
+  let n = 0;
+  for (const entry of payload.entry ?? []) {
+    for (const ch of entry.changes ?? []) {
+      for (const st of ch.value?.statuses ?? []) {
+        if (!st.id) continue;
+        // Raw SQL params must be strings: the driver doesn't serialize Date objects here.
+        const at = (st.timestamp ? new Date(Number(st.timestamp) * 1000) : new Date()).toISOString();
+        const where = and(eq(t.messages.workspaceId, workspaceId), eq(t.messages.externalMessageId, st.id), eq(t.messages.direction, "out"));
+        if (st.status === "delivered") await db.update(t.messages).set({ deliveredAt: sql`coalesce(${t.messages.deliveredAt}, ${at}::timestamptz)` }).where(where);
+        else if (st.status === "read") await db.update(t.messages).set({ readAt: sql`coalesce(${t.messages.readAt}, ${at}::timestamptz)`, deliveredAt: sql`coalesce(${t.messages.deliveredAt}, ${at}::timestamptz)` }).where(where);
+        else if (st.status === "failed") {
+          const e = st.errors?.[0];
+          const error = `WhatsApp couldn't deliver it${e?.code ? ` (#${e.code})` : ""}: ${e?.error_data?.details ?? e?.message ?? e?.title ?? "unknown reason"}`;
+          await db.update(t.messages).set({ status: "failed", error: error.slice(0, 500) }).where(where);
+        } else continue;
+        n++;
+      }
+    }
+  }
+  return n;
+}
 
 export function normalizeWhatsApp(workspaceId: string, payload: WaPayload) {
   const out: { event: Parameters<typeof ingest>[0]; buttonId: string | null }[] = [];
@@ -149,32 +177,7 @@ export function normalizeWhatsApp(workspaceId: string, payload: WaPayload) {
 
 export async function handleWhatsAppJob(payload: Record<string, unknown>) {
   const workspaceId = String(payload.workspaceId);
-  for (const { event, buttonId } of normalizeWhatsApp(workspaceId, payload.body as WaPayload)) {
-    // Interview slot buttons go to the scheduler, not the inbox agent.
-    if (buttonId?.startsWith("slot:")) {
-      const [, outreachId, idx] = buttonId.split(":");
-      const { pickSlot } = await import("@/hiring/schedule");
-      const r = await pickSlot(workspaceId, outreachId, Number(idx), event.customer.externalId);
-      if (!r.ok) await sendWhatsAppText(workspaceId, event.customer.externalId, r.toast).catch(() => {});
-      continue;
-    }
-    // A candidate replying to the interview_invite template: their reply opens the window, so offer the times.
-    const [cand] = await db.select().from(t.candidates).where(and(eq(t.candidates.workspaceId, workspaceId), eq(t.candidates.phone, `+${event.customer.externalId}`)));
-    if (cand) {
-      const [o] = await db
-        .select()
-        .from(t.outreach)
-        .where(and(eq(t.outreach.candidateId, cand.id), eq(t.outreach.kind, "invite"), eq(t.outreach.status, "sent"), eq(t.outreach.channel, "whatsapp")))
-        .orderBy(desc(t.outreach.createdAt))
-        .limit(1);
-      const [booked] = o ? await db.select({ id: t.interviews.id }).from(t.interviews).where(eq(t.interviews.outreachId, o.id)) : [];
-      if (o && !booked) {
-        const [ws] = await db.select().from(t.workspaces).where(eq(t.workspaces.id, workspaceId));
-        const { slotLabel } = await import("@/hiring/schedule");
-        await sendWhatsAppButtons(workspaceId, event.customer.externalId, "Thanks! Please pick an interview time:", o.slots.slice(0, 3).map((s, i) => ({ id: `slot:${o.id}:${i}`, title: slotLabel(ws, s).slice(0, 20) })));
-        continue;
-      }
-    }
+  for (const { event } of normalizeWhatsApp(workspaceId, payload.body as WaPayload)) {
     const r = await ingest(event);
     if (!r.duplicate) await respond(r.thread.id, r.messageId);
   }

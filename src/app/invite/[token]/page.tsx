@@ -6,7 +6,7 @@ import { AcceptForm } from "./form";
 
 export const dynamic = "force-dynamic";
 
-const DESK = { owner: "the owner desk (everything)", service: "the service desk (inbox, Needs you, knowledge and bookings)", hr: "the HR desk (hiring)" } as const;
+const DESK = { owner: "the owner desk (everything)", service: "the service desk (inbox, Needs you, orders and knowledge)" } as const;
 
 export default async function InvitePage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;

@@ -10,7 +10,6 @@ export const WORKSPACE = {
   settings: {
     confidenceThreshold: 0.55,
     demoTraffic: false,
-    resumeRetentionDays: 180,
     business: {
       type: "wood-fired pizzeria",
       description: "Neapolitan-style wood-fired pizzeria in Bangsar with a 40-seat dining room, a terrace and its own delivery riders nearby. Also sells aprons and T-shirts.",
@@ -19,11 +18,10 @@ export const WORKSPACE = {
       website: null,
       languages: ["English", "Malay"],
     },
-    modules: { hiring: true },
+    stock: { defaultMode: "none", dayStartsAt: "00:00", holdMinutes: 20, preorderDays: 7, lowStockDefault: 5 },
     live: true,
     sample: true,
     onboarding: { step: 6, completedAt: "2026-10-01T00:00:00.000Z" },
-    hr: { interviewMinutes: 30, workdayStart: "10:00", workdayEnd: "18:00", location: "Forno Sette, 27 Jalan Telawi 3, Bangsar Baru" },
     // Made-up account details: nothing here is a real bank account.
     payments: {
       enabled: true,
@@ -36,10 +34,6 @@ export const WORKSPACE = {
     },
   } satisfies WorkspaceSettings,
 };
-
-export const BOOKING_TYPES = [
-  { key: "table", name: "Table", unit: "party" as const, capacity: 32, durationMinutes: 90, slotMinutes: 30, maxPerBooking: 10, leadMinutes: 60, notes: "Tables are held 15 minutes. Groups of 8+ pay a RM 100 deposit." },
-];
 
 export const DISTRICT = "Bangsar";
 
@@ -55,6 +49,8 @@ type Pizza = {
   spicy?: boolean;
   prices: [number, number, number]; // S, M, L in RM
   available?: boolean;
+  /** Sold out today; unavailableUntil is set to tomorrow by the seed runner. */
+  soldOutToday?: boolean;
   note?: string;
 };
 
@@ -69,7 +65,7 @@ export const PIZZAS: Pizza[] = [
   { slug: "marinara", name: "Marinara", desc: "Tomato, garlic, oregano, olive oil. No cheese.", toppings: ["tomato", "garlic", "oregano", "olive oil"], allergens: ["gluten"], vegetarian: true, vegan: true, halal: true, prices: [24, 32, 44] },
   { slug: "diavola", name: "Diavola", desc: "Tomato, mozzarella, spicy beef pepperoni, Calabrian chilli oil.", toppings: ["tomato", "mozzarella", "beef pepperoni", "chilli oil"], allergens: ["gluten", "dairy"], vegetarian: false, halal: true, spicy: true, prices: [34, 46, 62] },
   { slug: "quattro-formaggi", name: "Quattro Formaggi", desc: "Mozzarella, gorgonzola, parmigiano, smoked scamorza, wildflower honey.", toppings: ["mozzarella", "gorgonzola", "parmigiano", "scamorza", "honey"], allergens: ["gluten", "dairy"], vegetarian: true, halal: true, prices: [36, 49, 66] },
-  { slug: "funghi-tartufo", name: "Funghi e Tartufo", desc: "Wild mushrooms, black truffle cream, mozzarella, thyme.", toppings: ["mushrooms", "truffle cream", "mozzarella", "thyme"], allergens: ["gluten", "dairy"], vegetarian: true, halal: true, prices: [42, 58, 76], available: false, note: "Truffle: sold out today. Our truffle delivery is late, back tomorrow." },
+  { slug: "funghi-tartufo", name: "Funghi e Tartufo", desc: "Wild mushrooms, black truffle cream, mozzarella, thyme.", toppings: ["mushrooms", "truffle cream", "mozzarella", "thyme"], allergens: ["gluten", "dairy"], vegetarian: true, halal: true, prices: [42, 58, 76], soldOutToday: true, note: "Truffle: sold out today. Our truffle delivery is late, back tomorrow." },
   { slug: "capricciosa", name: "Capricciosa", desc: "Tomato, mozzarella, smoked turkey ham, artichoke, mushroom, olives.", toppings: ["tomato", "mozzarella", "smoked turkey ham", "artichoke", "mushroom", "olives"], allergens: ["gluten", "dairy"], vegetarian: false, halal: true, prices: [36, 48, 64] },
   { slug: "pollo-pesto", name: "Pollo Pesto", desc: "Basil pesto, grilled chicken, cherry tomato, mozzarella.", toppings: ["basil pesto (pine nuts)", "grilled chicken", "cherry tomato", "mozzarella"], allergens: ["gluten", "dairy", "tree nuts (pine nuts)"], vegetarian: false, halal: true, prices: [34, 46, 62] },
   { slug: "ortolana", name: "Ortolana", desc: "Grilled zucchini, eggplant, peppers, red onion, mozzarella. Can be made without cheese.", toppings: ["zucchini", "eggplant", "peppers", "red onion", "mozzarella"], allergens: ["gluten", "dairy"], vegetarian: true, halal: true, prices: [32, 44, 58] },
@@ -95,7 +91,7 @@ export const SIDES = [
   { slug: "garlic-knots", name: "Garlic knots (6)", category: "sides", price: 14, desc: "Wood-fired dough knots, garlic butter, parsley.", allergens: ["gluten", "dairy"], vegetarian: true, halal: true },
   { slug: "burrata-salad", name: "Burrata and heirloom tomato", category: "sides", price: 32, desc: "Whole burrata, tomatoes, basil oil, sourdough crumbs.", allergens: ["gluten", "dairy"], vegetarian: true, halal: true },
   { slug: "rocket-salad", name: "Rocket and pear salad", category: "sides", price: 22, desc: "Rocket, pear, walnuts, parmigiano, balsamic.", allergens: ["dairy", "tree nuts (walnuts)"], vegetarian: true, halal: true },
-  { slug: "tiramisu", name: "Tiramisu", category: "desserts", price: 18, desc: "Mascarpone, espresso, cocoa. Alcohol-free.", allergens: ["gluten", "dairy", "egg"], vegetarian: true, halal: true },
+  { slug: "tiramisu", name: "Tiramisu", category: "desserts", price: 18, desc: "Mascarpone, espresso, cocoa. Contains coffee. Halal and alcohol-free (no liqueur). Made fresh daily, limited to 12 portions a day.", allergens: ["gluten", "dairy", "egg", "coffee"], vegetarian: true, halal: true, dailyQty: 12 },
   { slug: "nutella-calzone", name: "Nutella calzone", category: "desserts", price: 24, desc: "Folded dough, Nutella, hazelnuts, icing sugar. Shareable.", allergens: ["gluten", "dairy", "tree nuts (hazelnuts)"], vegetarian: true, halal: true },
   { slug: "house-lemonade", name: "House lemonade", category: "drinks", price: 12, desc: "Fresh lemon, mint, soda. Non-alcoholic.", allergens: [], vegetarian: true, halal: true },
   { slug: "italian-soda", name: "Italian soda", category: "drinks", price: 11, desc: "Blood orange, lemon or bergamot. Non-alcoholic.", allergens: [], vegetarian: true, halal: true },
@@ -118,7 +114,7 @@ export const MERCH = [
     name: "Forno Sette T-shirt",
     price: 59,
     desc: "Heavyweight 220gsm cotton tee with the oven-door print on the back.",
-    stock: { Charcoal: [6, 12, 10, 4], "Brick Red": [3, 8, 6, 0], Cream: [5, 7, 2, 1] },
+    stock: { Charcoal: [6, 3, 10, 4], "Brick Red": [3, 8, 6, 0], Cream: [5, 7, 2, 1] },
   },
 ];
 
@@ -177,13 +173,7 @@ export const POLICIES: { slug: string; topic: string; title: string; body: strin
     slug: "policy-payment",
     topic: "payment",
     title: "Payment methods",
-    body: "We accept cash, Visa, Mastercard, Amex, DuitNow QR, Touch 'n Go eWallet, GrabPay and Boost. No cheques. Groups of 8 or more pay a RM 100 deposit by DuitNow to confirm, deducted from the bill.",
-  },
-  {
-    slug: "policy-booking",
-    topic: "booking",
-    title: "Table bookings",
-    body: "Tables for 1 to 10 people can be booked here in 30-minute slots, at least 1 hour ahead. Each table is held for 90 minutes. We hold your table 15 minutes past the booking time; message us if you're running late. Free cancellation up to 2 hours before. Groups of 8+ pay a RM 100 deposit, forfeited if cancelled less than 24 hours before. For 11+ guests our events team arranges it personally. Walk-ins welcome; on Friday and Saturday nights after 7:30pm expect a 20–40 minute wait.",
+    body: "We accept cash, Visa, Mastercard, Amex, DuitNow QR, Touch 'n Go eWallet, GrabPay and Boost. No cheques.",
   },
   {
     slug: "policy-events",
@@ -221,12 +211,6 @@ export const POLICIES: { slug: string; topic: string; title: string; body: strin
     title: "Promotions",
     body: "Lunch set Tuesday to Friday 12pm–3pm: any Small pizza + side salad + house lemonade or Italian soda for RM 29. No other promotions run right now, and discounts can't be stacked.",
   },
-  {
-    slug: "policy-jobs",
-    topic: "jobs",
-    title: "Working at Forno Sette",
-    body: "We're hiring pizza cooks. Apply by sending /apply to our Telegram bot. Please don't send CVs through this chat.",
-  },
 ];
 
 /** 40 FAQs written the way customers actually type in KL. `q` is how it arrives, `a` is the house answer. */
@@ -246,16 +230,13 @@ export const FAQS: { q: string; a: string; topic: string }[] = [
   { q: "how big is the large pizza", a: "Large is 15\" and feeds 2–3 people. Medium is 12\", Small is 9\".", topic: "menu" },
   { q: "the truffle one available today?", a: "Depends on the day's stock; check the Funghi e Tartufo availability.", topic: "stock" },
   { q: "got spicy pizza?", a: "Diavola, Rendang Rossa, Salsiccia, Gamberi and Agnello Piccante all have heat. Add Calabrian chilli oil to anything for RM 2.", topic: "menu" },
-  { q: "can i reserve for 12 ppl", a: "Up to 10 can be booked here. For 11 or more, our events team arranges the table personally.", topic: "booking" },
   { q: "can bring birthday cake? any charge", a: "Of course, bring your own cake. There's no cake-cutting fee.", topic: "house" },
   { q: "wifi pw?", a: "We have free Wi-Fi; staff will share the password at your table.", topic: "house" },
   { q: "do u do catering for office lunch", a: "Yes, mobile wood-fired oven catering for 30–150 guests from RM 45 per head. Our events team sends a quote within one working day.", topic: "events" },
   { q: "any promo now", a: "Lunch set Tuesday to Friday, 12–3pm: Small pizza, side salad and a lemonade or Italian soda for RM 29.", topic: "promotions" },
   { q: "is ur dough sourdough", a: "It's a 48-hour fermented dough with Italian 00 flour, not sourdough.", topic: "food" },
   { q: "msg free?", a: "Yes, no added MSG.", topic: "food" },
-  { q: "how long wait for walk in fri night", a: "Usually 20–40 minutes after 7:30pm on Fridays and Saturdays. Booking ahead is the safe bet.", topic: "booking" },
-  { q: "how to cancel my booking", a: "Send us your booking reference here. Cancellation is free up to 2 hours before.", topic: "booking" },
-  { q: "running 20 min late still can keep table?", a: "We hold tables for 15 minutes. Send your booking reference and we'll let the floor know you're coming.", topic: "booking" },
+  { q: "how long wait for walk in fri night", a: "Usually 20–40 minutes after 7:30pm on Fridays and Saturdays.", topic: "house" },
   { q: "the apron got in red?", a: "Yes, in Brick Red. Stock depends on the size.", topic: "merch" },
   { q: "tshirt size M black ada?", a: "Our dark tee is Charcoal; stock depends on the size.", topic: "merch" },
   { q: "my son has nut allergy can he eat the pizza", a: "The Pollo Pesto contains pine nuts, and our kitchen handles tree nuts, so cross-contact is possible. Our manager will talk you through it before you order.", topic: "allergens" },
@@ -266,8 +247,6 @@ export const FAQS: { q: string; a: string; topic: string }[] = [
   { q: "extra cheese how much", a: "Extra mozzarella RM 4, a whole burrata RM 12.", topic: "menu" },
   { q: "do u have beer", a: "Peroni, two local craft beers, and Italian wines. 18+ only.", topic: "drinks" },
   { q: "non alcoholic drinks got what", a: "House lemonade, Italian sodas (blood orange, lemon, bergamot) and mocktails.", topic: "drinks" },
-  { q: "hi um do you guys have like a table for two tomorrow around seven thanks", a: "Check slots for tomorrow 7pm for 2 and offer to book.", topic: "booking" },
-  { q: "hiring? looking for part time kitchen job", a: "We're hiring pizza cooks. Send /apply to our Telegram bot to apply.", topic: "jobs" },
   { q: "outdoor seating available?", a: "Yes, 6 tables on the terrace. It's non-smoking.", topic: "house" },
   { q: "can smoke at the terrace?", a: "Sorry, smoking and vaping aren't allowed anywhere at the restaurant, including the terrace.", topic: "house" },
   { q: "pizza came cold n soggy wat la", a: "So sorry. Please send a photo; our duty manager reviews it personally and will make it right.", topic: "complaints" },

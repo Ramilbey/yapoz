@@ -239,41 +239,6 @@ test("a number connected through the Meta app says so, and the status shows it i
   assert.equal((await channelStatus(ws)).whatsapp.needsMetaApp, true, "the number is left without its app: the status says so");
 });
 
-test("Instagram webhooks: Jawab's own app vouches for every account, a business's Meta app only for its own", async () => {
-  const { POST } = await import("../src/app/api/webhooks/instagram/route");
-  const a = await biz("Kedai Insta A");
-  const b = await biz("Kedai Insta B");
-  const SECRET_B = "b".repeat(32);
-  for (const [ws, igId] of [[a.workspaceId, "17841400000000001"], [b.workspaceId, "17841400000000002"]] as const) {
-    const ig = await channelOf(ws, "instagram");
-    await db.update(t.channels).set({ config: { accountId: igId } }).where(eq(t.channels.id, ig.id));
-  }
-  await db.insert(t.integrations).values({ workspaceId: a.workspaceId, provider: "meta_app", dataEnc: encryptJson({ appSecret: SECRET }), meta: { appId: APP_ID } });
-  await db.insert(t.integrations).values({ workspaceId: b.workspaceId, provider: "meta_app", dataEnc: encryptJson({ appSecret: SECRET_B }), meta: { appId: "222333444555" } });
-
-  const send = (raw: string, secret: string | null) => POST(new Request("http://x", { method: "POST", body: raw, headers: secret ? { "x-hub-signature-256": "sha256=" + createHmac("sha256", secret).update(raw).digest("hex") } : {} }));
-  const queued = async (ws: string) => (await db.select().from(t.jobs).where(eq(t.jobs.workspaceId, ws))).filter((j) => j.type === "instagram.webhook").length;
-  const both = JSON.stringify({ object: "instagram", entry: [{ id: "17841400000000001", messaging: [] }, { id: "17841400000000002", messaging: [] }], note: "both" });
-
-  // B signs a payload that names A's account as well as its own: only B's entry is accepted.
-  assert.equal((await send(both, SECRET_B)).status, 200);
-  assert.equal(await queued(a.workspaceId), 0, "B's secret can't speak for A");
-  assert.equal(await queued(b.workspaceId), 1);
-  // A signs it: only A's entry.
-  assert.equal((await send(both.replace("both", "both2"), SECRET)).status, 200);
-  assert.equal(await queued(a.workspaceId), 1);
-  assert.equal(await queued(b.workspaceId), 1);
-  // Jawab's own app (INSTAGRAM_APP_SECRET) covers every account.
-  assert.equal((await send(both.replace("both", "both3"), "p".repeat(32))).status, 200);
-  assert.equal(await queued(a.workspaceId), 2);
-  assert.equal(await queued(b.workspaceId), 2);
-  // Nobody's secret, or no signature at all, is refused; broken JSON never gets past either.
-  assert.equal((await send(both.replace("both", "both4"), "z".repeat(32))).status, 401);
-  assert.equal((await send(both.replace("both", "both5"), null)).status, 401);
-  assert.equal((await send("{not json", null)).status, 401);
-  assert.equal(await queued(a.workspaceId) + (await queued(b.workspaceId)), 4);
-});
-
 test("the demo workspace falls back to the server's own variables, each mapped to its field", async () => {
   process.env.META_APP_ID = "424242424242";
   process.env.META_APP_SECRET = "c".repeat(32);

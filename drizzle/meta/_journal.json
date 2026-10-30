@@ -29,6 +29,27 @@
       "when": 1792696770924,
       "tag": "0003_receipts",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793342789878,
+      "tag": "0004_cleanup_and_orders",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793349321886,
+      "tag": "0005_stock",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793353785907,
+      "tag": "0006_appointments",
+      "breakpoints": true
     }
   ]
 }

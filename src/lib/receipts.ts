@@ -1,9 +1,11 @@
 // Payment receipts for orders taken in chat. After ordering, the customer sends a photo or PDF of their payment receipt.
-// Jawab reads it (a vision model copies what is printed), then plain rules compare that reading with the order and the
-// business's payment accounts. The result is advice for the owner: Jawab can't see the bank, so it never says a receipt
+// Yapoz reads it (a vision model copies what is printed), then plain rules compare that reading with the order and the
+// business's payment accounts. The result is advice for the owner: Yapoz can't see the bank, so it never says a receipt
 // is genuine, and nothing here confirms an order or marks it paid. Customers are never told what the checks found.
+// When staff turn a receipt down (Ask for another receipt), the order waits for the next one and it is checked against
+// what was asked for: the full total again, or just the difference still owed.
 import { createHash } from "node:crypto";
-import { and, desc, eq, getTableColumns, gt, inArray, ne, sql } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, gt, inArray, isNull, ne, sql } from "drizzle-orm";
 import { db, t } from "@/db";
 import type { Attachment, PayAccount, PaymentSettings, ReceiptCheck, ReceiptReading } from "@/db/schema";
 import { claude } from "@/agent/claude";
@@ -11,7 +13,8 @@ import { getProviders } from "@/agent/ai-router";
 import { env } from "./env";
 import { formatMoney } from "./money";
 import { fetchAttachment } from "@/channels/media";
-import { zoned } from "./time";
+import { human, zoned } from "./time";
+import { firmHolds, reopenExpired, stockSettings } from "./stock";
 
 type Ws = typeof t.workspaces.$inferSelect;
 type Thread = typeof t.threads.$inferSelect;
@@ -29,6 +32,13 @@ export const paymentsOf = (ws: Pick<Ws, "settings">): PaymentSettings | null => 
   return p?.enabled && p.accounts.length ? p : null;
 };
 export const receiptRequired = (ws: Pick<Ws, "settings">) => Boolean(paymentsOf(ws) && ws.settings.payments?.requireReceipt !== false);
+
+/** What the receipts staff haven't turned down add up to, in the order's currency (minor units). */
+export function paidSoFar(receipts: { reading: ReceiptReading | null; rejectedAt: Date | null }[], currency: string): number {
+  return receipts
+    .filter((r) => !r.rejectedAt && r.reading?.amount != null && (!r.reading.currency || r.reading.currency === currency) && r.reading.status !== "failed")
+    .reduce((sum, r) => sum + Math.round(r.reading!.amount! * 100), 0);
+}
 
 // ───────────────────────────── files
 
@@ -51,7 +61,7 @@ export function paymentLines(p: PaymentSettings): string[] {
 }
 
 /** What to tell a customer right after they order. `amountMinor` is the items total (delivery fees are agreed by the team). */
-export function paymentInstruction(ws: Pick<Ws, "settings" | "currency">, amountMinor: number, refCode: string, delivery: boolean): string | null {
+export function paymentInstruction(ws: Pick<Ws, "settings" | "currency" | "timezone">, amountMinor: number, refCode: string, delivery: boolean, noun: "order" | "booking" = "order"): string | null {
   const p = paymentsOf(ws);
   if (!p) return null;
   const amount = formatMoney(amountMinor, ws.currency);
@@ -60,7 +70,7 @@ export function paymentInstruction(ws: Pick<Ws, "settings" | "currency">, amount
     ...paymentLines(p),
     p.note?.trim() ? p.note.trim() : `Put ${refCode} in the payment reference if you can.`,
     receiptRequired(ws)
-      ? "Then send a photo or screenshot of the payment receipt here. The team confirms your order after they check it."
+      ? `Then send a photo or screenshot of the payment receipt here within ${stockSettings(ws).holdMinutes} minutes: we hold your ${noun} for ${stockSettings(ws).holdMinutes} minutes, and after that it expires. The team confirms your ${noun} after they check the receipt.`
       : "You can send a photo or screenshot of the receipt here.",
   ].join("\n");
 }
@@ -163,6 +173,8 @@ export type Duplicate = { refCode: string; why: "same file" | "same reference" }
 export type AssessInput = {
   reading: ReceiptReading | null;
   order: { totalMinor: number; currency: string; createdAt: Date };
+  /** Staff asked for this receipt: the amount it should show, and whether it tops up an earlier one. Default: the order total. */
+  expect?: { minor: number; topUp: boolean; since: Date } | null;
   accounts: PayAccount[];
   timezone: string;
   now: Date;
@@ -212,7 +224,7 @@ export function assessReceipt(i: AssessInput): { verdict: Verdict; checks: Recei
   const r = i.reading;
 
   if (!r) {
-    add("reading", "warn", "Jawab couldn't read this automatically. Open the file and check it yourself.");
+    add("reading", "warn", "Yapoz couldn't read this automatically. Open the file and check it yourself.");
     return { verdict: "review", checks };
   }
   // Not a receipt, or too unclear to check: the customer is asked to send it again.
@@ -222,15 +234,16 @@ export function assessReceipt(i: AssessInput): { verdict: Verdict; checks: Recei
   }
   if (r.legibility === "partial") add("legibility", "warn", "Only partly readable: some details could not be read.");
 
-  // Amount
-  const total = i.order.totalMinor;
+  // Amount: the order total, or what staff asked for (the whole total again, or only the difference still owed)
+  const total = i.expect?.minor ?? i.order.totalMinor;
+  const what = i.expect?.topUp ? `${formatMoney(total, i.order.currency)} still owed` : i.expect ? `${formatMoney(total, i.order.currency)} you asked for` : `${formatMoney(total, i.order.currency)} total`;
   if (r.currency && r.currency !== i.order.currency) add("currency", "fail", `Paid in ${r.currency}, the order is in ${i.order.currency}.`);
   if (r.amount === null) add("amount", "warn", "No amount could be read.");
   else if (!(r.currency && r.currency !== i.order.currency)) {
     const paid = Math.round(r.amount * 100);
-    if (paid === total) add("amount", "pass", `Amount ${money(r.amount, i.order.currency)} matches the order total.`);
-    else if (paid < total) add("amount", "fail", `Paid ${money(r.amount, i.order.currency)}, ${formatMoney(total - paid, i.order.currency)} short of the ${formatMoney(total, i.order.currency)} total.`);
-    else add("amount", "warn", `Paid ${money(r.amount, i.order.currency)}, ${formatMoney(paid - total, i.order.currency)} more than the ${formatMoney(total, i.order.currency)} items total (delivery fee, tip, or overpaid).`);
+    if (paid === total) add("amount", "pass", `Amount ${money(r.amount, i.order.currency)} matches the ${what}.`);
+    else if (paid < total) add("amount", "fail", `Paid ${money(r.amount, i.order.currency)}, ${formatMoney(total - paid, i.order.currency)} short of the ${what}.`);
+    else add("amount", "warn", `Paid ${money(r.amount, i.order.currency)}, ${formatMoney(paid - total, i.order.currency)} more than the ${what}${i.expect?.topUp ? "" : " (delivery fee, tip, or overpaid)"}.`);
   }
 
   // Who was paid
@@ -258,8 +271,11 @@ export function assessReceipt(i: AssessInput): { verdict: Verdict; checks: Recei
     else if (when.from.getTime() > i.now.getTime() + 15 * 60_000) add("date", "fail", "Dated in the future.");
     else {
       const early = i.order.createdAt.getTime() - when.to.getTime();
-      if (early > 24 * 3600_000) add("date", "fail", `Dated ${Math.floor(early / 86_400_000)} day(s) before the order was placed: possibly an old receipt.`);
-      else if (early > 2 * 3600_000) add("date", "warn", "Dated several hours before the order was placed.");
+      // A top-up is a new payment, so it should be dated after staff asked for it; a replacement may be the right receipt for the original payment.
+      const beforeAsk = i.expect ? i.expect.since.getTime() - when.to.getTime() : 0;
+      if (i.expect?.topUp && beforeAsk > 2 * 3600_000) add("date", "fail", "Dated before you asked for the difference: it may be the first payment again.");
+      else if (early > 24 * 3600_000) add("date", "fail", `Dated ${Math.floor(early / 86_400_000)} day(s) before the order was placed: possibly an old receipt.`);
+      else if (early > 2 * 3600_000) add("date_early", "warn", "Dated several hours before the order was placed.");
       else add("date", "pass", "Dated around the time of the order.");
     }
   }
@@ -269,25 +285,45 @@ export function assessReceipt(i: AssessInput): { verdict: Verdict; checks: Recei
   if (!r.reference) add("reference", "warn", "No transaction or reference number shown.");
 
   // Visual oddities: advice only, never enough on its own to say a receipt is wrong
-  if (r.oddities.length) add("oddities", "warn", `Looks unusual: ${r.oddities.join("; ")}. Jawab can't tell if that matters, so look closely.`);
+  if (r.oddities.length) add("oddities", "warn", `Looks unusual: ${r.oddities.join("; ")}. Yapoz can't tell if that matters, so look closely.`);
 
   const verdict: Verdict = checks.some((c) => c.level === "fail") ? "mismatch" : checks.some((c) => c.level === "warn") ? "review" : "consistent";
   return { verdict, checks };
+}
+
+/** Warnings that don't stop a receipt from firming the order's stock: the money, the payee and the timing still add up. */
+const MINOR_WARNINGS = new Set(["reference", "legibility", "date_early"]);
+
+/**
+ * Whether a receipt is good enough to stop the payment timer and keep the order's stock: readable, the amount check and
+ * the payee check passed, nothing failed, and any warnings are minor (no reference number, partly legible, dated a few
+ * hours early). Staff still confirm the order; this only decides whether the stock stays reserved meanwhile.
+ */
+export function receiptFirms(verdict: Verdict, checks: ReceiptCheck[]): boolean {
+  if (verdict === "consistent") return true;
+  if (verdict !== "review") return false;
+  const passed = (code: string) => checks.some((c) => c.code === code && c.level === "pass");
+  return passed("amount") && passed("payee") && !checks.some((c) => c.level === "fail" || (c.level === "warn" && !MINOR_WARNINGS.has(c.code)));
 }
 
 export const VERDICT_LABEL: Record<Verdict, string> = { consistent: "Looks consistent", review: "Take a look", mismatch: "Doesn't add up", unreadable: "Couldn't read" };
 
 // ───────────────────────────── intake (a customer sends a file in chat)
 
-/** The one order this chat's receipt belongs to: a live order with no usable receipt yet, newest first. */
-async function orderAwaitingReceipt(thread: Thread) {
+/**
+ * The one order this chat's receipt belongs to, newest first: an order staff asked a new receipt for, else a live order
+ * with no usable receipt yet (none, or only unreadable or turned-down ones).
+ */
+export async function orderAwaitingReceipt(threadId: string) {
   const orders = await db
     .select()
     .from(t.orders)
-    .where(and(eq(t.orders.threadId, thread.id), inArray(t.orders.status, ["pending", "confirmed", "ready"]), gt(t.orders.createdAt, new Date(Date.now() - ORDER_WINDOW_MS))))
+    .where(and(eq(t.orders.threadId, threadId), inArray(t.orders.status, ["pending", "confirmed", "ready"]), gt(t.orders.createdAt, new Date(Date.now() - ORDER_WINDOW_MS))))
     .orderBy(desc(t.orders.createdAt));
+  const asked = orders.find((o) => o.receiptRequest && !o.receiptRequest.fulfilledAt);
+  if (asked) return asked;
   for (const o of orders) {
-    const [last] = await db.select({ verdict: t.orderReceipts.verdict }).from(t.orderReceipts).where(eq(t.orderReceipts.orderId, o.id)).orderBy(desc(t.orderReceipts.createdAt)).limit(1);
+    const [last] = await db.select({ verdict: t.orderReceipts.verdict }).from(t.orderReceipts).where(and(eq(t.orderReceipts.orderId, o.id), isNull(t.orderReceipts.rejectedAt))).orderBy(desc(t.orderReceipts.createdAt)).limit(1);
     if (!last || last.verdict === "unreadable") return o;
   }
   return null;
@@ -296,7 +332,7 @@ async function orderAwaitingReceipt(thread: Thread) {
 const SUPPORTED = /^(image\/(jpeg|png|webp)|application\/pdf)$/i;
 const looksSendable = (a: Attachment) => a.kind === "image" || (a.kind === "document" && (!a.mime || SUPPORTED.test(a.mime)));
 
-export type Intake = { reply: string; orderRef: string; verdict: Verdict | null };
+export type Intake = { reply: string; orderRef: string; verdict: Verdict | null; firmed?: boolean };
 
 const askAgain = (what: string) => `Sorry, ${what} Could you send a clear photo or screenshot of the whole payment receipt?`;
 
@@ -308,8 +344,11 @@ export async function receiptIntake(ws: Ws, thread: Thread, inbound: Message, op
   if (!paymentsOf(ws)) return null;
   const file = inbound.attachments.find(looksSendable);
   if (!file) return null;
-  const order = await orderAwaitingReceipt(thread);
+  const order = (await orderAwaitingReceipt(thread.id)) ?? (await expiredAwaitingReceipt(thread.id));
   if (!order) return null;
+  const late = order.status === "expired";
+  const word = order.kind === "appointment" ? "booking" : "order";
+  const asked = order.receiptRequest && !order.receiptRequest.fulfilledAt ? order.receiptRequest : null;
 
   let bytes: Buffer;
   try {
@@ -330,19 +369,89 @@ export async function receiptIntake(ws: Ws, thread: Thread, inbound: Message, op
   const duplicates = await findDuplicates(ws.id, order.id, hash, reading?.reference ?? null);
   const { verdict, checks } = assessReceipt({
     reading, order: { totalMinor: order.totalMinor, currency: order.currency, createdAt: order.createdAt },
+    expect: asked ? { minor: asked.expectedMinor, topUp: asked.kind === "top_up", since: new Date(asked.requestedAt) } : null,
     accounts: ws.settings.payments?.accounts ?? [], timezone: ws.timezone, now: new Date(), duplicates,
   });
+  const isDemo = Boolean(opts.isDemo ?? order.isDemo);
   const [row] = await db
     .insert(t.orderReceipts)
-    .values({ workspaceId: ws.id, orderId: order.id, threadId: thread.id, mime, sha256: hash, bytes, reading, checks, verdict, model, isDemo: Boolean(opts.isDemo ?? order.isDemo) })
+    .values({ workspaceId: ws.id, orderId: order.id, threadId: thread.id, mime, sha256: hash, bytes, reading, checks, verdict, model, isDemo })
     .returning({ id: t.orderReceipts.id });
-  await db.insert(t.events).values({ workspaceId: ws.id, type: "receipt.received", props: { orderId: order.id, refCode: order.refCode, receiptId: row.id, verdict, model }, isDemo: Boolean(opts.isDemo ?? order.isDemo) });
+  if (late) {
+    // Paid after the timer ran out. A receipt that passes the checks reopens the order with its stock reserved again, for
+    // staff to check; if the stock has gone (or the receipt doesn't pass), a person decides: refund, or offer something else.
+    const when = order.expiredAt ? ` at ${human(order.expiredAt, ws.timezone)}` : "";
+    const back = receiptFirms(verdict, checks) ? await reopenExpired(ws, order.id) : null;
+    if (back?.ok) {
+      await handOver(ws.id, thread.id, { category: "receipt_problem", priority: "normal", reason: "Late payment: order reopened", summary: `${order.refCode} expired${when}, then a receipt that passes the checks arrived. It's back in Pending with its stock reserved: check the payment and confirm it.`, isDemo });
+      return { reply: `Thanks! I've received your payment receipt for ${word} ${order.refCode}. Your ${word} is back with the team, and they'll confirm it after checking the payment.`, orderRef: order.refCode, verdict, firmed: true };
+    }
+    const why = back ? `it can't be reopened: ${back.problems.join(" ")} Refund the customer, or offer them something else.` : "the receipt doesn't pass the checks. Check it, then place the order again or arrange a refund.";
+    await handOver(ws.id, thread.id, { category: "receipt_problem", priority: "high", reason: "Receipt arrived after the order expired", summary: `A receipt for ${order.refCode} arrived after it expired${when}, and ${why}`, isDemo });
+    return { reply: `Thanks! I've received your payment receipt for ${word} ${order.refCode}. That ${word} had already expired, so I've passed this to the team and they'll reply here shortly.`, orderRef: order.refCode, verdict };
+  }
+  // The receipt staff asked for has arrived (if it's readable): the order stops waiting and goes back to them.
+  if (asked && verdict !== "unreadable") await db.update(t.orders).set({ receiptRequest: { ...asked, fulfilledAt: new Date().toISOString() } }).where(eq(t.orders.id, order.id));
+  await db.insert(t.events).values({ workspaceId: ws.id, type: "receipt.received", props: { orderId: order.id, refCode: order.refCode, receiptId: row.id, verdict, model, threadId: thread.id, requested: Boolean(asked) }, isDemo });
 
   if (verdict === "unreadable") {
+    // Twice unreadable for the same order: a person takes it from here instead of asking a third time.
+    const [n] = await db.select({ n: sql<number>`count(*)::int` }).from(t.orderReceipts).where(and(eq(t.orderReceipts.orderId, order.id), eq(t.orderReceipts.verdict, "unreadable"), isNull(t.orderReceipts.rejectedAt)));
+    if ((n?.n ?? 0) >= 2) {
+      await handOver(ws.id, thread.id, { category: "receipt_problem", priority: "normal", reason: "Receipt unreadable twice", summary: `Couldn't read ${n.n} receipts for ${order.refCode}${reading && !reading.looksLikeReceipt ? " (they don't look like payment receipts)" : " (too blurry or cropped)"}. Check the files on the order, or ask the customer for the transaction reference.`, isDemo });
+      return { reply: `Sorry, I still couldn't read that clearly. I've asked the team to check your payment for ${word} ${order.refCode} and they'll reply here shortly.`, orderRef: order.refCode, verdict };
+    }
     return { reply: askAgain(reading && !reading.looksLikeReceipt ? "that doesn't look like a payment receipt." : "I couldn't read that clearly."), orderRef: order.refCode, verdict };
   }
+  // On the payment timer: a passing receipt keeps the stock until staff act; anything else goes to staff while the clock runs.
+  let firmed = false;
+  if (order.status === "pending" && order.holdExpiresAt && !order.firmedBy) {
+    if (receiptFirms(verdict, checks)) firmed = await firmByReceipt(ws, order.id);
+    else {
+      const why = checks.find((c) => c.level === "fail") ?? checks.find((c) => c.level === "warn" && !MINOR_WARNINGS.has(c.code));
+      await handOver(ws.id, thread.id, {
+        category: "receipt_problem", priority: "normal", reason: "Receipt didn't pass the checks",
+        summary: `Receipt for ${order.refCode}: ${why?.message ?? "needs a look"} The order expires at ${human(order.holdExpiresAt, ws.timezone).split(", ")[1]} unless you act (Keep reserved, or Ask for another receipt).`, isDemo,
+      });
+    }
+  }
   // Whatever the checks found, the customer only hears that the team will look: the owner decides.
-  return { reply: `Thanks! I've received your payment receipt for order ${order.refCode}. The team will check it and confirm your order shortly.`, orderRef: order.refCode, verdict };
+  return { reply: `Thanks! I've received your ${asked ? "new " : ""}payment receipt for ${word} ${order.refCode}. The team will check it and confirm your ${word} shortly.`, orderRef: order.refCode, verdict, firmed };
+}
+
+/** The receipt passed: stop the timer, under the order's row lock (the expiry sweep may be racing it). */
+async function firmByReceipt(ws: Ws, orderId: string): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const [o] = await tx.select().from(t.orders).where(eq(t.orders.id, orderId)).for("update");
+    if (!o || o.status !== "pending" || o.firmedBy) return false;
+    return (await firmHolds(tx, ws, o, "receipt")).ok;
+  });
+}
+
+/** An order in this chat that expired in the last day without a usable receipt: a receipt now is a late payment. */
+async function expiredAwaitingReceipt(threadId: string) {
+  const [o] = await db
+    .select()
+    .from(t.orders)
+    .where(and(eq(t.orders.threadId, threadId), eq(t.orders.status, "expired"), gt(t.orders.expiredAt, new Date(Date.now() - 24 * 3600_000))))
+    .orderBy(desc(t.orders.expiredAt))
+    .limit(1);
+  if (!o) return null;
+  const [r] = await db.select({ id: t.orderReceipts.id }).from(t.orderReceipts).where(and(eq(t.orderReceipts.orderId, o.id), isNull(t.orderReceipts.rejectedAt), ne(t.orderReceipts.verdict, "unreadable"))).limit(1);
+  return r ? null : o;
+}
+
+/**
+ * A problem a person has to look at, without stopping the assistant: it lands in Needs you with the reason. At most one open
+ * card per chat and category, so a customer repeating themselves doesn't stack them up.
+ */
+export async function handOver(workspaceId: string, threadId: string, e: { category: string; priority: "low" | "normal" | "high"; reason: string; summary: string; isDemo?: boolean }) {
+  const [open] = await db.select({ id: t.escalations.id }).from(t.escalations).where(and(eq(t.escalations.threadId, threadId), eq(t.escalations.category, e.category), eq(t.escalations.status, "open"))).limit(1);
+  if (open) return open.id;
+  const [row] = await db.insert(t.escalations).values({ workspaceId, threadId, category: e.category, priority: e.priority, reason: e.reason, summary: e.summary.slice(0, 300), isDemo: Boolean(e.isDemo) }).returning({ id: t.escalations.id });
+  await db.update(t.threads).set({ status: "needs_human" }).where(eq(t.threads.id, threadId));
+  await db.insert(t.events).values({ workspaceId, type: "escalation.created", props: { threadId, category: e.category, priority: e.priority, reason: e.reason, summary: e.summary.slice(0, 300) }, isDemo: Boolean(e.isDemo) });
+  return row.id;
 }
 
 async function findDuplicates(workspaceId: string, orderId: string, hash: string, reference: string | null): Promise<Duplicate[]> {

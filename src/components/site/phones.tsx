@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
 import { cx } from "../ui/cx";
 
-// Faithful-enough dark-mode chat screens for WhatsApp, Telegram and Instagram, as the customer sees them.
+// Faithful-enough dark-mode chat screens for WhatsApp and Telegram, as the customer sees them.
 // Every message is a `.msg` row and every "typing" bubble a `.typing-row`, so the page's timelines can type them in.
 
-export type Chat = "whatsapp" | "telegram" | "instagram";
+export type Chat = "whatsapp" | "telegram";
 type Line = { who: "me" | "biz"; text: string; at: string };
 
 export const THREADS: Record<Chat, { name: string; sub: string; lines: Line[] }> = {
@@ -13,11 +13,11 @@ export const THREADS: Record<Chat, { name: string; sub: string; lines: Line[] }>
     sub: "online",
     lines: [
       { who: "me", text: "hi, are you open Sunday?", at: "23:46" },
-      { who: "biz", text: "Hi! Yes: on Sundays we're open 11:00 to 22:00, and the kitchen takes last orders at 21:30. Would you like a table, or an order for pickup?", at: "23:46" },
-      { who: "me", text: "table for 4, 7pm", at: "23:47" },
-      { who: "biz", text: "Sunday 19:00 for 4 is free. What name should I put it under?", at: "23:47" },
+      { who: "biz", text: "Hi! Yes: on Sundays we're open 11:00 to 22:00, and the kitchen takes last orders at 21:30. Would you like to order for pickup or delivery?", at: "23:46" },
+      { who: "me", text: "2 large margheritas, pickup 7pm", at: "23:47" },
+      { who: "biz", text: "2 × Large Margherita: RM 104, pickup Sunday 19:00. What name should I put it under?", at: "23:47" },
       { who: "me", text: "Daniel", at: "23:47" },
-      { who: "biz", text: "Booked: Daniel, 4 people, Sunday 19:00. Your reference is F7-2K9M. See you then!", at: "23:47" },
+      { who: "biz", text: "Thanks Daniel! I've sent your order to the team to confirm. You'll get a message here as soon as they do.", at: "23:47" },
     ],
   },
   telegram: {
@@ -30,17 +30,6 @@ export const THREADS: Record<Chat, { name: string; sub: string; lines: Line[] }>
       { who: "biz", text: "1 × Large Margherita RM 52 and 1 × Large Diavola RM 62: RM 114. Pickup or delivery?", at: "23:42" },
       { who: "me", text: "delivery to Bangsar", at: "23:42" },
       { who: "biz", text: "Bangsar is in our delivery zone: RM 5, about 30–40 minutes. What address, and who is it for? Then I'll send it to the team to confirm.", at: "23:42" },
-    ],
-  },
-  instagram: {
-    name: "forno.sette",
-    sub: "Active now",
-    lines: [
-      { who: "me", text: "the apron in red size M ada?", at: "23:38" },
-      { who: "biz", text: "Yes! The Forno Sette canvas apron in Brick Red, size M: 6 in stock, RM 69.", at: "23:38" },
-      { who: "me", text: "can u deliver it with my pizza order", at: "23:39" },
-      { who: "biz", text: "Of course. I'll add it to the same order so it arrives together. Want me to do that?", at: "23:39" },
-      { who: "me", text: "yes pls", at: "23:39" },
     ],
   },
 };
@@ -202,66 +191,16 @@ export function TelegramChat({ className }: { className?: string }) {
   );
 }
 
-export function InstagramChat({ className }: { className?: string }) {
-  const t = THREADS.instagram;
-  return (
-    <Phone className={className} glow="rgba(160,90,255,0.2)">
-      <StatusBar tone="#fff" />
-      <div className="flex items-center gap-2.5 border-b border-[#262626] bg-black px-3 pb-2.5 pt-2 text-white">
-        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <path d="M11 3L5 9l6 6" />
-        </svg>
-        <span className="grid h-8 w-8 place-items-center rounded-full bg-gradient-to-tr from-[#7B3FF2] via-[#D62976] to-[#3B82F6] p-[2px]">
-          <span className="grid h-full w-full place-items-center rounded-full bg-black text-[11px] font-bold">FS</span>
-        </span>
-        <span className="min-w-0 flex-1 leading-tight">
-          <span className="block truncate text-[13.5px] font-semibold">{t.name}</span>
-          <span className="block text-[11px] text-[#A8A8A8]">{t.sub}</span>
-        </span>
-        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinejoin="round" aria-hidden>
-          <path d="M4 2.5l2.4 3-1.5 1.7a9 9 0 0 0 4 4l1.7-1.5 3 2.4-1.2 2.5c-6 .5-11.2-4.7-10.7-10.7z" />
-        </svg>
-        <svg width="20" height="18" viewBox="0 0 20 18" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinejoin="round" aria-hidden>
-          <rect x="1.5" y="4" width="11.5" height="10" rx="2.6" />
-          <path d="M13 8l5-3v8l-5-3" />
-        </svg>
-      </div>
-      <div className="flex min-h-0 flex-1 flex-col justify-end gap-1.5 overflow-hidden bg-black px-2.5 py-2.5">
-        {t.lines.map((l, i) => (
-          <div key={i} className="contents">
-            {l.who === "biz" ? <Typing bg="#262626" dot="#A8A8A8" /> : null}
-            <div className={cx("msg overflow-hidden", l.who === "me" ? "self-end" : "self-start")} style={{ maxWidth: "84%" }}>
-              <div className={cx("px-3 py-2 text-[12.5px] leading-snug text-white", l.who === "me" ? "rounded-[20px] bg-gradient-to-b from-[#7B3FF2] to-[#3B82F6]" : "rounded-[20px] bg-[#262626]")}>{l.text}</div>
-            </div>
-          </div>
-        ))}
-        <div className="msg self-end pr-1 text-[10px] text-[#A8A8A8]">Seen</div>
-      </div>
-      <div className="flex items-center gap-2 bg-black px-2.5 pb-3 pt-1.5">
-        <div className="flex h-9 flex-1 items-center gap-2 rounded-full border border-[#363636] pl-1 pr-3 text-[12.5px] text-[#A8A8A8]">
-          <span className="grid h-7 w-7 place-items-center rounded-full bg-[#3B82F6]" aria-hidden>
-            <svg width="14" height="12" viewBox="0 0 14 12" fill="none" stroke="#fff" strokeWidth="1.4" strokeLinejoin="round">
-              <path d="M1.5 3.5h2l1-1.8h4l1 1.8h2v7h-10z" />
-              <circle cx="7" cy="7" r="2" />
-            </svg>
-          </span>
-          Message...
-        </div>
-      </div>
-    </Phone>
-  );
-}
-
 const LIST = [
-  ["Aisha Rahman", "got slot tmr 3pm?", "23:47", 7, "#3F5BFF"],
+  ["Aisha Rahman", "large margherita, delivery?", "23:47", 7, "#3F5BFF"],
   ["+60 12-4•• ••81", "large margherita how much", "23:46", 3, "#8DA0FF"],
-  ["jun.wei", "size M in red ada?", "23:44", 12, "#2CF5BB"],
+  ["jun.wei", "apron in red size M ada?", "23:44", 12, "#2CF5BB"],
   ["Kavitha S.", "deliver to mont kiara?", "23:41", 2, "#FF4DA6"],
   ["Hakim", "how much for keratin", "23:39", 5, "#3F5BFF"],
   ["melissa.eats", "open on monday?", "23:33", 9, "#8DA0FF"],
-  ["Sharon Lee", "room for 2 this sat?", "23:30", 1, "#2CF5BB"],
-  ["Ganesh", "table for 6 sat", "23:22", 4, "#FF4DA6"],
-  ["Nur Amira", "can cancel my booking", "23:15", 6, "#3F5BFF"],
+  ["Sharon Lee", "got the red apron in M?", "23:30", 1, "#2CF5BB"],
+  ["Ganesh", "6 pizzas for sat 7pm", "23:22", 4, "#FF4DA6"],
+  ["Nur Amira", "can I change my order?", "23:15", 6, "#3F5BFF"],
 ] as const;
 
 /** The WhatsApp inbox on a bad evening: every row has an unread badge that counts up (`.pile-badge[data-n]`). */
@@ -315,7 +254,7 @@ export function ChatList({ className, lite }: { className?: string; lite?: boole
 
 /** The app's own icon: a rounded square in its brand colour, with a plain white glyph. */
 export function AppIcon({ k, size = 28, className }: { k: Chat; size?: number; className?: string }) {
-  const bg = k === "whatsapp" ? "#25D366" : k === "telegram" ? "#2AABEE" : "linear-gradient(45deg,#F5A623,#D62976 45%,#7B3FF2)";
+  const bg = k === "whatsapp" ? "#25D366" : "#2AABEE";
   return (
     <span className={cx("grid shrink-0 place-items-center", className)} style={{ width: size, height: size, borderRadius: size * 0.26, background: bg }} aria-hidden>
       <svg width={size * 0.64} height={size * 0.64} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
@@ -324,14 +263,8 @@ export function AppIcon({ k, size = 28, className }: { k: Chat; size?: number; c
             <path d="M12 3.8a8.2 8.2 0 0 0-7 12.4L3.8 20.2l4.1-1.1A8.2 8.2 0 1 0 12 3.8z" />
             <path d="M9.3 8.6c.1 2.3 2.2 5 5 5.9l1.3-1.4-1.8-1.1-.9.7c-.8-.4-1.5-1.1-1.9-1.9l.7-.9-1.1-1.8z" fill="#fff" strokeWidth="0.6" />
           </>
-        ) : k === "telegram" ? (
-          <path d="M20.2 4.6 3.6 11.1l4.5 1.7 1.6 5.2 2.6-3.3 3.8 2.9L20.2 4.6zM8.1 12.8l8.2-5.2" />
         ) : (
-          <>
-            <rect x="4" y="4" width="16" height="16" rx="4.8" />
-            <circle cx="12" cy="12" r="3.7" />
-            <circle cx="16.6" cy="7.4" r="0.6" fill="#fff" />
-          </>
+          <path d="M20.2 4.6 3.6 11.1l4.5 1.7 1.6 5.2 2.6-3.3 3.8 2.9L20.2 4.6zM8.1 12.8l8.2-5.2" />
         )}
       </svg>
     </span>

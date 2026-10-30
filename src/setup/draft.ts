@@ -6,7 +6,7 @@ import { db, t } from "@/db";
 import { and, asc, eq } from "drizzle-orm";
 import { claude } from "@/agent/claude";
 import { env } from "@/lib/env";
-import { Draft, DraftBookingType, DraftFaq, DraftHours, DraftItem, DraftPolicy, DraftQuestion, emptyDraft, type Draft as DraftT } from "./types";
+import { Draft, DraftFaq, DraftHours, DraftItem, DraftPolicy, DraftQuestion, emptyDraft, type Draft as DraftT } from "./types";
 
 type Ws = typeof t.workspaces.$inferSelect;
 
@@ -38,35 +38,14 @@ const TOOL: Anthropic.Messages.Tool = {
             category: { type: "string" },
             description: { type: "string", description: "What it is, what's included, notable details (ingredients, allergens, materials)" },
             options: { type: "array", items: option },
-            durationMinutes: { type: ["integer", "null"], description: "For services that are booked" },
-            bookingType: { type: ["string", "null"], description: "Key of the booking type used to book this service" },
+            durationMinutes: { type: ["integer", "null"], description: "For services, how long they take" },
             tags: { type: "array", items: { type: "string" }, description: "e.g. vegetarian, halal, spicy, bestseller" },
           },
           required: ["kind", "name", "category", "description", "options"],
         },
       },
-      bookingTypes: {
-        type: "array",
-        description:
-          "How customers book, if they do. unit 'party' = tables or group sessions by headcount (capacity = total seats per time slot); 'appointment' = one service per booking (capacity = staff or stations serving at the same time); 'day' = whole-day rentals or rooms (capacity = units per day). Empty if the business doesn't take bookings.",
-        items: {
-          type: "object",
-          properties: {
-            key: { type: "string", description: "short lowercase id, e.g. 'table', 'appointment', 'room'" },
-            name: { type: "string" },
-            unit: { type: "string", enum: ["party", "appointment", "day"] },
-            capacity: { type: "integer" },
-            durationMinutes: { type: "integer" },
-            slotMinutes: { type: "integer", description: "Booking start times every N minutes" },
-            maxPerBooking: { type: "integer" },
-            leadMinutes: { type: "integer", description: "How far ahead a booking must be made" },
-            notes: { type: "string", description: "Deposits, holding time, walk-ins" },
-          },
-          required: ["key", "name", "unit", "capacity", "durationMinutes", "slotMinutes", "maxPerBooking", "leadMinutes", "notes"],
-        },
-      },
       delivery: { type: ["object", "null"], properties: { offered: { type: "boolean" }, details: { type: "string", description: "Areas, fees, minimums, times, partners (Grab, Foodpanda...)" } }, required: ["offered", "details"] },
-      policies: { type: "array", items: { type: "object", properties: { topic: { type: "string", description: "one lowercase word: payment, cancellation, booking, location, returns, warranty, kids, pets..." }, title: { type: "string" }, body: { type: "string" } }, required: ["topic", "title", "body"] } },
+      policies: { type: "array", items: { type: "object", properties: { topic: { type: "string", description: "one lowercase word: payment, cancellation, location, returns, warranty, kids, pets..." }, title: { type: "string" }, body: { type: "string" } }, required: ["topic", "title", "body"] } },
       faqs: {
         type: "array",
         description: "15-25 questions customers will really send, written the way they type them (short, casual, local phrasing), each with the business's answer from the sources",
@@ -78,7 +57,7 @@ const TOOL: Anthropic.Messages.Tool = {
         items: { type: "object", properties: { question: { type: "string" }, why: { type: "string" } }, required: ["question", "why"] },
       },
     },
-    required: ["summary", "businessType", "hours", "items", "bookingTypes", "delivery", "policies", "faqs", "openQuestions"],
+    required: ["summary", "businessType", "hours", "items", "delivery", "policies", "faqs", "openQuestions"],
   },
 };
 
@@ -128,10 +107,6 @@ export function coerceDraft(raw: Record<string, unknown>): DraftT {
   const h = DraftHours.safeParse(raw.hours);
   d.hours = h.success ? h.data : null;
   d.items = list(raw.items, (v) => DraftItem.safeParse(v));
-  d.bookingTypes = list(
-    (Array.isArray(raw.bookingTypes) ? raw.bookingTypes : []).map((b: Record<string, unknown>) => ({ ...b, key: String(b?.key ?? b?.name ?? "booking").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-|-$/g, "").slice(0, 30) || "booking" })),
-    (v) => DraftBookingType.safeParse(v),
-  );
   const del = raw.delivery as { offered?: unknown; details?: unknown } | null;
   d.delivery = del && typeof del === "object" ? { offered: Boolean(del.offered), details: String(del.details ?? "").slice(0, 1500) } : null;
   const full = Draft.safeParse({ ...d, policies: raw.policies, faqs: raw.faqs, openQuestions: raw.openQuestions });
@@ -144,11 +119,11 @@ export function coerceDraft(raw: Record<string, unknown>): DraftT {
 
 export async function generateDraft(ws: Ws): Promise<DraftT> {
   const system = [
-    "You set up the AI front desk for a small business: the assistant that answers its customers on WhatsApp, Telegram and Instagram.",
+    "You set up the AI front desk for a small business: the assistant that answers its customers on WhatsApp and Telegram.",
     "From the owner's own words, their uploaded files (menus, price lists, flyers, photos of a price board) and their website, draft the knowledge the assistant needs by calling record_business_draft.",
     "Only record facts that are in the sources. Never invent prices, opening hours, policies, stock or delivery areas. If something customers will ask about is missing or unclear, put it in openQuestions instead.",
     `Prices are numbers in ${ws.currency} major units. When an item has sizes, lengths or variants with different prices, list each as an option.`,
-    "Services that customers book get durationMinutes and the key of their booking type.",
+    "Services get durationMinutes when the sources say how long they take.",
     "Write FAQ questions the way real customers type in chat apps: short, casual, sometimes with local slang or mixed languages. Answers are friendly, short and come from the sources.",
     "Keep the business's own names for things. Leave out anything about staff personal details.",
   ].join("\n");

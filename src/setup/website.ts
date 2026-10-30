@@ -4,7 +4,7 @@ import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
 const MAX_BYTES = 1_500_000;
-const INTERESTING = /(menu|price|pricing|service|treatment|product|shop|hour|opening|about|contact|faq|book|reserv|delivery|room|rate)/i;
+const INTERESTING = /(menu|price|pricing|service|treatment|product|shop|hour|opening|about|contact|faq|delivery|room|rate)/i;
 
 function privateAddress(ip: string) {
   if (ip.includes(":")) {

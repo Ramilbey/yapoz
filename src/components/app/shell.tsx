@@ -9,41 +9,34 @@ import { getJson } from "./fetcher";
 import { cx } from "../ui/cx";
 import type { Session } from "@/lib/session";
 
-type Item = { href: string; label: string; badge?: "needs" | "drafts" | "approvals" | "orders" | "gaps"; sub?: boolean; hiring?: boolean };
-export type ShellWorkspace = { id: string; name: string; city: string; hiring: boolean; live: boolean; setupDone: boolean; sample: boolean };
+type Item = { href: string; label: string; badge?: "needs" | "drafts" | "orders" | "gaps" };
+export type ShellWorkspace = { id: string; name: string; city: string; live: boolean; setupDone: boolean; sample: boolean };
 
+// Orders first: approving them is the main job. Activity is the full log of who did what.
 const NAV: Record<Session["role"], Item[]> = {
   owner: [
     { href: "/app/today", label: "Today" },
+    { href: "/app/orders", label: "Orders", badge: "orders" },
+    { href: "/app/calendar", label: "Calendar" },
     { href: "/app/inbox", label: "Inbox", badge: "drafts" },
     { href: "/app/needs-you", label: "Needs you", badge: "needs" },
-    { href: "/app/orders", label: "Orders", badge: "orders" },
+    { href: "/app/activity", label: "Activity" },
     { href: "/app/knowledge", label: "Knowledge", badge: "gaps" },
-    { href: "/app/bookings", label: "Bookings" },
-    { href: "/app/hiring", label: "Hiring", hiring: true },
-    { href: "/app/hiring/approvals", label: "Approvals", badge: "approvals", sub: true, hiring: true },
-    { href: "/app/hiring/calendar", label: "Interviews", sub: true, hiring: true },
-    { href: "/app/hiring/pipeline", label: "Pipeline", sub: true, hiring: true },
     { href: "/app/settings", label: "Settings" },
   ],
   service: [
+    { href: "/app/orders", label: "Orders", badge: "orders" },
+    { href: "/app/calendar", label: "Calendar" },
     { href: "/app/inbox", label: "Inbox", badge: "drafts" },
     { href: "/app/needs-you", label: "Needs you", badge: "needs" },
-    { href: "/app/orders", label: "Orders", badge: "orders" },
+    { href: "/app/activity", label: "Activity" },
     { href: "/app/knowledge", label: "Knowledge", badge: "gaps" },
-    { href: "/app/bookings", label: "Bookings" },
-  ],
-  hr: [
-    { href: "/app/hiring", label: "Roles and candidates" },
-    { href: "/app/hiring/approvals", label: "Approvals", badge: "approvals" },
-    { href: "/app/hiring/calendar", label: "Interviews" },
-    { href: "/app/hiring/pipeline", label: "Pipeline" },
   ],
 };
 
-const ROLE_NAME = { owner: "Owner", service: "Service", hr: "HR" } as const;
+const ROLE_NAME = { owner: "Owner", service: "Service" } as const;
 
-/** 18px stroke icons for top-level items. Sub-items keep their dot. */
+/** 18px stroke icons for the nav items. An item without one falls back to a dot. */
 const ICON: Record<string, string> = {
   "/app/setup": "M12 3l2.2 5.3L20 9l-4.2 3.8L17 18.5 12 15.6 7 18.5l1.2-5.7L4 9l5.8-.7z",
   "/app/today": "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z",
@@ -51,8 +44,8 @@ const ICON: Record<string, string> = {
   "/app/needs-you": "M6 9a6 6 0 1 1 12 0c0 6 2 7 2 7H4s2-1 2-7M10 20a2 2 0 0 0 4 0",
   "/app/orders": "M5 8h14l-1 12H6zM9 8V6a3 3 0 0 1 6 0v2",
   "/app/knowledge": "M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3zM5 17a3 3 0 0 1 3-3h11",
-  "/app/bookings": "M4 6h16v14H4zM4 10h16M8 3v4M16 3v4",
-  "/app/hiring": "M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6M3 20a6 6 0 0 1 12 0M16 5.5a3 3 0 0 1 0 5.5M18 14.5a6 6 0 0 1 3 5.5",
+  "/app/calendar": "M4 6h16v14H4zM4 10h16M8 3v4M16 3v4",
+  "/app/activity": "M3 12h4l3-8 4 16 3-8h4",
   "/app/settings": "M4 7h10M18 7h2M4 17h2M10 17h10M14 5v4M6 15v4",
 };
 
@@ -72,8 +65,9 @@ function ShellInner({ session, workspace, children }: { session: Session; worksp
   const [open, setOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("dark");
   const connected = useLiveStatus();
-  const { data: counts, mutate } = useSWR<{ needs: number; drafts: number; approvals: number; orders: number; gaps: number }>("/api/nav-counts", getJson, { refreshInterval: 30_000 });
-  useLive(["escalations", "messages", "outreach", "orders", "knowledge_gaps"], () => mutate());
+  const { data: counts, mutate } = useSWR<{ needs: number; drafts: number; orders: number; gaps: number }>("/api/nav-counts", getJson, { refreshInterval: 60_000, revalidateOnFocus: false });
+  // Badges only move on real (non-demo) changes, at most every few seconds.
+  useLive(["escalations", "messages", "orders", "knowledge_gaps"], () => mutate(), 1500, (e) => !e.demo);
 
   // The boot script in the app layout has already applied the user's choice (or their system setting); mirror it.
   useEffect(() => setTheme(document.documentElement.dataset.theme === "light" ? "light" : "dark"), []);
@@ -94,9 +88,9 @@ function ShellInner({ session, workspace, children }: { session: Session; worksp
 
   const items = [
     ...(session.role === "owner" && !workspace.setupDone ? [{ href: "/app/setup", label: "Set up" } as Item] : []),
-    ...NAV[session.role].filter((it) => !it.hiring || workspace.hiring),
+    ...NAV[session.role],
   ];
-  const active = (href: string) => pathname === href || (href !== "/app/hiring" && pathname.startsWith(href + "/")) || (href === "/app/hiring" && /^\/app\/hiring(\/[0-9a-f-]{36})?$/.test(pathname));
+  const active = (href: string) => pathname === href || pathname.startsWith(href + "/");
 
   const rail = (
     <nav className="flex h-full flex-col" aria-label="Main">
@@ -126,12 +120,12 @@ function ShellInner({ session, workspace, children }: { session: Session; worksp
                 aria-current={active(it.href) ? "page" : undefined}
                 className={cx(
                   "group relative flex items-center justify-between rounded-[10px] px-3 transition-colors",
-                  it.sub ? "ml-3 h-8 text-[13px]" : "h-10 text-[14.5px]",
+                  "h-10 text-[14.5px]",
                   active(it.href) ? "nav-on font-semibold text-fg" : "text-fg-2 hover:bg-fg/[0.06] hover:text-fg",
                 )}
               >
                 <span className="flex items-center gap-2.5">
-                  {ICON[it.href] && !it.sub ? (
+                  {ICON[it.href] ? (
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden className={cx("shrink-0 transition-transform duration-300 group-hover:translate-x-0.5 group-hover:scale-110", active(it.href) ? "text-accent" : "opacity-75")}>
                       <path d={ICON[it.href]} />
                     </svg>

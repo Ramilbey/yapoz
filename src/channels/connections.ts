@@ -1,14 +1,14 @@
-// Where each business's channel credentials live. A business connects its own WhatsApp number, Instagram
-// account or Telegram bot from Settings → Channels; secrets are stored AES-256-GCM encrypted on its channel
+// Where each business's channel credentials live. A business connects its own WhatsApp number or Telegram bot
+// from Settings → Channels; secrets are stored AES-256-GCM encrypted on its channel
 // row and never sent back to the browser. Env vars are only a fallback for the demo workspace.
 import { db, t } from "@/db";
 import { and, eq, sql } from "drizzle-orm";
 import { randomBytes } from "node:crypto";
 import { env } from "@/lib/env";
 import { decryptJson, encryptJson } from "@/lib/crypto";
-import { MetaError, checkNumber, inspectAccessToken, metaAppOf, subscribeWaba } from "./meta";
+import { MetaError, checkNumber, embeddedSignupReady, exchangeSignupCode, inspectAccessToken, metaAppOf, registerNumber, subscribeWaba, unsubscribeWaba } from "./meta";
 
-export type ChannelType = "telegram" | "whatsapp" | "instagram" | "simulator";
+export type ChannelType = "telegram" | "whatsapp" | "simulator";
 type ChannelRow = typeof t.channels.$inferSelect;
 
 /** The workspace's row for a channel type, created on first use. */
@@ -28,21 +28,21 @@ export type WhatsAppSecrets = { token?: string; verifyToken: string; appSecret?:
  *   appId (Meta app ID)  appSecret (App secret)  → the business's saved Meta app (integrations), else older channel secret
  *   phoneNumberId, wabaId (Business Account ID)  → channel config        token (Access token) → channel secrets
  */
-export type WhatsAppCreds = { token: string; verifyToken: string; appSecret: string; appId: string; wabaId: string; phoneNumberId: string; graphVersion: string; source: "workspace" | "env" };
+export type WhatsAppCreds = { token: string; verifyToken: string; appSecret: string; appId: string; wabaId: string; phoneNumberId: string; graphVersion: string; source: "workspace" | "env"; method: "embedded" | "manual" | "env" };
 
 export async function whatsappCreds(workspaceId: string): Promise<WhatsAppCreds | null> {
   const c = await channelOf(workspaceId, "whatsapp");
   const s = c.credentialsEnc && c.config.phoneNumberId ? decryptJson<WhatsAppSecrets>(c.credentialsEnc) : null;
   if (s?.token) {
+    const base = { token: s.token, verifyToken: s.verifyToken, wabaId: String(c.config.wabaId ?? ""), phoneNumberId: String(c.config.phoneNumberId), graphVersion: env.whatsapp.graphVersion, source: "workspace" as const };
+    // Embedded Signup numbers belong to Yapoz's own Meta app: its secret signs their webhooks.
+    if (c.config.connectMethod === "embedded") return { ...base, appSecret: env.whatsapp.appSecret, appId: env.whatsapp.appId, method: "embedded" };
     const app = await metaAppOf(workspaceId);
-    return {
-      token: s.token, verifyToken: s.verifyToken, appSecret: app?.appSecret ?? s.appSecret ?? "", appId: app?.appId || String(c.config.appId ?? ""),
-      wabaId: String(c.config.wabaId ?? ""), phoneNumberId: String(c.config.phoneNumberId), graphVersion: env.whatsapp.graphVersion, source: "workspace",
-    };
+    return { ...base, appSecret: app?.appSecret ?? s.appSecret ?? "", appId: app?.appId || String(c.config.appId ?? ""), method: "manual" };
   }
   const w = env.whatsapp;
   if (workspaceId === env.demoWorkspaceId && w.token && w.phoneNumberId) {
-    return { token: w.token, appSecret: w.appSecret, appId: w.appId, wabaId: w.wabaId, verifyToken: w.verifyToken, phoneNumberId: w.phoneNumberId, graphVersion: w.graphVersion, source: "env" };
+    return { token: w.token, appSecret: w.appSecret, appId: w.appId, wabaId: w.wabaId, verifyToken: w.verifyToken, phoneNumberId: w.phoneNumberId, graphVersion: w.graphVersion, source: "env", method: "env" };
   }
   return null;
 }
@@ -59,7 +59,7 @@ export async function connectWhatsApp(workspaceId: string, input: { phoneNumberI
     .select({ ws: t.channels.workspaceId })
     .from(t.channels)
     .where(and(eq(t.channels.type, "whatsapp"), sql`${t.channels.workspaceId} <> ${workspaceId}`, sql`${t.channels.config}->>'phoneNumberId' = ${input.phoneNumberId}`));
-  if (taken) throw new MetaError("phoneNumberId", "This WhatsApp number is already connected to another business on Jawab.", 409);
+  if (taken) throw new MetaError("phoneNumberId", "This WhatsApp number is already connected to another business on Yapoz.", 409);
 
   const token = await inspectAccessToken(app.appId, app.appSecret, input.accessToken);
   const { accountChecked, ...number } = await checkNumber(input.wabaId, input.phoneNumberId, input.accessToken);
@@ -75,12 +75,49 @@ export async function connectWhatsApp(workspaceId: string, input: { phoneNumberI
     .set({
       credentialsEnc: encryptJson(secrets),
       // A fresh connection starts with a clean health record.
-      config: { ...ch.config, phoneNumberId: input.phoneNumberId, wabaId: input.wabaId, appId: app.appId, ...number, wabaChecked: accountChecked, tokenExpiresAt: token.expiresAt, lastWebhookAt: null, lastWebhookIssue: null, lastWebhookTest: false, lastSendError: null, lastSendErrorAt: null },
+      config: { ...ch.config, connectMethod: "manual", registerIssue: null, phoneNumberId: input.phoneNumberId, wabaId: input.wabaId, appId: app.appId, ...number, wabaChecked: accountChecked, tokenExpiresAt: token.expiresAt, lastWebhookAt: null, lastWebhookIssue: null, lastWebhookTest: false, lastSendError: null, lastSendErrorAt: null },
       enabled: true,
     })
     .where(eq(t.channels.id, ch.id));
-  await db.insert(t.events).values({ workspaceId, type: "channel.connected", props: { channel: "whatsapp", phone: number.displayPhone, appId: app.appId } });
+  await db.insert(t.events).values({ workspaceId, type: "channel.connected", props: { channel: "whatsapp", method: "manual", phone: number.displayPhone, appId: app.appId } });
   return { ...number, accountChecked, tokenExpiresAt: token.expiresAt, webhookUrl: `${env.appUrl}/api/webhooks/whatsapp/${ch.id}`, verifyToken: secrets.verifyToken };
+}
+
+async function numberTaken(workspaceId: string, phoneNumberId: string) {
+  const [taken] = await db
+    .select({ ws: t.channels.workspaceId })
+    .from(t.channels)
+    .where(and(eq(t.channels.type, "whatsapp"), sql`${t.channels.workspaceId} <> ${workspaceId}`, sql`${t.channels.config}->>'phoneNumberId' = ${phoneNumberId}`));
+  return Boolean(taken);
+}
+
+/**
+ * Embedded Signup: the owner signs in with Facebook in a Meta popup and picks (or creates) their WhatsApp Business Account
+ * and number. The popup gives the browser a one-time code plus the number and account IDs; the code becomes the business's
+ * token here. Webhooks then arrive through Yapoz's own app, so there's nothing for the owner to paste into Meta.
+ */
+export async function connectWhatsAppEmbedded(workspaceId: string, input: { code: string; phoneNumberId: string; wabaId: string }) {
+  if (!embeddedSignupReady()) throw new MetaError(null, "Connecting with Facebook isn't set up on this server. Enter your credentials manually instead.", 501);
+  if (await numberTaken(workspaceId, input.phoneNumberId)) throw new MetaError("phoneNumberId", "This WhatsApp number is already connected to another business on Yapoz.", 409);
+  const w = env.whatsapp;
+  const accessToken = await exchangeSignupCode(input.code);
+  const token = await inspectAccessToken(w.appId, w.appSecret, accessToken);
+  const { accountChecked, ...number } = await checkNumber(input.wabaId, input.phoneNumberId, accessToken);
+  await subscribeWaba(input.wabaId, accessToken);
+  const registerIssue = await registerNumber(input.phoneNumberId, accessToken);
+
+  const ch = await channelOf(workspaceId, "whatsapp");
+  const kept = ch.credentialsEnc ? decryptJson<WhatsAppSecrets>(ch.credentialsEnc).verifyToken : null;
+  await db
+    .update(t.channels)
+    .set({
+      credentialsEnc: encryptJson({ token: accessToken, verifyToken: kept || randomBytes(18).toString("base64url") } satisfies WhatsAppSecrets),
+      config: { ...ch.config, connectMethod: "embedded", registerIssue, phoneNumberId: input.phoneNumberId, wabaId: input.wabaId, appId: w.appId, ...number, wabaChecked: accountChecked, tokenExpiresAt: token.expiresAt, lastWebhookAt: null, lastWebhookIssue: null, lastWebhookTest: false, lastSendError: null, lastSendErrorAt: null },
+      enabled: true,
+    })
+    .where(eq(t.channels.id, ch.id));
+  await db.insert(t.events).values({ workspaceId, type: "channel.connected", props: { channel: "whatsapp", method: "embedded", phone: number.displayPhone } });
+  return { ...number, registerIssue };
 }
 
 /**
@@ -89,18 +126,24 @@ export async function connectWhatsApp(workspaceId: string, input: { phoneNumberI
  */
 export async function disconnectWhatsApp(workspaceId: string) {
   const ch = await channelOf(workspaceId, "whatsapp");
+  // A number connected through Yapoz's app stops sending its webhooks here; a manual one is the owner's own app to manage.
+  if (ch.config.connectMethod === "embedded" && ch.credentialsEnc && ch.config.wabaId) {
+    const { token } = decryptJson<WhatsAppSecrets>(ch.credentialsEnc);
+    if (token) await unsubscribeWaba(String(ch.config.wabaId), token);
+  }
   const {
-    phoneNumberId: _p, wabaId: _w, appId: _a, displayPhone: _d, verifiedName: _v, tokenExpiresAt: _x,
+    connectMethod: _m, registerIssue: _r, phoneNumberId: _p, wabaId: _w, appId: _a, displayPhone: _d, verifiedName: _v, tokenExpiresAt: _x,
     wabaChecked: _wc, lastWebhookAt: _l1, lastWebhookIssue: _l2, lastWebhookTest: _l3, lastSendError: _l4, lastSendErrorAt: _l5, ...rest
   } = ch.config;
   const kept = ch.credentialsEnc ? decryptJson<WhatsAppSecrets>(ch.credentialsEnc).verifyToken : null;
   await db.update(t.channels).set({ credentialsEnc: kept ? encryptJson({ verifyToken: kept }) : null, config: rest }).where(eq(t.channels.id, ch.id));
+  await db.insert(t.events).values({ workspaceId, type: "channel.disconnected", props: { channel: "whatsapp" } });
 }
 
 /** A WhatsApp connection made through the Meta app box has no secret of its own: it can't lose the Meta app. */
 export async function whatsappDependsOnMetaApp(workspaceId: string): Promise<boolean> {
   const c = await channelOf(workspaceId, "whatsapp");
-  if (!c.credentialsEnc || !c.config.phoneNumberId) return false;
+  if (!c.credentialsEnc || !c.config.phoneNumberId || c.config.connectMethod === "embedded") return false;
   return !decryptJson<WhatsAppSecrets>(c.credentialsEnc).appSecret;
 }
 
@@ -110,22 +153,6 @@ export async function clearWebhookIssue(workspaceId: string) {
     .update(t.channels)
     .set({ config: sql`${t.channels.config} || '{"lastWebhookIssue": null}'::jsonb` })
     .where(and(eq(t.channels.workspaceId, workspaceId), eq(t.channels.type, "whatsapp")));
-}
-
-export type InstagramSecrets = { token: string; expiresAt: number | null; refreshedAt: number };
-export type InstagramCreds = { token: string; accountId: string; username: string | null; graphVersion: string; expiresAt: number | null; source: "workspace" | "env" };
-
-export async function instagramCreds(workspaceId: string): Promise<InstagramCreds | null> {
-  const c = await channelOf(workspaceId, "instagram");
-  if (c.credentialsEnc && c.config.accountId) {
-    const s = decryptJson<InstagramSecrets>(c.credentialsEnc);
-    return { token: s.token, expiresAt: s.expiresAt, accountId: String(c.config.accountId), username: (c.config.username as string) ?? null, graphVersion: env.instagram.graphVersion, source: "workspace" };
-  }
-  const ig = env.instagram;
-  if (workspaceId === env.demoWorkspaceId && ig.token && ig.accountId) {
-    return { token: ig.token, accountId: ig.accountId, username: null, graphVersion: ig.graphVersion, expiresAt: null, source: "env" };
-  }
-  return null;
 }
 
 /** Which business a WhatsApp phone number id belongs to. */
@@ -139,17 +166,6 @@ export async function workspaceForWhatsAppNumber(phoneNumberId: string): Promise
   return phoneNumberId === env.whatsapp.phoneNumberId ? env.demoWorkspaceId : null;
 }
 
-/** Which business an Instagram professional account (webhook entry.id) belongs to. */
-export async function workspaceForInstagramAccount(accountId: string): Promise<string | null> {
-  if (!accountId) return null;
-  const [c] = await db
-    .select({ ws: t.channels.workspaceId })
-    .from(t.channels)
-    .where(and(eq(t.channels.type, "instagram"), sql`${t.channels.config}->>'accountId' = ${accountId}`));
-  if (c) return c.ws;
-  return accountId === env.instagram.accountId ? env.demoWorkspaceId : null;
-}
-
 /** Read-only status for Settings → Channels. Never includes tokens or app secrets. */
 export async function channelStatus(workspaceId: string) {
   const rows = await db.select().from(t.channels).where(eq(t.channels.workspaceId, workspaceId));
@@ -161,7 +177,6 @@ export async function channelStatus(workspaceId: string) {
 
   const wa = await whatsappCreds(workspaceId);
   const waRow = row("whatsapp");
-  const ig = await instagramCreds(workspaceId);
   const meta = await metaAppOf(workspaceId);
 
   return {
@@ -170,7 +185,6 @@ export async function channelStatus(workspaceId: string) {
       mode: tgRow?.mode ?? "autopilot",
       sharedBot: shared,
       customerLink: ownBot?.username ? `https://t.me/${ownBot.username}` : shared ? `https://t.me/${shared}?start=${workspaceId}` : null,
-      applyLink: ownBot?.username ? `https://t.me/${ownBot.username}?start=apply` : shared ? `https://t.me/${shared}?start=apply_${workspaceId}` : null,
       ownBot,
       businessConnections: conns.map((c) => ({ id: c.id, canReply: c.canReply, isEnabled: c.isEnabled, updatedAt: c.updatedAt })),
       connected: Boolean(ownBot || conns.some((c) => c.isEnabled) || shared),
@@ -178,6 +192,10 @@ export async function channelStatus(workspaceId: string) {
     whatsapp: {
       mode: waRow?.mode ?? "autopilot",
       connected: Boolean(wa),
+      method: wa?.method ?? null,
+      /** Embedded Signup through Yapoz's own Meta app: the IDs the browser needs to open Meta's popup. Never the secret. */
+      embedded: embeddedSignupReady() ? { appId: env.whatsapp.appId, configId: env.whatsapp.embeddedConfigId, graphVersion: env.whatsapp.graphVersion } : null,
+      registerIssue: (waRow?.config.registerIssue as string) ?? null,
       source: wa?.source ?? null,
       displayPhone: (waRow?.config.displayPhone as string) ?? null,
       verifiedName: (waRow?.config.verifiedName as string) ?? null,
@@ -189,23 +207,15 @@ export async function channelStatus(workspaceId: string) {
       /** Meta has been asked about this token (done when the number is connected through the Meta app box). Older connections: not yet. */
       tokenChecked: waRow?.config.tokenExpiresAt !== undefined,
       /** Connected before the Meta app box existed: its secret is still the one saved with the number. */
-      needsMetaApp: wa?.source === "workspace" && !meta,
+      needsMetaApp: wa?.method === "manual" && !meta,
       // Shown so the owner can paste them into their Meta app's webhook settings.
-      webhookUrl: wa?.source === "workspace" && waRow ? `${env.appUrl}/api/webhooks/whatsapp/${waRow.id}` : wa?.source === "env" ? `${env.appUrl}/api/webhooks/whatsapp` : null,
+      webhookUrl: wa?.method === "manual" && waRow ? `${env.appUrl}/api/webhooks/whatsapp/${waRow.id}` : wa ? `${env.appUrl}/api/webhooks/whatsapp` : null,
       verifyToken: wa?.verifyToken ?? null,
       // Written by the webhook route and the sender, so the owner can see where the chain breaks.
       lastWebhookAt: (waRow?.config.lastWebhookAt as string) ?? null,
       lastWebhookIssue: (waRow?.config.lastWebhookIssue as "signature" | null) ?? null,
       lastWebhookTest: Boolean(waRow?.config.lastWebhookTest),
       lastSendError: waRow?.config.lastSendError ? { at: String(waRow.config.lastSendErrorAt ?? ""), message: String(waRow.config.lastSendError) } : null,
-    },
-    instagram: {
-      mode: row("instagram")?.mode ?? "autopilot",
-      connected: Boolean(ig),
-      source: ig?.source ?? null,
-      username: ig?.username ?? null,
-      expiresAt: ig?.expiresAt ? new Date(ig.expiresAt).toISOString() : null,
-      canConnect: Boolean(env.instagram.appId && env.instagram.appSecret),
     },
     simulator: { mode: row("simulator")?.mode ?? "autopilot", connected: true },
   };

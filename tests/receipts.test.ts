@@ -77,7 +77,7 @@ test("date: the future or an old receipt fails, hours before the order is a look
   const old = assess(good({ paidAt: "2026-10-20T10:00" }));
   assert.equal(level(old, "date"), "fail");
   assert.match(old.checks.find((c) => c.code === "date")!.message, /3 day\(s\) before the order/);
-  assert.equal(level(assess(good({ paidAt: "2026-10-23T08:00" })), "date"), "warn", "3.5 hours before");
+  assert.equal(level(assess(good({ paidAt: "2026-10-23T08:00" })), "date_early"), "warn", "3.5 hours before");
   assert.equal(level(assess(good({ paidAt: "2026-10-23" })), "date"), "pass", "date only, same day");
   assert.equal(level(assess(good({ paidAt: "2026-10-21" })), "date"), "fail", "date only, two days before");
   assert.equal(level(assess(good({ paidAt: "2026-10-23T11:40+08:00" })), "date"), "pass", "with an offset");
@@ -251,7 +251,13 @@ test("an unreadable receipt asks for a clearer one and leaves the order waiting,
   assert.equal((await stored(order.id)).length, 1);
   setReceiptReader(reads(good({ looksLikeReceipt: false })));
   const notReceipt = await receiptIntake(wsRow, thread, await send(thread, [{ kind: "image", ref: dataUrl(PNG("pizza")) }]));
-  assert.match(notReceipt?.reply ?? "", /doesn't look like a payment receipt/);
+  assert.equal(notReceipt?.verdict, "unreadable");
+  assert.match(notReceipt?.reply ?? "", /still couldn't read that clearly.*asked the team to check your payment for order /, "the second unreadable file hands the chat to a person instead of asking a third time");
+  assert.ok(!/clear photo or screenshot/.test(notReceipt?.reply ?? ""));
+  const cards = await db.select().from(t.escalations).where(eq(t.escalations.threadId, thread.id));
+  assert.equal(cards.length, 1);
+  assert.equal(cards[0].category, "receipt_problem");
+  assert.match(cards[0].summary, new RegExp(`Couldn't read 2 receipts for ${order.refCode}`));
   setReceiptReader(reads(good({ paidAt: paidNow() })));
   const ok = await receiptIntake(wsRow, thread, await send(thread, [{ kind: "image", ref: dataUrl(PNG("clear")) }]));
   assert.equal(ok?.reply, TEMPLATE(order.refCode));

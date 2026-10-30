@@ -26,8 +26,7 @@ The database is seeded with a fully functional sample restaurant workspace (`FOR
 | Role | Email | Password | Workspace ID | Default Dashboard Route |
 | :--- | :--- | :--- | :--- | :--- |
 | **Owner (Full Access)** | `owner@demo` | `forno7demo` | `FORNO7` | `/app/today` or `/app/inbox` |
-| **Service Desk (Customer Chat & Bookings)** | `service@demo` | `forno7demo` | `FORNO7` | `/app/inbox` |
-| **HR Desk (Applicant Pipeline & Interviews)** | `hr@demo` | `forno7demo` | `FORNO7` | `/app/hiring` |
+| **Service Desk (Customer Chat)** | `service@demo` | `forno7demo` | `FORNO7` | `/app/inbox` |
 
 > *Tip: The live login page at `/login` provides one-click desktop demo buttons that prefill credentials automatically.*
 
@@ -105,14 +104,33 @@ Do not enable `prepare: true` when running against Supabase port 6543, as PgBoun
 
 ### Schema & Database Seeding Files:
 1. `drizzle/supabase_setup.sql`: Complete SQL script creating all 30 application tables, custom enums, and real-time triggers (`jawab_notify`).
-2. `drizzle/seed_data.sql`: Complete SQL seed dump containing workspace `FORNO7`, 3 staff users, pizza menu items & variants, 40 FAQ answers, and candidate profiles.
+2. `drizzle/seed_data.sql`: Complete SQL seed dump containing workspace `FORNO7`, 2 staff users, pizza menu items & variants, 40 FAQ answers.
 3. `drizzle/0002_orders.sql`: the orders tables, live-update trigger and row-level security. **An existing database needs this run once** (Supabase → SQL Editor → paste → Run) before the Orders page works. It is safe to run twice. A fresh setup gets it from `supabase_setup.sql`.
-4. Seeding via terminal:
+4. `drizzle/0004_cleanup_and_orders.sql`: removes the old booking, hiring and Instagram tables and data and adds order notifications and session revocation; run once on an existing database before 0005; it deletes data, so back up first; safe to run twice.
+5. `drizzle/0005_stock.sql`: the stock tables, columns and `expired` order status. **An existing database needs this run once** (same as 0002). It is safe to run twice, and it is also appended to `supabase_setup.sql`.
+6. `drizzle/0006_appointments.sql`: the `staff` and `appointments` tables, `kb_items.in_person` and `orders.kind`, with live-update triggers and row-level security. **An existing database needs this run once** (same as 0002), after 0005. It is safe to run twice, and it is also appended to `supabase_setup.sql`.
+7. Seeding via terminal:
    ```bash
    DATABASE_URL="<Supabase-Pooler-URL>" npm run db:seed
    ```
 
 ---
+
+### Stock and expiry
+
+- Migration `0005_stock.sql` converts items whose options already had a stock count to "Count stock". Existing orders get no expiry timer.
+- Payment holds last 20 minutes (Settings → Stock). Expired orders are processed when the Orders page loads, when a customer message arrives, by `GET /api/jobs/sweep` (see below), and by `npm run worker` when self-hosting.
+- An expired order returns its stock and the customer gets a fixed message.
+- Availability is computed live, so a late sweep never oversells. Expiry messages and booking reminders, though, only go out when something runs the sweep: call `GET /api/jobs/sweep` with `Authorization: Bearer $CRON_SECRET` about every 5 minutes (cron-job.org or Supabase pg_cron; the Vercel cron in `vercel.json` only runs once a day on the Hobby plan).
+
+### Appointments
+
+- Customers book services in chat (tools `find_times`, `book_appointment`, `change_appointment`). A booking is an order with kind `appointment` and ref code `APT-xxxx`, so approval, payment receipts, the 20-minute payment timer, Keep reserved and expiry work exactly as for orders.
+- Staff are the business's logins. On the Calendar page (Team availability), each person is switched on to take appointments and gets their own hours (always within opening hours), days off and, when Settings → Appointments says "each person does only the services I pick", their services.
+- Settings → Appointments: time grid, booking window, minimum notice, change cutoff, buffer, reminder time, meeting server (default `https://meet.jit.si`) and an optional WhatsApp reminder template.
+- Online services get a Jitsi link in the confirmation; services ticked "In person" in Knowledge get the business address.
+- Reminders go once per confirmed booking, `reminderMinutes` (default 60) before the start, from the sweep, Orders/Calendar page loads, incoming messages, or `npm run worker`.
+- WhatsApp: more than 24 hours after the customer's last message, only Meta-approved templates can be sent. Set the template name and language in Settings → Appointments (a Utility template with 3 variables: service, time, link or place). Without it, such a reminder fails and shows as "not told" on the order.
 
 ## 5. Multi-Provider Cascading AI Engine
 
@@ -217,4 +235,6 @@ Expected output:
 | **WhatsApp: "signature doesn't match"** | The App secret saved in Jawab isn't the secret of the Meta app that sends the webhooks. | Copy App settings → Basic → App secret from that app, then Disconnect and connect WhatsApp again (the verify token changes, so re-save the webhook in Meta). |
 | **WhatsApp: "Last reply failed … (#131030)"** | Meta's test number only sends to numbers on its list. | WhatsApp → API Setup → To → Manage phone number list: add and verify the phone you test from. |
 | **`relation "orders" does not exist`, or the Orders page shows an error** | The code is deployed but `drizzle/0002_orders.sql` hasn't been run on the Supabase database yet. | Paste that file into the Supabase SQL Editor and run it. Orders already placed in chat before then were not saved: the agent tells staff the AI hit an error. |
+| **`column "..." does not exist` or an unknown `expired` status on Orders or Settings → Stock** | The code is deployed but `drizzle/0005_stock.sql` hasn't been run on the Supabase database yet. | Paste that file into the Supabase SQL Editor and run it. |
+| **`relation "appointments" does not exist` or `column "kind" does not exist` on Orders or Calendar** | The code is deployed but `drizzle/0006_appointments.sql` hasn't been run on the Supabase database yet. | Paste that file into the Supabase SQL Editor and run it. |
 | **Customer ordered in chat but nothing appears under Orders** | The order was refused (sold out, unclear size, missing address) or the AI failed. | Open the conversation in Inbox: the tool line under each reply shows `order ✗ …` with the reason. Needs you shows AI failures with their cause. |

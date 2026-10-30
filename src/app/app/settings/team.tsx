@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/field";
 import { CopyField } from "@/components/ui/copy";
 
-type Role = "owner" | "service" | "hr";
+type Role = "owner" | "service";
 type Team = {
   me: string;
   members: { id: string; name: string; email: string; role: Role }[];
@@ -16,20 +16,19 @@ type Team = {
 
 const ROLES: { value: Role; label: string; sees: string }[] = [
   { value: "owner", label: "Owner", sees: "Everything, including settings and channels" },
-  { value: "service", label: "Service", sees: "Inbox, Needs you, knowledge and bookings" },
-  { value: "hr", label: "HR", sees: "Hiring only" },
+  { value: "service", label: "Service", sees: "Orders, inbox, Needs you, activity and knowledge" },
 ];
 
 const select = "h-9 rounded-lg border border-line bg-raised px-2 text-[13px]";
 
-export function TeamSection({ hiring }: { hiring: boolean }) {
+export function TeamSection() {
   const toast = useToast();
   const { data, mutate } = useSWR<Team>("/api/team", getJson);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("service");
   const [busy, setBusy] = useState(false);
   const [fresh, setFresh] = useState<string | null>(null);
-  const roles = ROLES.filter((r) => hiring || r.value !== "hr");
+  const roles = ROLES;
 
   async function act(fn: () => Promise<unknown>, msg?: string) {
     try {

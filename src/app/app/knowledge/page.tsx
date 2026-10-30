@@ -11,16 +11,19 @@ import { Input, Textarea, Label } from "@/components/ui/field";
 import { Switch } from "@/components/ui/switch";
 import { cx } from "@/components/ui/cx";
 
-type Variant = { id: string; size: string | null; color: string | null; option: string | null; priceMinor: number; stock: number | null };
-type Item = { id: string; kind: string; category: string; slug: string; title: string; body: string; data: Record<string, unknown>; tags: string[]; available: boolean; availabilityNote: string | null; active: boolean; variants: Variant[] };
+type StockMode = "none" | "daily" | "tracked";
+type StockInfo = { defaultMode: StockMode; lowStockDefault: number; today: string };
+type Variant = { id: string; size: string | null; color: string | null; option: string | null; priceMinor: number; stock: number | null; dailyQty: number | null; lowStockAt: number | null };
+type Item = { id: string; kind: string; category: string; slug: string; title: string; body: string; data: Record<string, unknown>; tags: string[]; available: boolean; inPerson: boolean; stockMode: StockMode | null; unavailableUntil: string | null; availabilityNote: string | null; active: boolean; variants: Variant[] };
 type Gap = { id: string; key: string; question: string; count: number };
-type BookingType = { id: string; key: string; name: string; unit: "party" | "appointment" | "day"; capacity: number; durationMinutes: number; slotMinutes: number; maxPerBooking: number; leadMinutes: number; notes: string; active: boolean };
 type HoursData = { weekly: Record<string, [string, string][]>; lastOrdersMinutesBeforeClose: number; exceptions: { date: string; hours: [string, string][]; note: string }[] };
-type Data = { items: Item[]; gaps: Gap[]; dismissed: Gap[]; bookingTypes: BookingType[]; currency: string; canEditBookings: boolean };
+type Data = { items: Item[]; gaps: Gap[]; dismissed: Gap[]; currency: string; stock: StockInfo };
+
+const MODE_LABEL: Record<StockMode, string> = { none: "Made to order", daily: "Daily quantity", tracked: "Count stock" };
+const intOrNull = (v: string) => (v === "" ? null : Number(v));
 
 const TABS = [
   { key: "catalog", label: "Products and services" },
-  { key: "bookings", label: "Bookings" },
   { key: "hours", label: "Hours" },
   { key: "policies", label: "Policies and info" },
   { key: "faqs", label: "FAQs" },
@@ -30,7 +33,7 @@ const TABS = [
 export default function KnowledgePage() {
   const [tab, setTab] = useState<(typeof TABS)[number]["key"]>("catalog");
   const { data, mutate } = useSWR<Data>("/api/knowledge", getJson);
-  useLive(["kb_items", "kb_variants", "knowledge_gaps", "booking_types"], () => mutate(), 400);
+  useLive(["kb_items", "kb_variants", "knowledge_gaps"],() => mutate(), 400);
   const items = data?.items ?? [];
   return (
     <div>
@@ -44,8 +47,7 @@ export default function KnowledgePage() {
         ))}
       </div>
       {!data ? <p className="text-muted">Loading…</p> : null}
-      {data && tab === "catalog" ? <Catalog items={items.filter((i) => i.kind === "product" || i.kind === "service")} types={data.bookingTypes} currency={data.currency} onChange={mutate} /> : null}
-      {data && tab === "bookings" ? <Bookings types={data.bookingTypes} canEdit={data.canEditBookings} onChange={mutate} /> : null}
+      {data && tab === "catalog" ? <Catalog items={items.filter((i) => i.kind === "product" || i.kind === "service")} currency={data.currency} stock={data.stock} onChange={mutate} /> : null}
       {data && tab === "hours" ? <Hours item={items.find((i) => i.kind === "hours")} onChange={mutate} /> : null}
       {data && tab === "policies" ? <TextItems items={items.filter((i) => i.kind === "policy" || i.kind === "info")} currency={data.currency} onChange={mutate} /> : null}
       {data && tab === "faqs" ? <Faqs items={items.filter((i) => i.kind === "faq")} onChange={mutate} /> : null}
@@ -74,7 +76,7 @@ const major = (minor: number) => (minor / 100).toFixed(minor % 100 ? 2 : 0);
 const toMinor = (v: string) => Math.round(Number(v) * 100);
 const label = (v: Variant) => [v.size, v.color, v.option].filter(Boolean).join(" / ");
 
-function Catalog({ items, types, currency, onChange }: { items: Item[]; types: BookingType[]; currency: string; onChange: () => void }) {
+function Catalog({ items, currency, stock, onChange }: { items: Item[]; currency: string; stock: StockInfo; onChange: () => void }) {
   const save = useSaver(onChange);
   const [q, setQ] = useState("");
   const [adding, setAdding] = useState(false);
@@ -94,7 +96,7 @@ function Catalog({ items, types, currency, onChange }: { items: Item[]; types: B
         </Button>
         <span className="text-[13px] text-muted">{items.length} total. Prices in {currency}.</span>
       </div>
-      {adding ? <NewItem categories={categories} types={types} save={save} onDone={() => setAdding(false)} /> : null}
+      {adding ? <NewItem categories={categories} save={save} onDone={() => setAdding(false)} /> : null}
       {!items.length && !adding ? <p className="text-[15px] text-muted">Nothing here yet. Add what you sell, or run setup again to draft it from your menu or price list.</p> : null}
       <div className="space-y-10">
         {groups.map(([cat, list]) => (
@@ -102,7 +104,7 @@ function Catalog({ items, types, currency, onChange }: { items: Item[]; types: B
             <h2 className="font-display mb-3 text-[20px] font-bold capitalize">{cat}</h2>
             <div className="divide-y divide-line border-y border-line">
               {list.map((i) => (
-                <ItemRow key={i.id} item={i} types={types} save={save} />
+                <ItemRow key={i.id} item={i} save={save} stock={stock} />
               ))}
             </div>
           </section>
@@ -112,8 +114,8 @@ function Catalog({ items, types, currency, onChange }: { items: Item[]; types: B
   );
 }
 
-function NewItem({ categories, types, save, onDone }: { categories: string[]; types: BookingType[]; save: Save; onDone: () => void }) {
-  const [f, setF] = useState({ kind: types.length ? "service" : "product", title: "", category: categories[0] ?? "", body: "", price: "", option: "", duration: "" });
+function NewItem({ categories, save, onDone }: { categories: string[]; save: Save; onDone: () => void }) {
+  const [f, setF] = useState({ kind: "product",title: "", category: categories[0] ?? "", body: "", price: "", option: "", duration: "" });
   return (
     <form
       className="mb-10 grid max-w-[820px] gap-3 rounded-2xl border border-line p-5 sm:grid-cols-2"
@@ -127,7 +129,7 @@ function NewItem({ categories, types, save, onDone }: { categories: string[]; ty
             title: f.title,
             category: f.category || "general",
             body: f.body,
-            data: f.kind === "service" ? { durationMinutes: f.duration ? Number(f.duration) : null, bookingType: types.length === 1 ? types[0].key : null } : {},
+            data: f.kind === "service" ? { durationMinutes: f.duration ? Number(f.duration) : null } : {},
             variants: f.price ? [{ option: f.option || null, priceMinor: toMinor(f.price), stock: null }] : [],
           },
           `${f.title} added.`,
@@ -188,14 +190,16 @@ function NewItem({ categories, types, save, onDone }: { categories: string[]; ty
   );
 }
 
-function ItemRow({ item, types, save }: { item: Item; types: BookingType[]; save: Save }) {
+function ItemRow({ item, save, stock }: { item: Item; save: Save; stock: StockInfo }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState(item.title);
   const [body, setBody] = useState(item.body);
   const [category, setCategory] = useState(item.category);
   const [note, setNote] = useState(item.availabilityNote ?? "");
   useEffect(() => setNote(item.availabilityNote ?? ""), [item.availabilityNote]);
-  const d = item.data as { vegetarian?: boolean; vegan?: boolean; halal?: boolean; spicy?: boolean; allergens?: string[]; durationMinutes?: number | null; bookingType?: string | null };
+  const d = item.data as { vegetarian?: boolean; vegan?: boolean; halal?: boolean; spicy?: boolean; allergens?: string[]; durationMinutes?: number | null };
+  const mode: StockMode = item.kind === "product" ? item.stockMode ?? stock.defaultMode : "none";
+  const offState = !item.available ? "until_on" : item.unavailableUntil && stock.today < item.unavailableUntil ? "today" : "on";
   const dirty = title !== item.title || body !== item.body || category !== item.category;
   return (
     <div className={cx("grid grid-cols-1 gap-4 py-4 md:grid-cols-[1.2fr_1.4fr_1fr] md:items-start", !item.available && "bg-signal/[0.04]")}>
@@ -205,7 +209,7 @@ function ItemRow({ item, types, save }: { item: Item; types: BookingType[]; save
           <span className="ml-2 text-[12px] text-muted">{open ? "close" : "edit"}</span>
         </button>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          {item.kind === "service" ? <Chip>Service{d.durationMinutes ? `, ${d.durationMinutes} min` : ""}</Chip> : null}
+          {item.kind === "service" ? <Chip>{item.inPerson ? "In person" : "Online"}{d.durationMinutes ? ` · ${d.durationMinutes} min` : ""}</Chip> : null}
           {d.vegan ? <Chip>Vegan</Chip> : d.vegetarian ? <Chip>Vegetarian</Chip> : null}
           {d.halal === false ? <Chip tone="signal">Contains alcohol</Chip> : null}
           {d.spicy ? <Chip>Spicy</Chip> : null}
@@ -221,16 +225,29 @@ function ItemRow({ item, types, save }: { item: Item; types: BookingType[]; save
             <Input value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category" />
             <Textarea rows={3} value={body} onChange={(e) => setBody(e.target.value)} aria-label="Description" />
             {item.kind === "service" ? (
-              <div className="grid grid-cols-2 gap-2">
-                <Input type="number" min={5} step={5} defaultValue={d.durationMinutes ?? ""} aria-label="Duration in minutes" placeholder="Minutes" onBlur={(e) => Number(e.target.value || 0) !== (d.durationMinutes ?? 0) && save(`/api/knowledge/items/${item.id}`, "PATCH", { data: { ...item.data, durationMinutes: e.target.value ? Number(e.target.value) : null } })} />
-                <select className="h-10 rounded-[10px] border border-line bg-raised px-2 text-[13px]" defaultValue={d.bookingType ?? ""} aria-label="Booked as" onChange={(e) => save(`/api/knowledge/items/${item.id}`, "PATCH", { data: { ...item.data, bookingType: e.target.value || null } })}>
-                  <option value="">Not bookable in chat</option>
-                  {types.map((t) => (
-                    <option key={t.id} value={t.key}>
-                      Booked as {t.name}
-                    </option>
-                  ))}
-                </select>
+              <div className="space-y-2">
+                <label className="flex items-center gap-2.5 text-[14px]">
+                  <Switch checked={item.inPerson} onCheckedChange={(on) => save(`/api/knowledge/items/${item.id}`, "PATCH", { inPerson: on }, "Saved.")} label="In person (no meeting link)" />
+                  In person (no meeting link)
+                </label>
+                <p className="text-[12px] text-muted">Online bookings get a video meeting link; in-person ones get your address.</p>
+                <Label htmlFor={`dur-${item.id}`}>Duration (minutes)</Label>
+                <Input
+                  id={`dur-${item.id}`}
+                  type="number"
+                  min={5}
+                  step={5}
+                  defaultValue={d.durationMinutes ?? ""}
+                  placeholder="Minutes"
+                  onBlur={(e) => {
+                    const n = e.target.value ? Number(e.target.value) : null;
+                    if ((n ?? 0) === (d.durationMinutes ?? 0)) return;
+                    const { durationMinutes: _old, ...rest } = item.data;
+                    void _old;
+                    save(`/api/knowledge/items/${item.id}`, "PATCH", { data: n ? { ...rest, durationMinutes: n } : rest }, "Saved.");
+                  }}
+                />
+                <p className="text-[12px] text-muted">How long a booking takes. Empty = your time grid in Settings → Appointments.</p>
               </div>
             ) : null}
             <div className="flex gap-2">
@@ -247,22 +264,50 @@ function ItemRow({ item, types, save }: { item: Item; types: BookingType[]; save
       <div>
         <div className="flex flex-wrap gap-2">
           {item.variants.map((v) => (
-            <VariantInput key={v.id} v={v} save={save} editing={open} />
+            <VariantInput key={v.id} v={v} save={save} editing={open} mode={mode} lowDefault={stock.lowStockDefault} />
           ))}
           {!item.variants.length ? <span className="text-[13px] text-muted">No price yet</span> : null}
         </div>
+        {mode === "daily" ? <p className="mt-2 text-[12px] text-muted">You can plan each day on the Today page.</p> : null}
         {open ? <AddVariant itemId={item.id} save={save} /> : null}
       </div>
       <div className="space-y-2">
-        <label className="flex items-center gap-2.5 text-[14px]">
-          <Switch
-            checked={item.available}
-            onCheckedChange={(on) => save(`/api/knowledge/items/${item.id}`, "PATCH", { available: on, availabilityNote: on ? null : note || "Not available today" }, on ? `${item.title} is back on.` : `${item.title} marked unavailable today.`)}
-            label="Available today"
-          />
-          {item.available ? "Available today" : <span className="text-signal-ink">Not available today</span>}
-        </label>
-        {!item.available ? (
+        {item.kind === "product" ? (
+          <div className="space-y-2">
+            <select
+              className="h-9 w-full rounded-[10px] border border-line bg-raised px-2 text-[14px]"
+              value={item.stockMode ?? ""}
+              aria-label={`Stock for ${item.title}`}
+              onChange={(e) => save(`/api/knowledge/items/${item.id}`, "PATCH", { stockMode: e.target.value || null }, "Stock updated.")}
+            >
+              <option value="">Use business default ({MODE_LABEL[stock.defaultMode]})</option>
+              <option value="none">Made to order</option>
+              <option value="daily">Daily quantity</option>
+              <option value="tracked">Count stock</option>
+            </select>
+            <select
+              className={cx("h-9 w-full rounded-[10px] border bg-raised px-2 text-[14px]", offState === "on" ? "border-line" : "border-signal/50 text-signal-ink")}
+              value={offState}
+              aria-label={`Availability of ${item.title}`}
+              onChange={(e) => save(`/api/knowledge/items/${item.id}`, "PATCH", { off: e.target.value }, e.target.value === "on" ? `${item.title} is back on.` : `${item.title} turned off.`)}
+            >
+              <option value="on">Available</option>
+              <option value="today">Sold out today</option>
+              <option value="until_on">Off until I turn it on</option>
+            </select>
+            {offState === "today" ? <p className="text-[12px] text-muted">Back on {item.unavailableUntil} automatically.</p> : null}
+          </div>
+        ) : (
+          <label className="flex items-center gap-2.5 text-[14px]">
+            <Switch
+              checked={item.available}
+              onCheckedChange={(on) => save(`/api/knowledge/items/${item.id}`, "PATCH", { available: on, availabilityNote: on ? null : note || "Not available today" }, on ? `${item.title} is back on.` : `${item.title} marked unavailable today.`)}
+              label="Available today"
+            />
+            {item.available ? "Available today" : <span className="text-signal-ink">Not available today</span>}
+          </label>
+        )}
+        {offState === "until_on" ? (
           <div className="flex gap-2">
             <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="What to tell customers" className="h-8 text-[13px]" />
             <Button size="sm" onClick={() => save(`/api/knowledge/items/${item.id}`, "PATCH", { availabilityNote: note })}>
@@ -275,9 +320,13 @@ function ItemRow({ item, types, save }: { item: Item; types: BookingType[]; save
   );
 }
 
-function VariantInput({ v, save, editing }: { v: Variant; save: Save; editing: boolean }) {
+function VariantInput({ v, save, editing, mode, lowDefault }: { v: Variant; save: Save; editing: boolean; mode: StockMode; lowDefault: number }) {
   const [price, setPrice] = useState(major(v.priceMinor));
   const [stock, setStock] = useState(v.stock === null ? "" : String(v.stock));
+  const [daily, setDaily] = useState(v.dailyQty === null ? "" : String(v.dailyQty));
+  const [low, setLow] = useState(v.lowStockAt === null ? "" : String(v.lowStockAt));
+  useEffect(() => setDaily(v.dailyQty === null ? "" : String(v.dailyQty)), [v.dailyQty]);
+  useEffect(() => setLow(v.lowStockAt === null ? "" : String(v.lowStockAt)), [v.lowStockAt]);
   useEffect(() => setPrice(major(v.priceMinor)), [v.priceMinor]);
   useEffect(() => setStock(v.stock === null ? "" : String(v.stock)), [v.stock]);
   return (
@@ -294,9 +343,27 @@ function VariantInput({ v, save, editing }: { v: Variant; save: Save; editing: b
         }}
         aria-label={`Price ${label(v)}`}
       />
-      {v.stock !== null || editing ? (
+      {mode === "daily" ? (
         <>
-          <span className="text-[11px] text-muted">stock</span>
+          <span className="text-[11px] text-muted">usual per day</span>
+          <input
+            className="num w-9 bg-transparent text-[13px] focus:outline-none"
+            value={daily}
+            placeholder="–"
+            inputMode="numeric"
+            onChange={(e) => setDaily(e.target.value.replace(/\D/g, ""))}
+            onBlur={() => {
+              const n = intOrNull(daily);
+              if (n !== v.dailyQty) void save(`/api/knowledge/variants/${v.id}`, "PATCH", { dailyQty: n }, "Daily quantity updated.");
+            }}
+            aria-label={`Usual per day ${label(v)}`}
+          />
+          {v.dailyQty === null ? <span className="text-[11px] text-muted">not counted</span> : null}
+        </>
+      ) : null}
+      {mode === "tracked" ? (
+        <>
+          <span className="text-[11px] text-muted">in stock</span>
           <input
             className={cx("num w-9 bg-transparent text-[13px] focus:outline-none", v.stock === 0 && "text-signal-ink")}
             value={stock}
@@ -308,7 +375,21 @@ function VariantInput({ v, save, editing }: { v: Variant; save: Save; editing: b
               if (n !== v.stock) void save(`/api/knowledge/variants/${v.id}`, "PATCH", { stock: n }, "Stock updated.");
             }}
             aria-label={`Stock ${label(v)}`}
-            title="Leave empty if it's made to order or there's no stock count"
+            title="Leave empty if there's no stock count"
+          />
+          <span className="text-[11px] text-muted">alert below</span>
+          <input
+            className="num w-9 bg-transparent text-[13px] focus:outline-none"
+            value={low}
+            placeholder={String(lowDefault)}
+            inputMode="numeric"
+            onChange={(e) => setLow(e.target.value.replace(/\D/g, ""))}
+            onBlur={() => {
+              const n = intOrNull(low);
+              if (n !== v.lowStockAt) void save(`/api/knowledge/variants/${v.id}`, "PATCH", { lowStockAt: n }, "Alert level updated.");
+            }}
+            aria-label={`Alert below ${label(v)}`}
+            title="Empty uses the business default. 0 means never alert."
           />
         </>
       ) : null}
@@ -341,104 +422,6 @@ function AddVariant({ itemId, save }: { itemId: string; save: Save }) {
         Add
       </Button>
     </form>
-  );
-}
-
-const UNIT: Record<BookingType["unit"], { label: string; capacity: string }> = {
-  party: { label: "Tables / groups, by number of people", capacity: "Seats per time slot" },
-  appointment: { label: "Appointments, one service per booking", capacity: "Staff or stations at once" },
-  day: { label: "Whole days (rooms, rentals)", capacity: "Units per day" },
-};
-
-function Bookings({ types, canEdit, onChange }: { types: BookingType[]; canEdit: boolean; onChange: () => void }) {
-  const save = useSaver(onChange);
-  return (
-    <div className="max-w-[900px]">
-      <p className="mb-6 text-[14px] text-fg-2">How customers book with you in chat. The assistant checks your opening hours, these limits and existing bookings before offering a time.</p>
-      {!types.length ? <p className="mb-6 text-[15px] text-muted">You don&apos;t take bookings in chat yet.</p> : null}
-      <ul className="space-y-4">
-        {types.map((b) => (
-          <BookingTypeRow key={b.id} b={b} canEdit={canEdit} save={save} />
-        ))}
-      </ul>
-      {canEdit ? (
-        <Button className="mt-5" variant="brass" onClick={() => save("/api/knowledge/booking-types", "POST", { name: "Appointment", unit: "appointment", capacity: 1, durationMinutes: 60, slotMinutes: 30, maxPerBooking: 1, leadMinutes: 60 }, "Booking type added.")}>
-          Add a way to book
-        </Button>
-      ) : (
-        <p className="mt-5 text-[13px] text-muted">Only the owner can change booking rules.</p>
-      )}
-    </div>
-  );
-}
-
-function BookingTypeRow({ b, canEdit, save }: { b: BookingType; canEdit: boolean; save: Save }) {
-  const [f, setF] = useState(b);
-  useEffect(() => setF(b), [b]);
-  const dirty = JSON.stringify(f) !== JSON.stringify(b);
-  const n = (k: keyof BookingType) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: Math.max(0, Number(e.target.value || 0)) });
-  return (
-    <li className={cx("rounded-2xl border border-line p-5", !b.active && "opacity-60")}>
-      <fieldset disabled={!canEdit} className="space-y-3">
-        <div className="grid gap-3 sm:grid-cols-[1fr_1.4fr_auto] sm:items-end">
-          <div>
-            <Label>Name</Label>
-            <Input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
-          </div>
-          <div>
-            <Label>Kind</Label>
-            <select className="h-10 w-full rounded-[10px] border border-line bg-raised px-2 text-[14px]" value={f.unit} onChange={(e) => setF({ ...f, unit: e.target.value as BookingType["unit"] })}>
-              {(Object.keys(UNIT) as BookingType["unit"][]).map((u) => (
-                <option key={u} value={u}>
-                  {UNIT[u].label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <label className="flex h-10 items-center gap-2 text-[13px]">
-            <Switch checked={f.active} onCheckedChange={(v) => setF({ ...f, active: v })} label="Active" disabled={!canEdit} />
-            {f.active ? "On" : "Off"}
-          </label>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-5">
-          <div>
-            <Label>{UNIT[f.unit].capacity}</Label>
-            <Input type="number" min={1} value={f.capacity} onChange={n("capacity")} />
-          </div>
-          {f.unit !== "day" ? (
-            <>
-              <div>
-                <Label>Lasts (min)</Label>
-                <Input type="number" min={5} step={5} value={f.durationMinutes} onChange={n("durationMinutes")} />
-              </div>
-              <div>
-                <Label>Starts every (min)</Label>
-                <Input type="number" min={5} step={5} value={f.slotMinutes} onChange={n("slotMinutes")} />
-              </div>
-            </>
-          ) : null}
-          <div>
-            <Label>{f.unit === "party" ? "Max people" : "Max per booking"}</Label>
-            <Input type="number" min={1} value={f.maxPerBooking} onChange={n("maxPerBooking")} />
-          </div>
-          <div>
-            <Label>Min notice (min)</Label>
-            <Input type="number" min={0} step={15} value={f.leadMinutes} onChange={n("leadMinutes")} />
-          </div>
-        </div>
-        <Input value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} placeholder="Notes for customers: deposits, holding time, walk-ins…" aria-label="Notes" />
-        {canEdit ? (
-          <div className="flex gap-2">
-            <Button size="sm" variant="brass" disabled={!dirty} onClick={() => save(`/api/knowledge/booking-types/${b.id}`, "PATCH", { name: f.name, unit: f.unit, capacity: Math.max(1, f.capacity), durationMinutes: Math.max(5, f.durationMinutes), slotMinutes: Math.max(5, f.slotMinutes), maxPerBooking: Math.max(1, f.maxPerBooking), leadMinutes: f.leadMinutes, notes: f.notes, active: f.active })}>
-              Save
-            </Button>
-            <Button size="sm" variant="danger" className="ml-auto" onClick={() => window.confirm(`Delete “${b.name}”? Existing bookings stay in your diary.`) && save(`/api/knowledge/booking-types/${b.id}`, "DELETE", undefined, "Booking type deleted.")}>
-              Delete
-            </Button>
-          </div>
-        ) : null}
-      </fieldset>
-    </li>
   );
 }
 
@@ -547,7 +530,7 @@ function TextItems({ items, currency, onChange }: { items: Item[]; currency: str
           </div>
           <div>
             <Label htmlFor="np-c" hint="one word">Topic</Label>
-            <Input id="np-c" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })} placeholder="booking" />
+            <Input id="np-c" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })} placeholder="payment" />
           </div>
           <div>
             <Label htmlFor="np-b">Text</Label>

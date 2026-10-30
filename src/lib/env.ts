@@ -43,10 +43,7 @@ export const env = {
   get telegramBotUsername() {
     return process.env.TELEGRAM_BOT_USERNAME ?? "";
   },
-  get telegramHrChannelId() {
-    return process.env.TELEGRAM_HR_CHANNEL_ID ?? "";
-  },
-  /** Jawab's own Meta app and WhatsApp number (the demo workspace's fallback). Businesses save theirs in Settings → Channels. */
+  /** Yapoz's own Meta app: Embedded Signup runs through it, and the demo workspace falls back to its number. Businesses can also save their own app in Settings → Channels. */
   get whatsapp() {
     return {
       /** Meta app ID: META_APP_ID. */
@@ -61,21 +58,9 @@ export const env = {
       token: process.env.WHATSAPP_TOKEN ?? "",
       verifyToken: process.env.WHATSAPP_VERIFY_TOKEN ?? "",
       graphVersion: process.env.META_GRAPH_VERSION ?? "v26.0",
+      /** Facebook Login for Business configuration for WhatsApp Embedded Signup: META_EMBEDDED_SIGNUP_CONFIG_ID. */
+      embeddedConfigId: process.env.META_EMBEDDED_SIGNUP_CONFIG_ID ?? "",
     };
-  },
-  get instagram() {
-    return {
-      /** Jawab's own Meta app with the "Instagram API with Instagram Login" product: businesses connect through it. */
-      appId: process.env.INSTAGRAM_APP_ID ?? "",
-      token: process.env.INSTAGRAM_ACCESS_TOKEN ?? "",
-      accountId: process.env.INSTAGRAM_ACCOUNT_ID ?? "",
-      appSecret: process.env.INSTAGRAM_APP_SECRET ?? process.env.META_APP_SECRET ?? "",
-      verifyToken: process.env.INSTAGRAM_VERIFY_TOKEN ?? process.env.WHATSAPP_VERIFY_TOKEN ?? "",
-      graphVersion: process.env.INSTAGRAM_GRAPH_VERSION ?? "v26.0",
-    };
-  },
-  get google() {
-    return { clientId: process.env.GOOGLE_CLIENT_ID ?? "", clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "" };
   },
   get cronSecret() {
     return process.env.CRON_SECRET ?? "";

@@ -1,5 +1,6 @@
-// A business's Meta app (App ID + App secret) and the checks Jawab makes with Meta before it trusts a WhatsApp number.
-// One Meta app serves both WhatsApp and Instagram, so it is saved once per business, separately from the number:
+// A business's Meta app (App ID + App secret) and the checks Yapoz makes with Meta before it trusts a WhatsApp number.
+// A number is connected one of two ways: Embedded Signup through Yapoz's own Meta app (env), or manually with the
+// business's own Meta app, saved once per business, separately from the number:
 //   Meta app       App ID  → integrations(meta_app).meta.appId      App secret → integrations(meta_app).dataEnc (encrypted)
 //   WhatsApp number  Phone number ID, Business Account ID → channels(whatsapp).config      Access token → channels(whatsapp).credentialsEnc
 // The demo workspace falls back to META_APP_ID / META_APP_SECRET / WHATSAPP_* env vars.
@@ -26,7 +27,7 @@ class GraphError extends Error {
 
 const REQUIRED_SCOPES = ["whatsapp_business_messaging", "whatsapp_business_management"];
 
-async function graph<T>(path: string, query: Record<string, string>, opts: { method?: "GET" | "POST"; token?: string } = {}): Promise<T> {
+async function graph<T>(path: string, query: Record<string, string>, opts: { method?: "GET" | "POST" | "DELETE"; token?: string } = {}): Promise<T> {
   const url = `https://graph.facebook.com/${env.whatsapp.graphVersion}/${path}?${new URLSearchParams(query)}`;
   let res: Response;
   try {
@@ -156,4 +157,40 @@ export async function removeMetaApp(workspaceId: string) {
 /** The secret Meta signs this business's webhooks with: its saved Meta app, else the one stored with an older WhatsApp connection. */
 export async function webhookAppSecret(workspaceId: string, legacySecret?: string | null): Promise<string> {
   return (await metaAppOf(workspaceId))?.appSecret ?? legacySecret ?? "";
+}
+
+/** Yapoz's own app can run Embedded Signup only when its ID, secret and Login-for-Business configuration are all set. */
+export const embeddedSignupReady = () => Boolean(env.whatsapp.appId && env.whatsapp.appSecret && env.whatsapp.embeddedConfigId);
+
+/** Embedded Signup hands the browser a short-lived code; only the server, with the app secret, can turn it into the business's token. */
+export async function exchangeSignupCode(code: string): Promise<string> {
+  const w = env.whatsapp;
+  try {
+    const j = await graph<{ access_token?: string }>("oauth/access_token", { client_id: w.appId, client_secret: w.appSecret, code });
+    if (!j.access_token) throw new MetaError("accessToken", "Meta didn't return an access token. Try connecting again.");
+    return j.access_token;
+  } catch (e) {
+    if (e instanceof GraphError) throw new MetaError("accessToken", `Meta didn't accept the sign-up code (${e.message}). The code is single-use and expires in minutes: start again.`);
+    throw e;
+  }
+}
+
+/**
+ * A number new to the Cloud API has to be registered before it can send. Meta refuses a second registration of a number
+ * that already works, so that answer is fine; anything else is returned for the owner to see, without blocking the connection.
+ */
+export async function registerNumber(phoneNumberId: string, token: string): Promise<string | null> {
+  const pin = String(Math.floor(100000 + Math.random() * 900000));
+  try {
+    await graph(`${phoneNumberId}/register`, { messaging_product: "whatsapp", pin }, { method: "POST", token });
+    return null;
+  } catch (e) {
+    if (e instanceof GraphError) return /already registered/i.test(e.message) ? null : `Meta didn't register the number for the Cloud API (${e.message}).`;
+    throw e;
+  }
+}
+
+/** Stops Meta sending this account's webhooks to the app (on disconnect). Best effort. */
+export async function unsubscribeWaba(wabaId: string, token: string) {
+  await graph(`${wabaId}/subscribed_apps`, {}, { method: "DELETE", token }).catch(() => {});
 }

@@ -13,6 +13,6 @@ await api.setWebhook(url, {
   allowed_updates: [...ALLOWED_UPDATES],
   max_connections: 40,
 });
-await api.setMyCommands(COMMANDS(true));
+await api.setMyCommands(COMMANDS);
 const info = await api.getWebhookInfo();
 console.log("Webhook set:", info.url, info.pending_update_count ? `(pending ${info.pending_update_count})` : "");

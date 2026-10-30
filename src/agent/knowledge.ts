@@ -3,7 +3,6 @@ import { and, eq, sql, asc } from "drizzle-orm";
 import { formatMoney } from "@/lib/money";
 import type { HoursData } from "@/lib/hours";
 import { describeDay } from "@/lib/hours";
-import { bookingTypesOf, type BookingType } from "@/lib/booking";
 
 export type Workspace = typeof t.workspaces.$inferSelect;
 export type KbItem = typeof t.kbItems.$inferSelect;
@@ -21,8 +20,6 @@ async function kbVersion(workspaceId: string): Promise<string> {
       '/',
       (select coalesce(sum(coalesce(stock, -1) + price_minor)::text, '0') || ':' || count(*) from kb_variants where workspace_id = ${workspaceId}),
       '/',
-      (select coalesce(max(updated_at)::text, '0') || ':' || count(*) from booking_types where workspace_id = ${workspaceId}),
-      '/',
       (select md5(settings::text) from workspaces where id = ${workspaceId})
     ) as v`);
   return String(rows[0]?.v ?? "0");
@@ -39,21 +36,20 @@ export async function loadCatalog(workspaceId: string): Promise<Catalog> {
 
 /**
  * The cached knowledge block. Holds stable facts (identity, menu descriptions, FAQs, policy headlines).
- * Prices, stock, today's availability, slots and computed hours always come from tools.
+ * Prices, stock, today's availability and computed hours always come from tools.
  */
 export async function knowledge(ws: Workspace): Promise<{ catalog: Catalog; block: string; version: string }> {
   const version = await kbVersion(ws.id);
   const hit = cache.get(ws.id);
   if (hit && hit.version === version) return hit;
   const catalog = await loadCatalog(ws.id);
-  const types = await bookingTypesOf(ws.id);
-  const block = renderBlock(ws, catalog, types);
+  const block = renderBlock(ws, catalog);
   const entry = { version, catalog, block };
   cache.set(ws.id, entry);
   return entry;
 }
 
-function renderBlock(ws: Workspace, c: Catalog, types: BookingType[]): string {
+function renderBlock(ws: Workspace, c: Catalog): string {
   const lines: string[] = [];
   const biz = ws.settings.business;
   const policies = c.all.filter((i) => i.kind === "policy");
@@ -75,16 +71,6 @@ function renderBlock(ws: Workspace, c: Catalog, types: BookingType[]): string {
     );
   } else lines.push("Opening hours: not on file.");
 
-  lines.push("", "BOOKINGS (use check_slots / create_booking with the key)");
-  if (!types.length) lines.push("This business does not take bookings through chat.");
-  for (const b of types) {
-    const unit =
-      b.unit === "party" ? `by headcount, up to ${b.maxPerBooking} per booking, ${b.durationMinutes} min each`
-      : b.unit === "appointment" ? `one service per booking, default ${b.durationMinutes} min (services can set their own length), ${b.capacity} at the same time`
-      : `whole days, up to ${b.maxPerBooking} per booking`;
-    lines.push(`- key "${b.key}": ${b.name}, ${unit}; book at least ${b.leadMinutes} min ahead.${b.notes ? ` ${b.notes}` : ""}`);
-  }
-
   lines.push("", "PRODUCTS AND SERVICES (prices, stock and today's availability: always use check_variant or search_catalog)");
   const groups = new Map<string, typeof c.items>();
   for (const i of c.items) groups.set(i.category, [...(groups.get(i.category) ?? []), i]);
@@ -96,7 +82,7 @@ function renderBlock(ws: Workspace, c: Catalog, types: BookingType[]): string {
       const flags = [d.vegan ? "vegan" : d.vegetarian ? "vegetarian" : null, d.halal === false ? "NOT halal (contains alcohol)" : null, d.spicy ? "spicy" : null, ...(i.tags ?? []).filter((x) => !["vegan", "vegetarian", "spicy", "halal", "merch"].includes(x))].filter(Boolean);
       const allergens = Array.isArray(d.allergens) && d.allergens.length ? ` Allergens: ${(d.allergens as string[]).join(", ")}.` : "";
       const opts = [...new Set(i.variants.map((v) => [v.size, v.color, v.option].filter(Boolean).join(" / ")).filter(Boolean))];
-      const dur = i.kind === "service" && d.durationMinutes ? ` (${d.durationMinutes} min${d.bookingType ? `, book as "${d.bookingType}"` : ""})` : "";
+      const dur = i.kind === "service" && d.durationMinutes ? ` (${d.durationMinutes} min)` : "";
       lines.push(`- ${i.title}${dur}: ${i.body}${flags.length ? ` [${[...new Set(flags)].join(", ")}]` : ""}${allergens}${opts.length > 1 ? ` Options: ${opts.slice(0, 12).join(", ")}${opts.length > 12 ? "…" : ""}.` : ""}`);
     }
   }

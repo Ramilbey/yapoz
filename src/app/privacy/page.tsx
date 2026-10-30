@@ -8,7 +8,7 @@ const sections: { id?: string; title: string; body: React.ReactNode }[] = [
     title: "Who we are",
     body: (
       <>
-        Yapoz is an AI front desk that answers a business&apos;s customer messages on WhatsApp, Telegram, Instagram and its website. It is a prototype built for the SDC Hackathon; the
+        Yapoz is an AI front desk that answers a business&apos;s customer messages on WhatsApp, Telegram and its website. It is a prototype built for the SDC Hackathon; the
         sample businesses on this site and their customers are made up. Each business that signs up decides what its assistant knows and is responsible for its own customers&apos; data.
       </>
     ),
@@ -17,8 +17,7 @@ const sections: { id?: string; title: string; body: React.ReactNode }[] = [
     title: "What we handle",
     body: (
       <>
-        The messages you send to a business that uses Yapoz, and the name, username or phone number the messaging app shares with them; bookings you make; and, if you apply for a job
-        through Yapoz, the CV and details you send with your consent. Businesses add their own products, prices, hours and policies.
+        The messages you send to a business that uses Yapoz, and the name, username or phone number the messaging app shares with them; and the orders you place. Businesses add their own products, prices, hours and policies.
       </>
     ),
   },
@@ -36,7 +35,7 @@ const sections: { id?: string; title: string; body: React.ReactNode }[] = [
     body: (
       <>
         The business&apos;s own staff, according to their role. To write replies, the text of a conversation is sent to the AI providers the service uses (currently Groq and Google
-        Gemini). Messages travel through the messaging app you chose (Meta for WhatsApp and Instagram, Telegram), under that app&apos;s own terms.
+        Gemini). Messages travel through the messaging app you chose (Meta for WhatsApp, Telegram), under that app&apos;s own terms.
       </>
     ),
   },
@@ -44,7 +43,7 @@ const sections: { id?: string; title: string; body: React.ReactNode }[] = [
     title: "How long, and how it's protected",
     body: (
       <>
-        Conversations stay while the business uses Yapoz. CVs are deleted automatically after the business&apos;s retention period (180 days unless it sets another). Access tokens for
+        Conversations stay while the business uses Yapoz. Access tokens for
         a business&apos;s messaging accounts are stored encrypted and are never shown in the browser.
       </>
     ),
@@ -54,8 +53,7 @@ const sections: { id?: string; title: string; body: React.ReactNode }[] = [
     title: "Seeing or deleting your data",
     body: (
       <>
-        Ask the business you messaged to show you or delete what it holds about you. Job applicants on Telegram can also send{" "}
-        <span className="num">/delete_my_data</span> to the bot to remove their application and CV straight away.
+        Ask the business you messaged to show you or delete what it holds about you.
       </>
     ),
   },

@@ -1,4 +1,4 @@
-// Creating a business on Jawab: a short readable workspace ID, sensible defaults, and the four channel rows.
+// Creating a business on Jawab: a short readable workspace ID, sensible defaults, the channel rows and the owner's staff row.
 import { randomInt } from "node:crypto";
 import { db, t } from "@/db";
 import { eq } from "drizzle-orm";
@@ -75,13 +75,33 @@ export function defaultSettings(): WorkspaceSettings {
   return {
     confidenceThreshold: 0.55,
     demoTraffic: false,
-    resumeRetentionDays: 180,
     business: { type: "", description: "", address: "", phone: null, website: null, languages: ["English"] },
-    modules: { hiring: false },
     live: false,
-    onboarding: { step: 1, completedAt: null },
-    hr: { interviewMinutes: 30, workdayStart: "10:00", workdayEnd: "18:00", location: "" },
+    onboarding: { step: 1, completedAt: null, version: ONBOARDING_VERSION },
   };
+}
+
+export const ONBOARDING_VERSION = 2;
+export const ONBOARDING_STEPS = 7;
+
+/**
+ * The setup step in today's numbering. Version 2 put "How you sell" in at step 4, so an unfinished workspace from
+ * before that at step 4 or later moves up one. Finished workspaces stay as they are.
+ */
+export function onboardingOf(settings: Pick<WorkspaceSettings, "onboarding">): WorkspaceSettings["onboarding"] {
+  const o = settings.onboarding ?? { step: 1, completedAt: null };
+  if (o.completedAt || (o.version ?? 1) >= ONBOARDING_VERSION) return o;
+  const step = o.step >= 4 ? o.step + 1 : o.step;
+  return { ...o, step: Math.min(Math.max(step, 1), ONBOARDING_STEPS), version: ONBOARDING_VERSION };
+}
+
+/** Saves the renumbered step the first time an old workspace is read, so the bump happens once. */
+export async function ensureOnboarding<W extends { id: string; settings: WorkspaceSettings }>(ws: W): Promise<W> {
+  const o = onboardingOf(ws.settings);
+  if (o === ws.settings.onboarding) return ws;
+  const settings = { ...ws.settings, onboarding: o };
+  await db.update(t.workspaces).set({ settings }).where(eq(t.workspaces.id, ws.id));
+  return { ...ws, settings };
 }
 
 export async function createWorkspace(input: { name: string; timezone: string; owner: { name: string; email: string; passwordHash: string } }) {
@@ -90,11 +110,12 @@ export async function createWorkspace(input: { name: string; timezone: string; o
   return db.transaction(async (tx) => {
     await tx.insert(t.workspaces).values({ id, name: input.name.trim(), city: cityFor(timezone), timezone, currency: currencyFor(timezone), settings: defaultSettings() });
     const [user] = await tx.insert(t.users).values({ workspaceId: id, email: input.owner.email.trim().toLowerCase(), name: input.owner.name.trim(), role: "owner", passwordHash: input.owner.passwordHash }).returning();
+    // The owner is on the team from the start, switched off until setup (or Calendar) turns bookings on.
+    await tx.insert(t.staff).values({ userId: user.id, workspaceId: id, takesAppointments: false });
     await tx.insert(t.channels).values([
       { workspaceId: id, type: "simulator", mode: "autopilot", config: {} },
       { workspaceId: id, type: "telegram", mode: "autopilot", config: {} },
       { workspaceId: id, type: "whatsapp", mode: "autopilot", config: {} },
-      { workspaceId: id, type: "instagram", mode: "autopilot", config: {} },
     ]);
     await tx.insert(t.events).values({ workspaceId: id, type: "workspace.created", props: {} });
     return { workspaceId: id, user };

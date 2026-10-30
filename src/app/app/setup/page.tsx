@@ -13,7 +13,8 @@ import { Channels } from "../settings/channels";
 import type { Patch, SettingsData } from "../settings/types";
 import { DraftEditor, cleanDraft } from "./draft-editor";
 import { TestChat } from "./test-chat";
-import { emptyDraft, type Draft } from "@/setup/types";
+import { emptyDraft, type Draft, type SetupChecks, type SetupSelling } from "@/setup/types";
+import { SellingStep } from "./selling";
 import type { WorkspaceSettings } from "@/db/schema";
 
 type SetupData = {
@@ -24,10 +25,12 @@ type SetupData = {
   draft: Draft | null;
   knowledgeCount: number;
   ai: boolean;
+  selling: SetupSelling;
+  checks: SetupChecks;
 };
 
-const STEPS = ["Basics", "Your business", "Review", "Channels", "Try it", "Go live"] as const;
-const PROMPTS = ["What you sell or offer, with prices", "Opening hours", "How bookings or orders work", "Delivery or pickup", "How people pay", "What customers always ask"];
+const STEPS = ["Basics", "Your business", "Review", "How you sell", "Channels", "Try it", "Go live"] as const;
+const PROMPTS = ["What you sell or offer, with prices", "Opening hours", "How ordering works", "Delivery or pickup", "How people pay", "What customers always ask"];
 
 export default function SetupPage() {
   const toast = useToast();
@@ -38,7 +41,7 @@ export default function SetupPage() {
 
   useEffect(() => {
     if (!data || step !== null) return;
-    setStep(Math.min(Math.max(data.workspace.settings.onboarding?.step ?? 1, 1), 6));
+    setStep(Math.min(Math.max(data.workspace.settings.onboarding?.step ?? 1, 1), 7));
     setDraft(data.draft);
   }, [data, step]);
 
@@ -50,14 +53,15 @@ export default function SetupPage() {
 
   if (!data || step === null) return <p className="text-muted">Loading…</p>;
   const ws = data.workspace;
+  const canBook = data.checks.services > 0 && data.checks.bookers > 0 && Boolean(data.checks.firstService);
   const reached = Math.max(ws.settings.onboarding?.step ?? 1, step);
 
   return (
     <div className="mx-auto max-w-[1080px]">
       <div className="mb-8 border-b border-line pb-6">
         <p className="text-[13px] text-muted">Setting up {ws.name}</p>
-        <h1 className="font-display mt-1 text-[34px] font-extrabold leading-[1.02] sm:text-[42px]">{["Start with the basics", "Tell us about your business", "Check what we understood", "Connect your chats", "Try it as a customer", "Go live"][step - 1]}</h1>
-        <ol className="mt-6 grid grid-cols-3 gap-2 sm:grid-cols-6" aria-label="Setup steps">
+        <h1 className="font-display mt-1 text-[34px] font-extrabold leading-[1.02] sm:text-[42px]">{["Start with the basics", "Tell us about your business", "Check what we understood", "How you sell", "Connect your chats", "Try it as a customer", "Go live"][step - 1]}</h1>
+        <ol className="mt-6 grid grid-cols-3 gap-2 sm:grid-cols-7" aria-label="Setup steps">
           {STEPS.map((label, i) => {
             const n = i + 1;
             const can = n <= reached;
@@ -126,15 +130,18 @@ export default function SetupPage() {
         />
       ) : null}
 
-      {step === 4 ? <ChannelsStep onNext={() => advance(5)} /> : null}
+      {step === 4 ? <SellingWrap data={data} currency={ws.currency} onSaved={async () => void (await mutate())} onNext={() => advance(5)} onBackToReview={() => setStep(3)} /> : null}
 
-      {step === 5 ? (
+      {step === 5 ? <ChannelsStep onNext={() => advance(6)} /> : null}
+
+      {step === 6 ? (
         <div className="grid gap-8 lg:grid-cols-[1fr_420px]">
           <div className="max-w-[56ch] space-y-4 text-[15px] text-fg-2">
             <p>This is your assistant, answering from what you just saved. Ask it like a customer would, in any of your languages.</p>
             <ul className="list-disc space-y-1.5 pl-5">
               <li>Ask for a price or whether something is available.</li>
-              <li>Try to book for tomorrow: it checks your hours and free slots.</li>
+              <li>Try to order something for tomorrow: it checks your menu, prices and hours.</li>
+              {canBook ? <li>Try to book an appointment: it checks free times.</li> : null}
               <li>Ask for something you don&apos;t sell, or complain: it should hand that to you.</li>
             </ul>
             <p>
@@ -144,15 +151,15 @@ export default function SetupPage() {
               </a>{" "}
               and ask again: changes apply to the very next message.
             </p>
-            <Button variant="brass" onClick={() => advance(6)}>
+            <Button variant="brass" onClick={() => advance(7)}>
               Looks good, continue
             </Button>
           </div>
-          <TestChat suggestions={(draft?.faqs ?? []).slice(0, 5).map((f) => f.question)} />
+          <TestChat suggestions={[...(canBook ? [`Book a ${data.checks.firstService} tomorrow at 3pm`] : []), ...(draft?.faqs ?? []).slice(0, 5).map((f) => f.question)]} />
         </div>
       ) : null}
 
-      {step === 6 ? <GoLive data={data} /> : null}
+      {step === 7 ? <GoLive data={data} /> : null}
     </div>
   );
 }
@@ -217,7 +224,7 @@ function Describe({ data, onDraft, onSkip }: { data: SetupData; onDraft: (d: Dra
         <p className="font-display mt-5 text-[22px] font-bold">Reading everything you gave us</p>
         <p className="mt-2 max-w-[48ch] text-[14px] text-muted">
           Claude is going through your notes{files.length ? `, ${files.length} file${files.length > 1 ? "s" : ""}` : ""}
-          {website ? " and your website" : ""} and drafting your products, prices, hours, bookings, policies and the questions customers ask. This usually takes under a minute.
+          {website ? " and your website" : ""} and drafting your products, prices, hours, policies and the questions customers ask. This usually takes under a minute.
         </p>
         <p className="num mt-4 text-[13px] text-fg-2">{elapsed}s</p>
       </div>
@@ -233,7 +240,7 @@ function Describe({ data, onDraft, onSkip }: { data: SetupData; onDraft: (d: Dra
           rows={14}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          placeholder={"e.g. We're a small hair salon in Mont Kiara with 3 stylists. Women's cut and blow-dry is RM 85 for short hair, RM 110 for long. We're closed Mondays, open 10 to 7 the rest of the week. Bookings at least 2 hours ahead; free cancellation up to 24 hours…"}
+          placeholder={"e.g. We're a small hair salon in Mont Kiara with 3 stylists. Women's cut and blow-dry is RM 85 for short hair, RM 110 for long. We're closed Mondays, open 10 to 7 the rest of the week. We take payment by DuitNow or cash…"}
         />
         <div className="mt-2 flex flex-wrap gap-1.5">
           {PROMPTS.map((p) => (
@@ -304,7 +311,7 @@ function Describe({ data, onDraft, onSkip }: { data: SetupData; onDraft: (d: Dra
           </button>
           {data.knowledgeCount > 0 ? (
             <button type="button" onClick={onSkip} className="w-full text-center text-[13px] text-muted underline-offset-4 hover:underline">
-              Keep my current knowledge ({data.knowledgeCount} entries) and go to channels
+              Keep my current knowledge ({data.knowledgeCount} entries) and continue
             </button>
           ) : null}
         </div>
@@ -357,9 +364,9 @@ function Review({ draft, currency, knowledgeCount, onChange, onSaved }: { draft:
             if (knowledgeCount && !window.confirm("Replace your current knowledge with this?")) return;
             setBusy(true);
             try {
-              const r = await send<{ items: number; faqs: number; policies: number; bookingTypes: number }>("/api/setup/import", "POST", { draft: cleanDraft(draft), replace: true });
+              const r = await send<{ items: number; faqs: number; policies: number}>("/api/setup/import", "POST", { draft: cleanDraft(draft), replace: true });
               const n = (k: number, one: string, many: string) => `${k} ${k === 1 ? one : many}`;
-              toast(`Saved ${n(r.items, "product or service", "products and services")}, ${n(r.faqs, "question", "questions")} and ${n(r.policies, "policy", "policies")}${r.bookingTypes ? `, plus ${n(r.bookingTypes, "way", "ways")} to book` : ""}.`, "ok");
+              toast(`Saved ${n(r.items, "product or service", "products and services")}, ${n(r.faqs, "question", "questions")} and ${n(r.policies, "policy", "policies")}.`, "ok");
               await onSaved();
             } catch (e) {
               toast((e as Error).message, "error");
@@ -373,6 +380,22 @@ function Review({ draft, currency, knowledgeCount, onChange, onSaved }: { draft:
       </div>
     </div>
   );
+}
+
+function SellingWrap({ data, currency, onSaved, onNext, onBackToReview }: { data: SetupData; currency: string; onSaved: () => Promise<void>; onNext: () => void; onBackToReview: () => void }) {
+  const toast = useToast();
+  const patch: Patch = async (url, method, body, msg) => {
+    try {
+      const r = await send(url, method, body);
+      await onSaved();
+      if (msg) toast(msg);
+      return r;
+    } catch (e) {
+      toast((e as Error).message, "error");
+      throw e;
+    }
+  };
+  return <SellingStep data={data.selling} currency={currency} onSaved={onSaved} onNext={onNext} onBackToReview={onBackToReview} patch={patch} />;
 }
 
 function ChannelsStep({ onNext }: { onNext: () => void }) {
@@ -390,7 +413,7 @@ function ChannelsStep({ onNext }: { onNext: () => void }) {
     }
   };
   if (!data) return <p className="text-muted">Loading…</p>;
-  const any = data.channels.whatsapp.connected || data.channels.instagram.connected || Boolean(data.channels.telegram.ownBot) || data.channels.telegram.businessConnections.length > 0;
+  const any = data.channels.whatsapp.connected || Boolean(data.channels.telegram.ownBot) || data.channels.telegram.businessConnections.length > 0;
   return (
     <div>
       <p className="mb-6 max-w-[62ch] text-[15px] text-fg-2">
@@ -415,9 +438,16 @@ function GoLive({ data }: { data: SetupData }) {
   const ch = s?.channels;
   const checks = [
     { ok: data.knowledgeCount > 0, label: `${data.knowledgeCount} knowledge entries saved`, fix: "Add what you sell in step 3" },
-    { ok: Boolean(ch && (ch.whatsapp.connected || ch.instagram.connected || ch.telegram.ownBot || ch.telegram.businessConnections.length || ch.telegram.sharedBot)), label: ch ? [ch.telegram.ownBot ? `Telegram @${ch.telegram.ownBot.username}` : ch.telegram.businessConnections.length ? "Telegram Business" : ch.telegram.sharedBot ? "Telegram customer link" : null, ch.whatsapp.connected ? "WhatsApp" : null, ch.instagram.connected ? "Instagram" : null].filter(Boolean).join(", ") || "No channel connected" : "Checking channels…", fix: "Connect one in step 4" },
-    { ok: Boolean(s?.ai.configured), label: s?.ai.configured ? "Claude connected" : "Claude not connected: answers come only from saved FAQs", fix: "Set ANTHROPIC_API_KEY on the server" },
+    { ok: Boolean(ch && (ch.whatsapp.connected || ch.telegram.ownBot || ch.telegram.businessConnections.length || ch.telegram.sharedBot)), label: ch ? [ch.telegram.ownBot ? `Telegram @${ch.telegram.ownBot.username}` : ch.telegram.businessConnections.length ? "Telegram Business" : ch.telegram.sharedBot ? "Telegram customer link" : null, ch.whatsapp.connected ? "WhatsApp" : null].filter(Boolean).join(", ") || "No channel connected" : "Checking channels…", fix: "Connect one in step 5" },
+    { ok: Boolean(s?.ai.providers.length), label: s?.ai.providers.length ? `AI connected (${s.ai.providers.map((p) => p.name).join(", ")})` : "No AI provider: every message gets a holding reply and goes to Needs you", fix: "Set GROQ_API_KEY or GEMINI_API_KEY on the server" },
   ];
+  const c = data.checks;
+  const notes: { tone: "warn" | "info"; label: string; link?: [string, string] }[] = [];
+  if (c.services > 0 && c.bookers === 0) notes.push({ tone: "warn", label: "Bookings go to you by hand until someone is switched on", link: ["/app/calendar", "Team availability"] });
+  if (c.services > 0 && !c.hasHours) notes.push({ tone: "warn", label: "No times can be booked: add opening hours." });
+  if (c.inPersonServices > 0 && !c.hasAddress) notes.push({ tone: "warn", label: "In-person services but no business address." });
+  if (!c.paymentsOn) notes.push({ tone: "info", label: "Customers aren't asked to pay in chat.", link: ["/app/settings#payments", "Turn on in Settings → Payments"] });
+  if (c.stockMode === "daily" && c.dailyWithoutQty > 0) notes.push({ tone: "warn", label: `${c.dailyWithoutQty} daily items have no usual quantity: these are treated as unlimited.` });
   async function finish(live: boolean) {
     setBusy(live ? "live" : "later");
     try {
@@ -440,6 +470,19 @@ function GoLive({ data }: { data: SetupData }) {
               {c.label}
             </span>
             {!c.ok ? <span className="text-[13px] text-muted">{c.fix}</span> : null}
+          </li>
+        ))}
+        {notes.map((n) => (
+          <li key={n.label} className="flex items-center justify-between gap-4 py-3.5">
+            <span className="flex items-center gap-3 text-[15px]">
+              <span className={cx("h-2.5 w-2.5 rounded-full", n.tone === "warn" ? "bg-brass" : "border border-line-strong bg-transparent")} aria-hidden />
+              {n.label}
+            </span>
+            {n.link ? (
+              <a href={n.link[0]} target="_blank" className="shrink-0 text-[13px] text-muted underline underline-offset-4 hover:text-fg">
+                {n.link[1]}
+              </a>
+            ) : null}
           </li>
         ))}
       </ul>

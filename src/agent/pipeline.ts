@@ -4,18 +4,21 @@ import { and, desc, eq, gt, lte, ne, sql } from "drizzle-orm";
 import { claude, addUsage, textOf, type Usage } from "./claude";
 import { explainAiError } from "./ai-router";
 import { acknowledgement } from "./acknowledge";
-import { receiptIntake } from "@/lib/receipts";
+import { receiptIntake, orderAwaitingReceipt } from "@/lib/receipts";
+import { expireDueOrders } from "@/lib/stock";
+import { sendDueReminders, teamLines } from "@/lib/appointments";
+import { formatMoney } from "@/lib/money";
 import { gapAction, recordGap } from "@/lib/gaps";
 import { knowledge, type Workspace } from "./knowledge";
 import { rules, contextBlock } from "./prompt";
 import { classify, type Classification } from "./classify";
 import { TOOLS, runTool, openGapKeys, type ToolContext } from "./tools";
 import { env } from "@/lib/env";
-import { addLocalDays, localDate, zoned, fmt } from "@/lib/time";
+import { addLocalDays, localDate, zoned, fmt, human } from "@/lib/time";
 import { adapterFor, type ChannelAdapter, type Inbound } from "@/channels";
 import type { Attachment, ToolCallLog } from "@/db/schema";
 
-export type ChannelType = "telegram" | "whatsapp" | "instagram" | "simulator";
+export type ChannelType = "telegram" | "whatsapp" | "simulator";
 
 /** Every channel normalizes inbound events into this shape. */
 export type InboundEvent = {
@@ -66,19 +69,21 @@ export async function ingest(e: InboundEvent) {
     })
     .returning();
 
-  if (e.externalMessageId) {
-    const [dupe] = await db
-      .select({ id: t.messages.id })
-      .from(t.messages)
-      .where(and(eq(t.messages.threadId, thread.id), eq(t.messages.externalMessageId, e.externalMessageId), eq(t.messages.direction, "in")))
-      .limit(1);
-    if (dupe) return { thread, customer, messageId: dupe.id, duplicate: true };
-  }
+  // A channel retrying its webhook (or two deliveries racing) hits the unique index: the message is saved once and answered once.
   const [msg] = await db
     .insert(t.messages)
     .values({ workspaceId: e.workspaceId, threadId: thread.id, direction: "in", author: "customer", text: e.text, attachments: e.attachments, status: "received", externalMessageId: e.externalMessageId ?? null, createdAt: e.receivedAt })
+    .onConflictDoNothing({ target: [t.messages.threadId, t.messages.externalMessageId], where: sql`direction = 'in' and external_message_id is not null` })
     .returning();
-  await db.insert(t.events).values({ workspaceId: e.workspaceId, type: "message.received", props: { channel: e.channel, threadId: thread.id } });
+  if (!msg) {
+    const [dupe] = await db
+      .select({ id: t.messages.id })
+      .from(t.messages)
+      .where(and(eq(t.messages.threadId, thread.id), eq(t.messages.externalMessageId, e.externalMessageId!), eq(t.messages.direction, "in")))
+      .limit(1);
+    return { thread, customer, messageId: dupe.id, duplicate: true };
+  }
+  await db.insert(t.events).values({ workspaceId: e.workspaceId, type: "message.received", props: { channel: e.channel, threadId: thread.id, attachments: e.attachments.length } });
   return { thread, customer, messageId: msg.id, duplicate: false };
 }
 
@@ -89,7 +94,6 @@ export type RespondResult = {
   outcome?: string;
   tools?: ToolCallLog[];
   escalated?: { category: string; summary: string }[];
-  booking?: { refCode: string } | null;
   order?: { refCode: string } | null;
   latencyMs?: number;
   model?: string;
@@ -129,6 +133,9 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
   const [inbound] = await db.select().from(t.messages).where(eq(t.messages.id, inboundMessageId));
   // "Typing…" while the AI works. Autopilot only: a Copilot reply waits for staff, so the customer would see typing, then nothing.
   const stopTyping = mode === "autopilot" ? keepTyping(adapterFor(thread.channel), thread, { externalMessageId: inbound.externalMessageId }) : () => {};
+  // Unpaid orders past their timer are expired before anything reads them (the receipt check, the AI's order list).
+  await expireDueOrders(ws.id).catch((e) => console.error("[stock] expiry failed", e));
+  await sendDueReminders(ws.id).catch((e) => console.error("[appointments] reminders failed", e));
 
   // A file from a customer whose order is waiting for its payment receipt: read and check it, answer from a fixed template.
   if (inbound.attachments.length) {
@@ -138,7 +145,7 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
     });
     if (receipt) {
       const sent = await deliver(thread, receipt.reply, { author: "ai", status: mode === "copilot" ? "pending_approval" : "sent", isDemo: opts.isDemo });
-      await db.insert(t.events).values({ workspaceId: ws.id, type: "message.answered", props: { channel: thread.channel, outcome: "receipt", threadId }, isDemo: Boolean(opts.isDemo) });
+      await db.insert(t.events).values({ workspaceId: ws.id, type: "message.answered", props: { channel: thread.channel, outcome: "receipt", threadId, status: sent.status }, isDemo: Boolean(opts.isDemo) });
       return { reply: receipt.reply, status: sent.status, outcome: "receipt", latencyMs: Date.now() - started };
     }
   }
@@ -164,7 +171,7 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
   const usage: Usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   const ctx: ToolContext = {
     ws, catalog: (await knowledge(ws)).catalog, threadId, customerId: customer.id,
-    customerName: customer.displayName ?? customer.username ?? "", channel: thread.channel, escalations: [], bookings: [], orders: [], isDemo: opts.isDemo,
+    customerName: customer.displayName ?? customer.username ?? "", channel: thread.channel, escalations: [], orders: [], isDemo: opts.isDemo,
   };
   const toolLog: ToolCallLog[] = [];
   const latest = inbound.text || "(no text)";
@@ -174,14 +181,14 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
   let answeredBy: string | undefined;
   let reply = "";
   let error: string | undefined;
-  /** The AI failed, but an order or booking it saved is acknowledged from the record: not a failed run for the customer. */
+  /** The AI failed, but an order it saved is acknowledged from the record: not a failed run for the customer. */
   let acked = false;
   let cls: Classification | null = null;
 
   if (!env.hasAnthropic) {
-    error = "ANTHROPIC_API_KEY is not set";
+    error = "No AI provider is configured on the server";
     reply = DEFAULT_HOLD;
-    await runTool(ctx, "escalate", { category: "other", priority: "high", reason: "AI not configured", summary: `AI is offline (no API key). Customer wrote: ${latest.slice(0, 160)}` }, latest);
+    toolLog.push(await runTool(ctx, "escalate", { category: "ai_failure", priority: "high", reason: "No AI provider configured", summary: `No AI provider is set up (GROQ_API_KEY or GEMINI_API_KEY), so the customer got the holding reply. They wrote: “${latest.slice(0, 140)}”` }, latest));
     model = "none";
   } else {
     try {
@@ -199,6 +206,8 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
             customerName: ctx.customerName || null,
             gaps,
             mode,
+            orders: await chatOrders(threadId, ws),
+            team: await teamLines(ws, ctx.catalog.items.filter((i) => i.kind === "service")),
           }),
         },
       ];
@@ -247,8 +256,8 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
       acked = Boolean(ack);
       reply = ack ?? DEFAULT_HOLD;
       // The reason goes to staff only (Needs you, Inbox); the customer gets the holding reply above.
-      // An acknowledged order or booking is already in the team's queue, so it doesn't need a second card.
-      if (!ack && !ctx.escalations.length) toolLog.push(await runTool(ctx, "escalate", { category: "other", priority: "high", reason: "AI error", summary: `AI couldn't answer (${explainAiError(e)}). Customer wrote: ${latest.slice(0, 60)}` }, latest));
+      // An acknowledged order is already in the team's queue, so it doesn't need a second card.
+      if (!ack && !ctx.escalations.length) toolLog.push(await runTool(ctx, "escalate", { category: "ai_failure", priority: "high", reason: "Every AI provider failed", summary: `The customer got the holding reply because no AI could answer (${explainAiError(e)}). They wrote: “${latest.slice(0, 60)}”` }, latest));
     }
   }
 
@@ -267,9 +276,7 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
     ? "error"
     : ctx.escalations.length
       ? "escalated"
-      : ctx.bookings.length
-        ? "booked"
-        : ctx.orders?.length
+      : ctx.orders?.length
           ? "ordered"
           : cls?.intent === "off_topic"
             ? "declined"
@@ -304,14 +311,47 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
 
   const status = mode === "copilot" && !failed ? "pending_approval" : "sent";
   const sent = await deliver(thread, reply, { author: "ai", agentRunId: run.id, status, isDemo: opts.isDemo });
-  await db.insert(t.events).values({ workspaceId: ws.id, type: "message.answered", props: { channel: thread.channel, outcome, latencyMs, threadId }, isDemo: Boolean(opts.isDemo) });
+  await db.insert(t.events).values({ workspaceId: ws.id, type: "message.answered", props: { channel: thread.channel, outcome, latencyMs, threadId, model: answeredBy ?? model, status: sent.status, ...(error ? { error: explainAiError(error).slice(0, 200) } : {}) }, isDemo: Boolean(opts.isDemo) });
   return {
     reply, status: sent.status, outcome, tools: toolLog, escalated: ctx.escalations.map((e) => ({ category: e.category, summary: e.summary })),
-    booking: ctx.bookings[0] ? { refCode: ctx.bookings[0].refCode } : null, order: ctx.orders?.[0] ? { refCode: ctx.orders[0].refCode } : null, latencyMs, model: answeredBy ?? model, runId: run.id, error,
+    order: ctx.orders?.[0] ? { refCode: ctx.orders[0].refCode } : null, latencyMs, model: answeredBy ?? model, runId: run.id, error,
   };
 }
 
 type ThreadRow = typeof t.threads.$inferSelect;
+
+/**
+ * The orders in this chat, as facts for the assistant: what state each is in, and whether the team is waiting for a receipt
+ * (and why). It answers "is my order ready?" from these, and knows what to expect when staff asked for another receipt.
+ */
+async function chatOrders(threadId: string, ws: Workspace): Promise<string[]> {
+  const currency = ws.currency;
+  const rows = await db
+    .select({ ref: t.orders.refCode, kind: t.orders.kind, status: t.orders.status, total: t.orders.totalMinor, confirmedAt: t.orders.confirmedAt, paid: t.orders.paid, holdExpiresAt: t.orders.holdExpiresAt, firmedBy: t.orders.firmedBy, wantedDate: t.orders.wantedDate, startsAt: t.appointments.startsAt, staffName: t.users.name, service: t.orderItems.name })
+    .from(t.orders)
+    .leftJoin(t.appointments, eq(t.appointments.orderId, t.orders.id))
+    .leftJoin(t.users, eq(t.users.id, t.appointments.staffId))
+    .leftJoin(t.orderItems, and(eq(t.orderItems.orderId, t.orders.id), eq(t.orders.kind, "appointment")))
+    .where(and(eq(t.orders.threadId, threadId), gt(t.orders.createdAt, new Date(Date.now() - 14 * 86_400_000))))
+    .orderBy(desc(t.orders.createdAt))
+    .limit(5);
+  const STATE: Record<string, string> = { pending: "received, waiting for the team to confirm", confirmed: "confirmed by the team", ready: "ready (or out for delivery)", completed: "completed", cancelled: "not going ahead (rejected or cancelled by the team)", expired: "expired: no payment arrived in time, so it isn't going ahead (they can order again)" };
+  const now = new Date();
+  // The payment timer, so the assistant can answer "how long do I have?" from the record.
+  const timer = (o: (typeof rows)[number]) =>
+    o.status !== "pending" ? "" : o.holdExpiresAt && o.holdExpiresAt > now ? `; held until ${human(o.holdExpiresAt, ws.timezone)} (${Math.ceil((o.holdExpiresAt.getTime() - now.getTime()) / 60_000)} min left) for a payment receipt, then it expires` : o.firmedBy ? "; reserved, the team is checking the payment" : "";
+  // A booking says what, when and with whom; "confirmed" there means the team approved the time.
+  const what = (o: (typeof rows)[number]) => (o.kind === "appointment" && o.startsAt ? `booking: ${o.service ?? "appointment"} on ${human(o.startsAt, ws.timezone)}${o.staffName ? ` with ${o.staffName}` : ""}, ` : o.wantedDate ? `for ${o.wantedDate}, ` : "");
+  const lines = rows.map((o) => `${o.ref}: ${what(o)}${STATE[o.status] ?? o.status}, total ${formatMoney(o.total, currency)}${o.status === "cancelled" && !o.confirmedAt ? " (rejected)" : ""}${timer(o)}`);
+  const waiting = await orderAwaitingReceipt(threadId);
+  const req = waiting?.receiptRequest && !waiting.receiptRequest.fulfilledAt ? waiting.receiptRequest : null;
+  if (waiting && req) {
+    lines.push(
+      `WAITING FOR A RECEIPT on ${waiting.refCode}: the team turned down the last receipt because “${req.reason}” and asked for ${req.kind === "top_up" ? `a transfer of the remaining ${formatMoney(req.expectedMinor, currency)} plus its receipt` : `a new receipt showing ${formatMoney(req.expectedMinor, currency)}`}. If the customer writes without sending a file, remind them kindly what to send and why (in your own words, same reason, same amount). Don't say the order is confirmed or accepted.`,
+    );
+  }
+  return lines;
+}
 
 const TYPING_MAX_REPEATS = 6;
 

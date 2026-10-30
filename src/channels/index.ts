@@ -39,7 +39,6 @@ const adapters: Record<string, ChannelAdapter> = {
   telegram: lazy(async () => (await import("./telegram/adapter")).telegramAdapter),
   // WhatsApp's indicator lasts up to 25 seconds.
   whatsapp: lazy(async () => (await import("./whatsapp")).whatsappAdapter, { typingEveryMs: 20_000 }),
-  instagram: lazy(async () => (await import("./instagram")).instagramAdapter),
 };
 
 export function adapterFor(channel: string): ChannelAdapter {
