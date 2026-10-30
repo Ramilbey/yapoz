@@ -250,9 +250,11 @@ export async function checkTime(x: Exec, ws: Ws, o: { itemId: string; minutes: n
     if (at && (!delay || minutes < delay.minutes)) delay = { minutes, start: at, staffId: p.userId, staffName: p.name };
   }
   const otherStaff = asked ? all.filter((p) => p.userId !== asked.userId && fitsFor(b, ws, p, o.start, o.minutes)).map((p) => ({ staffId: p.userId, staffName: p.name })) : [];
+  // Opening hours alone, to tell "closed" from "open, but nobody's own hours cover it".
+  const businessOpen = Boolean(b.hours && [...openWindows(b.hours, addLocalDays(date, -1), ws.timezone), ...openWindows(b.hours, date, ws.timezone)].some((w) => o.start >= w.start && end <= w.end));
   const who = asked ? asked.name : "Nobody";
   const problem = !working.length
-    ? asked ? `${asked.name} isn't working at ${clock(ws, o.start)} on that day (a ${o.minutes}-minute booking has to finish within their hours).` : `We don't take bookings at that time (outside working hours: a ${o.minutes}-minute booking has to finish by closing).`
+    ? asked ? `${asked.name} isn't working at ${clock(ws, o.start)} on that day (a ${o.minutes}-minute booking has to finish within their hours).` : businessOpen ? `The business is open then, but nobody who does this is working at ${clock(ws, o.start)}: their own hours (Calendar → Team availability) don't cover a ${o.minutes}-minute booking from that time.` : `We don't take bookings at that time (outside opening hours: a ${o.minutes}-minute booking has to finish by closing).`
     : delay
       ? `${asked ? `${asked.name} is` : "Everyone is"} busy at ${clock(ws, o.start)}: the appointment before runs until ${clock(ws, new Date(delay.start.getTime() - s.bufferMinutes * MIN))}. ${delay.staffName} is free from ${clock(ws, delay.start)}, ${delay.minutes} minutes later.`
       : `${who === "Nobody" ? "Nobody is" : `${who} is`} free at ${clock(ws, o.start)} for a booking that long.`;
