@@ -50,7 +50,8 @@ function money(minor: number, currency: string) {
   return currency === "MYR" ? `RM ${Number.isInteger(major) ? major : major.toFixed(2)}` : new Intl.NumberFormat("en", { style: "currency", currency }).format(major);
 }
 
-function GettingStarted({ live, setupDone }: { live: boolean; setupDone: boolean }) {
+/** Shown until a real channel has traffic; `tested` = there are simulator messages already. */
+function GettingStarted({ live, setupDone, tested }: { live: boolean; setupDone: boolean; tested: boolean }) {
   const steps = [
     { done: setupDone, title: "Teach it your business", body: "Describe what you sell, upload your menu or price list, and check the draft.", href: "/app/setup", cta: setupDone ? "Edit in Knowledge" : "Continue setup", alt: "/app/knowledge" },
     { done: false, title: "Connect your chats", body: "WhatsApp and Telegram, from Settings → Channels.", href: "/app/settings#channels", cta: "Connect" },
@@ -59,8 +60,10 @@ function GettingStarted({ live, setupDone }: { live: boolean; setupDone: boolean
   ];
   return (
     <Card className="mb-8">
-      <h2 className="font-display text-[22px] font-bold">No customer messages yet</h2>
-      <p className="mt-1 text-[14px] text-muted">Numbers fill in as customers message you on your channels (simulator tests count too). Meanwhile:</p>
+      <h2 className="font-display text-[22px] font-bold">{tested ? "Only test messages so far" : "No customer messages yet"}</h2>
+      <p className="mt-1 text-[14px] text-muted">
+        {tested ? "The numbers below come from your simulator tests. Real customers show up here once your chats are connected and you're live:" : "Numbers fill in as customers message you on your channels (simulator tests count too). Meanwhile:"}
+      </p>
       <ol className="mt-5 grid gap-5 md:grid-cols-4">
         {steps.map((s, i) => (
           <li key={s.title} className="border-t-2 pt-3" style={{ borderColor: s.done ? "var(--fg)" : "var(--line)" }}>
@@ -267,7 +270,7 @@ export default function TodayPage() {
         </div>
       ) : null}
 
-      {data && !data.demoMode && data.channels.every((c) => c.channel === "simulator") ? <GettingStarted live={data.live} setupDone={data.setupDone} /> : null}
+      {data && !data.demoMode && data.channels.every((c) => c.channel === "simulator") ? <GettingStarted live={data.live} setupDone={data.setupDone} tested={data.channels.length > 0} /> : null}
 
       <section aria-label="Key numbers" className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
         <Kpi label="Messages handled" value={k ? k.handled : null} delta={k ? diff(k.handled, k.yesterday.handled, "") : null} delay={0} />
