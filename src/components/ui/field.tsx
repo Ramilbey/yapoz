@@ -2,7 +2,7 @@
 import { forwardRef } from "react";
 import { cx } from "./cx";
 
-const base = "w-full rounded-[10px] border border-line bg-raised px-3 text-[14px] text-fg placeholder:text-muted transition-colors focus:border-brass focus:outline-none";
+const base = "w-full rounded-[10px] border border-line bg-raised px-3 text-[14px] text-fg placeholder:text-muted transition-colors focus:border-accent focus:outline-none focus:ring-4 focus:ring-accent/25";
 
 export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(function Input({ className, ...p }, ref) {
   return <input ref={ref} className={cx(base, "h-10", className)} {...p} />;

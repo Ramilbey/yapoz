@@ -20,8 +20,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           <div
             key={t.id}
             className={cx(
-              "row-new pointer-events-auto rounded-xl border px-4 py-3 text-[14px] shadow-[0_16px_40px_-16px_rgba(0,0,0,0.4)]",
-              t.tone === "error" ? "border-signal/50 bg-panel text-fg" : "border-line bg-panel text-fg",
+              "row-new pointer-events-auto rounded-xl border bg-panel px-4 py-3 text-[14px] text-fg shadow-[0_16px_40px_-16px_rgba(0,0,0,0.5)]",
+              t.tone === "error" ? "border-accent/60" : "border-line-strong",
             )}
           >
             {t.tone === "error" ? <span className="mr-2 font-medium text-signal-ink">Couldn&apos;t do that.</span> : null}
