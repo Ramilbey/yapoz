@@ -4,7 +4,7 @@ Checked against the official docs on 20–21 Oct 2026. These APIs change often; 
 
 Every business connects its own accounts (Settings → Channels). `src/channels/connections.ts` resolves a business's
 credentials (encrypted on its `channels` row) and maps incoming webhooks to the right business. The env credentials
-below are only used by the shared Telegram bot, Jawab's own Meta app, and as a fallback for the demo workspace.
+below are only used by the shared Telegram bot, Yapoz's own Meta app, and as a fallback for the demo workspace.
 
 ## Telegram Bot API (via grammY 1.46, types for Bot API 10.x)
 
@@ -14,7 +14,7 @@ below are only used by the shared Telegram bot, Jawab's own Meta app, and as a f
   The route enqueues the update and returns 200 at once (Telegram retries non-2xx responses).
 - `allowed_updates` is set explicitly in `scripts/telegram-set-webhook.ts` and `scripts/telegram-poll.ts`:
   `message, edited_message, channel_post, callback_query, my_chat_member, business_connection, business_message, edited_business_message, deleted_business_messages`.
-- **Shared bot vs own bot.** The shared Jawab bot (`TELEGRAM_BOT_TOKEN`) serves every business: a customer opening
+- **Shared bot vs own bot.** The shared Yapoz bot (`TELEGRAM_BOT_TOKEN`) serves every business: a customer opening
   `t.me/<bot>?start=<WORKSPACE>` is bound to that business (`telegram_chat_bindings`); an unbound chat is pointed to the
   business's link or sign-up. A business can instead paste its own
   @BotFather token: we `getMe`, store `{token, secret}` encrypted and `setWebhook` to `/api/webhooks/telegram/<channelId>`
@@ -44,9 +44,9 @@ below are only used by the shared Telegram bot, Jawab's own Meta app, and as a f
 - Reply buttons: `type: "interactive", interactive: { type: "button", body: { text }, action: { buttons: [{ type: "reply", reply: { id, title } }] } }`,
   max **3** buttons, title ≤ **20** chars, id ≤ 256. Taps arrive as `messages[].interactive.button_reply.{id,title}`.
 - **Connecting a business, option 1: Connect with Facebook (Embedded Signup).** The business clicks "Connect with Facebook"
-  in Settings → Channels and completes Meta's Embedded Signup flow. It runs on Jawab's own Meta app (`META_APP_ID`,
+  in Settings → Channels and completes Meta's Embedded Signup flow. It runs on Yapoz's own Meta app (`META_APP_ID`,
   `META_APP_SECRET`) with the optional Login configuration in `META_EMBEDDED_SIGNUP_CONFIG_ID`. Numbers connected this way arrive at
-  `/api/webhooks/whatsapp`, which routes each event by `metadata.phone_number_id` to the right business. Jawab also reads
+  `/api/webhooks/whatsapp`, which routes each event by `metadata.phone_number_id` to the right business. Yapoz also reads
   delivery status callbacks, so the app's webhook must subscribe to the `messages` field.
   Setup for the platform owner (once):
   1. At developers.facebook.com, create a Meta app of type Business.
