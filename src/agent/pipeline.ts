@@ -17,6 +17,7 @@ import { env } from "@/lib/env";
 import { addLocalDays, localDate, zoned, fmt, human } from "@/lib/time";
 import { adapterFor, type ChannelAdapter, type Inbound } from "@/channels";
 import type { Attachment, ToolCallLog } from "@/db/schema";
+import { log } from "@/lib/log";
 
 export type ChannelType = "telegram" | "whatsapp" | "simulator";
 
@@ -168,14 +169,14 @@ async function answer({ ws, thread, customer, inbound, mode, stopTyping, started
   const opts = { isDemo };
   // Unpaid orders past their timer are expired before anything reads them (the receipt check, the AI's order list).
   // Both start now and overlap with loading the chat; reminders are network sends the reply never waits for (they finish before we return).
-  const expired = expireDueOrders(ws.id).catch((e) => console.error("[stock] expiry failed", e));
-  const reminders = sendDueReminders(ws.id).catch((e) => console.error("[appointments] reminders failed", e));
+  const expired = expireDueOrders(ws.id).catch((e) => log.error("stock.expiry_failed", { workspaceId: ws.id, threadId, err: e }));
+  const reminders = sendDueReminders(ws.id).catch((e) => log.error("appointments.reminders_failed", { workspaceId: ws.id, threadId, err: e }));
 
   // A file from a customer whose order is waiting for its payment receipt: read and check it, answer from a fixed template.
   if (inbound.attachments.length) {
     await expired;
     const receipt = await receiptIntake(ws, thread, inbound, { isDemo: opts.isDemo }).catch((e) => {
-      console.error("[receipts] intake failed", e);
+      log.error("receipts.intake_failed", { workspaceId: ws.id, threadId, err: e });
       return null;
     });
     if (receipt) {
@@ -299,7 +300,7 @@ async function answer({ ws, thread, customer, inbound, mode, stopTyping, started
       }
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
-      console.error("[agent] failed", e);
+      log.error("agent.failed", { workspaceId: ws.id, threadId, err: e });
       const ack = ctx.escalations.length ? null : acknowledgement(toolLog);
       acked = Boolean(ack);
       reply = ack ?? holdingReply(DEFAULT_HOLD, toolLog);
@@ -313,7 +314,7 @@ async function answer({ ws, thread, customer, inbound, mode, stopTyping, started
   if (!error) {
     const action = gapAction({ intent: cls?.intent, escalations: ctx.escalations, reply, failed: false });
     if (action === "record") {
-      await recordGap({ workspaceId: ws.id, key: cls?.topic ?? null, question: latest, isDemo: opts.isDemo }).catch((e) => console.error("[gaps] couldn't record", e));
+      await recordGap({ workspaceId: ws.id, key: cls?.topic ?? null, question: latest, isDemo: opts.isDemo }).catch((e) => log.error("gaps.record_failed", { workspaceId: ws.id, threadId, err: e }));
     } else if (action === "escalate") {
       toolLog.push(await runTool(ctx, "escalate", { category: "knowledge_gap", priority: "low", reason: "Told the customer it would check with the team", summary: cls?.summary ?? latest.slice(0, 200), gap_key: cls?.topic ?? "" }, latest));
     }
@@ -454,7 +455,7 @@ export async function sendExisting(thread: ThreadRow, messageId: string, text: s
     return { id: messageId, status: "sent" as const };
   } catch (e) {
     const err = e instanceof Error ? e.message : String(e);
-    console.error(`[deliver:${thread.channel}]`, err);
+    log.error("deliver.failed", { workspaceId: thread.workspaceId, threadId: thread.id, channel: thread.channel, err });
     await db.update(t.messages).set({ status: "failed", error: err.slice(0, 500) }).where(eq(t.messages.id, messageId));
     return { id: messageId, status: "failed" as const, error: err };
   }

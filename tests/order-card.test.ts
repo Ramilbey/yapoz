@@ -88,9 +88,10 @@ test("Jawab reads as Yapoz in text Yapoz wrote, as a whole word only", () => {
 
 test("each status keeps every action it had: one main step, the rest in the menu", () => {
   const can = (over: Partial<CardOrder>, canAsk = false) => ({ next: nextStep(order(over)), more: moreActions(order(over), canAsk) });
-  assert.deepEqual(can({}, true), { next: "confirm", more: ["ask_receipt", "paid"] });
-  assert.deepEqual(can({ holdExpiresAt: "2026-11-02T05:00:00Z" }).more, ["keep_reserved", "paid"]);
-  assert.deepEqual(can({ holdExpiresAt: "2026-11-02T05:00:00Z", firmedBy: "staff" }).more, ["paid"]);
+  assert.deepEqual(can({}, true), { next: "confirm", more: ["correct", "ask_receipt", "paid"] });
+  assert.deepEqual(can({ kind: "appointment" }).more, ["paid"], "only orders can be corrected");
+  assert.deepEqual(can({ holdExpiresAt: "2026-11-02T05:00:00Z" }).more, ["keep_reserved", "correct", "paid"]);
+  assert.deepEqual(can({ holdExpiresAt: "2026-11-02T05:00:00Z", firmedBy: "staff" }).more, ["correct", "paid"]);
   assert.deepEqual(can({ status: "confirmed" }, true), { next: "ready", more: ["complete", "ask_receipt", "paid", "cancel"] });
   assert.deepEqual(can({ status: "ready", paid: true }, true), { next: "complete", more: ["ask_receipt", "unpaid", "cancel"] });
   assert.deepEqual(can({ status: "confirmed", kind: "appointment" }), { next: null, more: ["paid", "cancel"] });

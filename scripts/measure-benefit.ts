@@ -6,6 +6,7 @@
 import "./env";
 import { eq } from "drizzle-orm";
 import { db, t, sql } from "@/db";
+import { costReport, costSection } from "@/lib/cost";
 import { benefitReport, measureBenefit } from "@/lib/benefit";
 import { runSyntheticOrders } from "./synthetic-orders";
 
@@ -20,6 +21,7 @@ try {
     const workspaceId = await runSyntheticOrders();
     console.log(`SYNTHETIC RUN: 20 test orders in throwaway business ${workspaceId}. Not customer data.\n`);
     console.log(benefitReport(await measureBenefit(workspaceId, { demo: true })));
+    console.log(`\n${costSection(await costReport(workspaceId, { demo: true }))}`);
     if (!flag("--keep")) await db.delete(t.workspaces).where(eq(t.workspaces.id, workspaceId));
   } else {
     const workspaceId = value("--workspace");
@@ -27,6 +29,7 @@ try {
     const demo = flag("--demo");
     console.log(`${demo ? "Records labelled as demo data" : "Real records"} of ${workspaceId}\n`);
     console.log(benefitReport(await measureBenefit(workspaceId, { demo })));
+    console.log(`\n${costSection(await costReport(workspaceId, { demo }))}`);
   }
 } catch (e) {
   console.error(e instanceof Error ? e.message : e);

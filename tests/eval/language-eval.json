@@ -1,0 +1,367 @@
+{
+  "_about": "Hand-written by the developers for evaluating the classifier. Not real customer data.",
+  "businessName": "Kopi & Kuih",
+  "businessType": "home bakery",
+  "items": [
+    {
+      "id": "msg-01",
+      "text": "Hi, are you open today?",
+      "language": "en",
+      "expectedIntent": "greeting",
+      "expectClarify": false,
+      "note": "greeting with a question"
+    },
+    {
+      "id": "msg-02",
+      "text": "Can I order 24 butter cupcakes for Saturday?",
+      "language": "en",
+      "expectedIntent": "order",
+      "expectClarify": false,
+      "note": "quantity and date"
+    },
+    {
+      "id": "msg-03",
+      "text": "What flavours do you have for the kuih lapis?",
+      "language": "en",
+      "expectedIntent": "question",
+      "expectClarify": false,
+      "note": "variants"
+    },
+    {
+      "id": "msg-04",
+      "text": "Can I swap the chocolate ganache for vanilla buttercream?",
+      "language": "en",
+      "expectedIntent": "order_change",
+      "expectClarify": false,
+      "note": "substitution"
+    },
+    {
+      "id": "msg-05",
+      "text": "How much is a box of 12 pineapple tarts?",
+      "language": "en",
+      "expectedIntent": "price",
+      "expectClarify": false,
+      "note": "price"
+    },
+    {
+      "id": "msg-06",
+      "text": "Do you still have any banana loaf left?",
+      "language": "en",
+      "expectedIntent": "stock",
+      "expectClarify": false,
+      "note": "stock"
+    },
+    {
+      "id": "msg-07",
+      "text": "Can you deliver to Petaling Jaya? What time can I pick up on Friday?",
+      "language": "en",
+      "expectedIntent": "delivery",
+      "expectClarify": false,
+      "note": "delivery and pickup"
+    },
+    {
+      "id": "msg-08",
+      "text": "I just transferred RM85 via DuitNow, receipt attached.",
+      "language": "en",
+      "expectedIntent": "payment",
+      "expectClarify": false,
+      "note": "payment receipt"
+    },
+    {
+      "id": "msg-09",
+      "text": "My cake arrived crushed and half of it was unusable. Very disappointed.",
+      "language": "en",
+      "expectedIntent": "complaint",
+      "expectClarify": true,
+      "note": "complaint"
+    },
+    {
+      "id": "msg-10",
+      "text": "I want my money back, the order never arrived.",
+      "language": "en",
+      "expectedIntent": "refund",
+      "expectClarify": true,
+      "note": "refund"
+    },
+    {
+      "id": "msg-11",
+      "text": "Who won the football match last night?",
+      "language": "en",
+      "expectedIntent": "off_topic",
+      "expectClarify": false,
+      "note": "off topic"
+    },
+    {
+      "id": "msg-12",
+      "text": "You are useless, stupid shop. Idiots.",
+      "language": "en",
+      "expectedIntent": "abuse",
+      "expectClarify": true,
+      "note": "abuse"
+    },
+    {
+      "id": "msg-13",
+      "text": "Can you give me 20% off if I take 50 pieces?",
+      "language": "en",
+      "expectedIntent": "negotiation",
+      "expectClarify": true,
+      "note": "discount request"
+    },
+    {
+      "id": "msg-14",
+      "text": "Is the brownie safe for someone with a severe peanut allergy?",
+      "language": "en",
+      "expectedIntent": "allergy",
+      "expectClarify": true,
+      "note": "allergy"
+    },
+    {
+      "id": "msg-15",
+      "text": "Is that one still available?",
+      "language": "en",
+      "expectedIntent": "stock",
+      "expectClarify": true,
+      "note": "ambiguous: no context for \"that one\""
+    },
+    {
+      "id": "msg-16",
+      "text": "Selamat pagi, boleh saya tanya sikit?",
+      "language": "ms",
+      "expectedIntent": "greeting",
+      "expectClarify": false,
+      "note": "greeting"
+    },
+    {
+      "id": "msg-17",
+      "text": "Saya nak tempah 30 biji kek cawan untuk hari Ahad.",
+      "language": "ms",
+      "expectedIntent": "order",
+      "expectClarify": false,
+      "note": "quantity and date"
+    },
+    {
+      "id": "msg-18",
+      "text": "Ada perisa apa untuk kek lapis?",
+      "language": "ms",
+      "expectedIntent": "question",
+      "expectClarify": false,
+      "note": "variants"
+    },
+    {
+      "id": "msg-19",
+      "text": "Boleh tukar coklat kepada vanila tak?",
+      "language": "ms",
+      "expectedIntent": "order_change",
+      "expectClarify": false,
+      "note": "substitution"
+    },
+    {
+      "id": "msg-20",
+      "text": "Berapa harga sekotak tart nanas?",
+      "language": "ms",
+      "expectedIntent": "price",
+      "expectClarify": false,
+      "note": "price"
+    },
+    {
+      "id": "msg-21",
+      "text": "Kuih seri muka masih ada stok?",
+      "language": "ms",
+      "expectedIntent": "stock",
+      "expectClarify": false,
+      "note": "stock"
+    },
+    {
+      "id": "msg-22",
+      "text": "Boleh hantar ke Shah Alam? Saya ambil pukul 3 petang esok boleh?",
+      "language": "ms",
+      "expectedIntent": "delivery",
+      "expectClarify": false,
+      "note": "delivery and pickup"
+    },
+    {
+      "id": "msg-23",
+      "text": "Saya dah bayar RM60 melalui bank, ini resit saya.",
+      "language": "ms",
+      "expectedIntent": "payment",
+      "expectClarify": false,
+      "note": "payment"
+    },
+    {
+      "id": "msg-24",
+      "text": "Kek yang saya terima basi dan rasa pelik. Saya sangat kecewa.",
+      "language": "ms",
+      "expectedIntent": "complaint",
+      "expectClarify": true,
+      "note": "complaint"
+    },
+    {
+      "id": "msg-25",
+      "text": "Saya nak minta bayaran balik, pesanan saya salah.",
+      "language": "ms",
+      "expectedIntent": "refund",
+      "expectClarify": true,
+      "note": "refund"
+    },
+    {
+      "id": "msg-26",
+      "text": "Harga minyak petrol naik lagi ke minggu ni?",
+      "language": "ms",
+      "expectedIntent": "off_topic",
+      "expectClarify": false,
+      "note": "off topic"
+    },
+    {
+      "id": "msg-27",
+      "text": "Bodoh punya kedai, penipu semua!",
+      "language": "ms",
+      "expectedIntent": "abuse",
+      "expectClarify": true,
+      "note": "abuse"
+    },
+    {
+      "id": "msg-28",
+      "text": "Boleh bagi diskaun tak kalau saya beli banyak?",
+      "language": "ms",
+      "expectedIntent": "negotiation",
+      "expectClarify": true,
+      "note": "discount"
+    },
+    {
+      "id": "msg-29",
+      "text": "Anak saya alah kacang dan telur, kek ni selamat ke?",
+      "language": "ms",
+      "expectedIntent": "allergy",
+      "expectClarify": true,
+      "note": "allergy"
+    },
+    {
+      "id": "msg-30",
+      "text": "Yang tu ada lagi?",
+      "language": "ms",
+      "expectedIntent": "stock",
+      "expectClarify": true,
+      "note": "ambiguous: no context"
+    },
+    {
+      "id": "msg-31",
+      "text": "Hi kak, buka tak hari ni?",
+      "language": "manglish",
+      "expectedIntent": "greeting",
+      "expectClarify": false,
+      "note": "greeting"
+    },
+    {
+      "id": "msg-32",
+      "text": "Boleh order 2 dozen cupcake for Sunday lah?",
+      "language": "manglish",
+      "expectedIntent": "order",
+      "expectClarify": false,
+      "note": "quantity and date"
+    },
+    {
+      "id": "msg-33",
+      "text": "Got what flavour for the kuih lapis ah?",
+      "language": "manglish",
+      "expectedIntent": "question",
+      "expectClarify": false,
+      "note": "variants"
+    },
+    {
+      "id": "msg-34",
+      "text": "Eh boleh tukar ganache to vanilla tak? Anak I tak suka coklat.",
+      "language": "manglish",
+      "expectedIntent": "order_change",
+      "expectClarify": false,
+      "note": "substitution"
+    },
+    {
+      "id": "msg-35",
+      "text": "Berapa price for one box tart nanas ah?",
+      "language": "manglish",
+      "expectedIntent": "price",
+      "expectClarify": false,
+      "note": "price"
+    },
+    {
+      "id": "msg-36",
+      "text": "Ada tak banana loaf lagi? Nak 2 loaf.",
+      "language": "manglish",
+      "expectedIntent": "stock",
+      "expectClarify": false,
+      "note": "stock"
+    },
+    {
+      "id": "msg-37",
+      "text": "Boleh hantar Subang tak? Kalau pickup, Friday 5pm okay tak?",
+      "language": "manglish",
+      "expectedIntent": "delivery",
+      "expectClarify": false,
+      "note": "delivery and pickup"
+    },
+    {
+      "id": "msg-38",
+      "text": "Dah transfer RM120 ya, ini resit lor.",
+      "language": "manglish",
+      "expectedIntent": "payment",
+      "expectClarify": false,
+      "note": "payment"
+    },
+    {
+      "id": "msg-39",
+      "text": "Aiyo the cake sampai dah hancur lah, macam mana ni? Teruk betul.",
+      "language": "manglish",
+      "expectedIntent": "complaint",
+      "expectClarify": true,
+      "note": "complaint"
+    },
+    {
+      "id": "msg-40",
+      "text": "Boleh tak I nak refund, order tak sampai pun.",
+      "language": "manglish",
+      "expectedIntent": "refund",
+      "expectClarify": true,
+      "note": "refund"
+    },
+    {
+      "id": "msg-41",
+      "text": "Lu tahu tak mana ada best nasi lemak around KL?",
+      "language": "manglish",
+      "expectedIntent": "off_topic",
+      "expectClarify": false,
+      "note": "off topic"
+    },
+    {
+      "id": "msg-42",
+      "text": "Kedai apa ni, lembab gila, bodoh betul lah!",
+      "language": "manglish",
+      "expectedIntent": "abuse",
+      "expectClarify": true,
+      "note": "abuse"
+    },
+    {
+      "id": "msg-43",
+      "text": "Boleh kurang sikit tak? Kasi discount lah, I regular customer.",
+      "language": "manglish",
+      "expectedIntent": "negotiation",
+      "expectClarify": true,
+      "note": "discount"
+    },
+    {
+      "id": "msg-44",
+      "text": "Ada nut tak dalam brownie ni? I allergic teruk.",
+      "language": "manglish",
+      "expectedIntent": "allergy",
+      "expectClarify": true,
+      "note": "allergy"
+    },
+    {
+      "id": "msg-45",
+      "text": "Yang tadi tu boleh lagi ke?",
+      "language": "manglish",
+      "expectedIntent": "stock",
+      "expectClarify": true,
+      "note": "ambiguous: no context"
+    }
+  ]
+}

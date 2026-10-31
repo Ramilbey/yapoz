@@ -209,6 +209,10 @@ function Privacy({ days, onSave }: { days: number | null; onSave: (d: number | n
         </select>
         <p className="mt-1.5 text-[12.5px] text-muted">Orders and their totals stay for your records; the chat history and receipt files go. To erase one customer now, open their conversation in the Inbox and choose “Delete customer data”.</p>
       </div>
+      <div className="mt-6 max-w-[420px]">
+        <p className="text-[14px]">Your data is yours. Download customers, conversations, orders and receipt details as one file, to keep or to take elsewhere.</p>
+        <a href="/api/export" download className="mt-2 inline-flex h-10 items-center justify-center rounded-[10px] border border-line-strong px-4 text-sm font-medium text-fg hover:bg-raised">Download my data</a>
+      </div>
     </section>
   );
 }

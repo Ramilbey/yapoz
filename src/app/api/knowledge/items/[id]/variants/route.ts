@@ -23,7 +23,7 @@ export const POST = handle(async (req: Request, ctx: { params: Promise<{ id: str
   const [item] = await db.select().from(t.kbItems).where(and(eq(t.kbItems.id, id), eq(t.kbItems.workspaceId, s.workspaceId)));
   if (!item || (item.kind !== "product" && item.kind !== "service")) throw new HttpError(404, "Not found");
   const [v] = await db.insert(t.kbVariants).values({ workspaceId: s.workspaceId, itemId: id, size: b.size || null, color: b.color || null, option: b.option || null, priceMinor: b.priceMinor, stock: b.stock ?? null, dailyQty: b.dailyQty ?? null, lowStockAt: b.lowStockAt ?? null }).returning();
-  await db.update(t.kbItems).set({ updatedAt: new Date() }).where(eq(t.kbItems.id, id));
+  await db.update(t.kbItems).set({ updatedAt: new Date() }).where(and(eq(t.kbItems.id, id), eq(t.kbItems.workspaceId, s.workspaceId)));
   await audit(s, "kb.variant_created", { itemId: id, itemTitle: item.title, variant: [v.size, v.color, v.option].filter(Boolean).join(" / ") || "default", priceMinor: v.priceMinor, stock: v.stock });
   return ok({ variant: v });
 });

@@ -14,7 +14,7 @@ export type CardOrder = {
 
 export type CardIssue = { key: string; text: string; rank: number; blocks: boolean };
 export type NextStep = "confirm" | "ready" | "complete";
-export type MoreAction = "keep_reserved" | "complete" | "ask_receipt" | "paid" | "unpaid" | "retry" | "cancel";
+export type MoreAction = "keep_reserved" | "complete" | "correct" | "ask_receipt" | "paid" | "unpaid" | "retry" | "cancel";
 
 /** Rank order: what stops the next step, a receipt that doesn't add up, one that can't be read, then the smaller gaps. */
 const RANK = { blocking: 0, mismatch: 1, unreadable: 2, notTold: 3, date: 4, reference: 5, timer: 6 };
@@ -106,6 +106,7 @@ export function moreActions(o: Pick<CardOrder, "kind" | "status" | "paid" | "hol
   const list: (MoreAction | false)[] = [
     o.status === "pending" && Boolean(o.holdExpiresAt) && !o.firmedBy && "keep_reserved",
     o.status === "confirmed" && o.kind === "order" && "complete",
+    o.status === "pending" && o.kind === "order" && "correct",
     canAsk && "ask_receipt",
     o.status !== "cancelled" && o.status !== "expired" && (o.paid ? "unpaid" : "paid"),
     o.notificationsView.at(-1)?.status === "failed" && "retry",

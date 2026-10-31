@@ -13,6 +13,7 @@ import { handOver, resolveCards } from "./receipts";
 import { appointmentSettings, bookableStaff, bookingFacts, checkTime, isTaken, lockStaff, serviceMinutes, SlotTaken, slotTaken, when, type BookingFacts, type TimeCheck } from "./schedule";
 import { releaseForOrder } from "./stock";
 import { addLocalDays, localDate, zoned } from "./time";
+import { log } from "./log";
 
 type Ws = typeof t.workspaces.$inferSelect;
 type Failed = Extract<TimeCheck, { ok: false }>;
@@ -218,7 +219,7 @@ export async function sendDueReminders(workspaceId?: string): Promise<number> {
     const [b] = await bookingFacts(db, [r.o.id]);
     const tpl = s.whatsappTemplate?.name ? { name: s.whatsappTemplate.name, lang: s.whatsappTemplate.lang, params: [b.service, when(r.ws, b.startsAt), b.meetLink ?? (r.ws.settings.business?.address?.trim() || r.ws.name)] } : null;
     const { notifyCustomer } = await import("./notify");
-    await notifyCustomer(r.o, "reminder", reminderMessage(r.ws, r.o, b), null, tpl).catch((e) => console.error("[appointments] reminder failed", e));
+    await notifyCustomer(r.o, "reminder", reminderMessage(r.ws, r.o, b), null, tpl).catch((e) => log.error("appointments.reminder_failed", { workspaceId: r.o.workspaceId, orderId: r.o.id, err: e }));
     sent++;
   }
   return sent;

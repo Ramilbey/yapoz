@@ -15,6 +15,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/field";
 import { cx } from "@/components/ui/cx";
+import { AiTimeline, EditDialog, StopDialog } from "./order-tools";
+import type { ReasonCode } from "@/lib/order-reasons";
 import type { OrderAppointment } from "@/lib/appointment-types";
 import { cardIssues, cardNotes, displayText, holdText, issueLine, itemsLine, money, moreActions, nextStep, type CardIssue, type MoreAction } from "@/lib/order-card";
 
@@ -268,7 +270,7 @@ function ReceiptRequestDialog({ order, onClose, onSent }: { order: Order | null;
 }
 
 const MENU_LABEL = (o: Order): Record<MoreAction, string> => ({
-  keep_reserved: "Keep reserved", complete: "Mark completed", ask_receipt: "Ask for another receipt", paid: "Mark paid", unpaid: "Mark unpaid", retry: "Retry message to customer",
+  keep_reserved: "Keep reserved", complete: "Mark completed", correct: "Correct order", ask_receipt: "Ask for another receipt", paid: "Mark paid", unpaid: "Mark unpaid", retry: "Retry message to customer",
   cancel: o.kind === "appointment" ? "Cancel booking" : "Cancel order",
 });
 
@@ -329,6 +331,7 @@ function OrderDetails({ o, tz, issues }: { o: Order; tz: string; issues: CardIss
         <ReceiptCard key={r.id} order={o} r={r} tz={tz} />
       ))}
       <Delivery o={o} tz={tz} />
+      {o.kind === "order" ? <AiTimeline orderId={o.id} /> : null}
       <p className="num break-words text-[12px] text-muted">
         {timeline(o, tz)}
         {o.handledByName ? ` · by ${o.handledByName}` : ""}
@@ -361,6 +364,8 @@ function Orders() {
   const [asking, setAsking] = useState<Order | null>(null);
   const [opened, setOpened] = useState<ReadonlySet<string>>(new Set());
   const setDetails = (id: string, open: boolean) => setOpened((now) => { const next = new Set(now); if (open) next.add(id); else next.delete(id); return next; });
+  const [stopping, setStopping] = useState<{ order: Order; action: "reject" | "cancel" } | null>(null);
+  const [editing, setEditing] = useState<Order | null>(null);
   // Server time minus client time, so countdowns stay right when this device's clock is off.
   const skew = useMemo(() => (data?.now ? new Date(data.now).getTime() - Date.now() : 0), [data]);
   const [tick, setTick] = useState(0);
@@ -398,12 +403,12 @@ function Orders() {
     else toast(`${o.refCode}: ${done}. The message waits for approval in the Inbox.`);
   }
 
-  async function act(o: Order, action: Action, reason?: string) {
+  async function act(o: Order, action: Action, reason?: string, reasonCode?: ReasonCode) {
     if (busy) return;
     setBusy(`${o.id}:${action}`);
     const DONE: Record<Action, string> = { keep_reserved: "kept reserved", confirm: "confirmed", ready: "marked ready", complete: "completed", reject: "rejected", cancel: "cancelled", paid: "marked paid", unpaid: "marked unpaid" };
     try {
-      const r = await send<{ notified: Notified }>(`/api/orders/${o.id}`, "PATCH", { action, reason });
+      const r = await send<{ notified: Notified }>(`/api/orders/${o.id}`, "PATCH", { action, reason: reason || undefined, reasonCode });
       report(o, r.notified, DONE[action]);
     } catch (e) {
       toast((e as Error).message, "error");
@@ -433,8 +438,7 @@ function Orders() {
   }
 
   function stop(o: Order, action: "reject" | "cancel") {
-    const reason = window.prompt(`${action === "reject" ? "Reject" : "Cancel"} ${o.refCode}? The customer is told in chat${o.status !== "pending" ? " and stock goes back" : ""}. Reason (optional, the customer sees it):`, "");
-    if (reason !== null) void act(o, action, reason);
+    setStopping({ order: o, action });
   }
 
   const tz = data?.timezone ?? "UTC";
@@ -498,6 +502,7 @@ function Orders() {
                 const panel = `order-details-${o.id}`;
                 const pick = (a: MoreAction) => {
                   if (a === "ask_receipt") setAsking(o);
+                  else if (a === "correct") setEditing(o);
                   else if (a === "retry") void retry(o);
                   else if (a === "cancel") stop(o, "cancel");
                   else void act(o, a);
@@ -561,6 +566,17 @@ function Orders() {
           )}
         </>
       )}
+      <StopDialog
+        order={stopping?.order ?? null}
+        action={stopping?.action ?? "reject"}
+        onClose={() => setStopping(null)}
+        onDone={(code, reason) => {
+          const x = stopping;
+          setStopping(null);
+          if (x) void act(x.order, x.action, reason, code);
+        }}
+      />
+      <EditDialog order={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void mutate(); }} />
       <ReceiptRequestDialog
         order={asking}
         onClose={() => setAsking(null)}

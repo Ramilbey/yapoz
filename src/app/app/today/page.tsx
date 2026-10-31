@@ -245,6 +245,19 @@ function BenefitPanel({ includeDemo }: { includeDemo: boolean }) {
                     ))}
                   </tbody>
                 </table>
+                <h4 className="mb-1 mt-5 text-[13px] font-medium">Decisions and replies</h4>
+                <p className="mb-1 text-[12px] text-muted">No baseline or target for these yet, so they are shown as plain numbers.</p>
+                <table className="w-full text-[14px]">
+                  <tbody className="divide-y divide-line">
+                    {set.outcomes.map((r) => (
+                      <tr key={r.label}>
+                        <td className="py-2 pr-3 font-medium">{r.label}</td>
+                        <td className="num px-3 text-right font-medium">{r.measured ?? "No data yet"}</td>
+                        <td className="pl-3 text-fg-2">{r.counted}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             ) : (
               <p className="text-[14px] text-muted">No data yet. This fills in once orders are placed and decided.</p>

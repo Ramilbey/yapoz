@@ -4,6 +4,7 @@ import { env } from "@/lib/env";
 import { getSession } from "@/lib/auth";
 import { safeEqual } from "@/lib/crypto";
 import { getProviders, probeProviders } from "@/agent/ai-router";
+import { log } from "@/lib/log";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -57,7 +58,7 @@ export async function GET(req: Request) {
       },
     });
   } catch (error: any) {
-    console.error("[health] failed", error);
+    log.error("health.failed", { err: error });
     return NextResponse.json(
       {
         status: "error",

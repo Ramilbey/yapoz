@@ -7,6 +7,7 @@ import type { CalendarResponse } from "@/lib/appointment-types";
 import { appointmentSettings } from "@/lib/schedule";
 import { expireDueOrders } from "@/lib/stock";
 import { addLocalDays, localDate, localWeekday, WEEKDAYS } from "@/lib/time";
+import { log } from "@/lib/log";
 
 export const dynamic = "force-dynamic";
 
@@ -16,8 +17,8 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 export const GET = handle(async (req: Request) => {
   const s = await apiSession(["owner", "service"]);
   // Like the Orders page: opening it expires unpaid bookings and sends due reminders (exactly once each).
-  await expireDueOrders(s.workspaceId).catch((e) => console.error("[stock] expiry failed", e));
-  await sendDueReminders(s.workspaceId).catch((e) => console.error("[appointments] reminders failed", e));
+  await expireDueOrders(s.workspaceId).catch((e) => log.error("stock.expiry_failed", { workspaceId: s.workspaceId, err: e }));
+  await sendDueReminders(s.workspaceId).catch((e) => log.error("appointments.reminders_failed", { workspaceId: s.workspaceId, err: e }));
   const [ws] = await db.select().from(t.workspaces).where(eq(t.workspaces.id, s.workspaceId));
   const q = new URL(req.url).searchParams;
   const now = new Date();
