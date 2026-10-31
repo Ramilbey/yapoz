@@ -37,6 +37,8 @@ export type ContextInput = {
   orders?: string[];
   /** Who takes appointments (and, when the business assigns services, what each does). */
   team?: string[];
+  /** FAQ entries that already answer the latest message. */
+  faq?: { question: string; answer: string }[];
 };
 
 export function contextBlock(c: ContextInput): string {
@@ -49,6 +51,7 @@ export function contextBlock(c: ContextInput): string {
     `CALENDAR: ${c.calendar.join(" | ")}`,
     `ORDERS IN THIS CHAT (from the team's system; the only source for order and booking status): ${c.orders?.length ? c.orders.join(" | ") : "none"}`,
     "Earlier assistant messages in this chat may predate the current KNOWLEDGE: treat them as unverified, never as policy.",
+    ...(c.faq?.length ? [`FAQ ENTRIES THAT FIT THE LATEST MESSAGE (if one answers it, reply with its answer in its wording; do not escalate or say you will check with the team): ${c.faq.map((f) => `Q: ${f.question} A: ${f.answer}`).join(" | ")}`] : []),
     `TEAM (people customers can book with): ${c.team?.length ? c.team.join(" | ") : "nobody takes bookings in chat yet"}`,
   ].join("\n");
 }

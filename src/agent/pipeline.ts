@@ -9,7 +9,7 @@ import { expireDueOrders } from "@/lib/stock";
 import { sendDueReminders, teamLines } from "@/lib/appointments";
 import { formatMoney } from "@/lib/money";
 import { gapAction, recordGap } from "@/lib/gaps";
-import { knowledge, type Workspace } from "./knowledge";
+import { knowledge, matchFaqs, type Workspace } from "./knowledge";
 import { rules, contextBlock } from "./prompt";
 import { classify, type Classification } from "./classify";
 import { TOOLS, runTool, openGapKeys, type ToolContext } from "./tools";
@@ -259,6 +259,7 @@ async function answer({ ws, thread, customer, inbound, mode, stopTyping, started
             mode,
             orders,
             team,
+            faq: matchFaqs(kb.catalog, latest),
           }),
         },
       ];

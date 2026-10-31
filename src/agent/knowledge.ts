@@ -3,6 +3,7 @@ import { and, eq, sql, asc } from "drizzle-orm";
 import { formatMoney } from "@/lib/money";
 import type { HoursData } from "@/lib/hours";
 import { describeDay } from "@/lib/hours";
+import { gapWords, sameQuestion } from "@/lib/gaps";
 
 export type Workspace = typeof t.workspaces.$inferSelect;
 export type KbItem = typeof t.kbItems.$inferSelect;
@@ -162,4 +163,24 @@ export function norm(s: string) {
     .replace(/[^a-z0-9 ]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/**
+ * FAQ entries (the owner's own answers, including ones taught from Knowledge → Gaps) that fit a question.
+ * Loose: at least half of the question's content words appear in the FAQ's question and answer.
+ * Strict: the question and the FAQ's question are the same question in other words.
+ */
+export function matchFaqs(c: Catalog, query: string, strict = false) {
+  const words = gapWords(query);
+  if (!words.length) return [];
+  return c.all
+    .filter((i) => i.kind === "faq")
+    .map((i) => {
+      const have = new Set(gapWords(`${i.title} ${i.body}`));
+      return { i, hits: words.filter((w) => have.has(w)).length, same: sameQuestion(words, gapWords(i.title)) };
+    })
+    .filter((x) => (strict ? x.same : x.same || x.hits >= Math.max(1, Math.ceil(words.length / 2))))
+    .sort((a, b) => Number(b.same) - Number(a.same) || b.hits - a.hits)
+    .slice(0, 3)
+    .map((x) => ({ question: x.i.title, answer: x.i.body }));
 }
