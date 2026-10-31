@@ -230,6 +230,7 @@ function WhatsApp({ s, patch }: { s: ChannelStatus["whatsapp"]; patch: Patch }) 
         <WhatsAppConnected s={s} patch={patch} />
       ) : (
         <div className="max-w-[760px]">
+          {s.embedded ? (
           <div className="flex rounded-lg border border-line p-0.5 text-[13px]" role="tablist" aria-label="How to connect WhatsApp">
             {(
               [
@@ -243,8 +244,9 @@ function WhatsApp({ s, patch }: { s: ChannelStatus["whatsapp"]; patch: Patch }) 
               </button>
             ))}
           </div>
-          <div className="mt-4">
-            {how === "embedded" ? (
+          ) : null}
+          <div className={s.embedded ? "mt-4" : undefined}>
+            {s.embedded && how === "embedded" ? (
               <EmbeddedSignup cfg={s.embedded} patch={patch} />
             ) : (
               <ManualNumber available={s.available} patch={patch} />
