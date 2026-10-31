@@ -31,6 +31,7 @@ We built Yapoz to help Malaysian micro and small businesses turn customer conver
 | Pitch slides (Final) | [Pitch slides on Google Drive](https://drive.google.com/drive/folders/1JVvEamFFgHteVy2LUkIj9ocRPA2Yt4Kl) |
 | Backup demo video | [Backup demo on Google Drive](https://drive.google.com/drive/folders/1JVvEamFFgHteVy2LUkIj9ocRPA2Yt4Kl) |
 | Final Project & Prototype Report | [SDC2026_Yaponomics_Final.pdf](submission/SDC2026_Yaponomics_Final.pdf) |
+| Technical & Tools Declaration (Final) | [SDC2026_Yaponomics_TechDeclaration.pdf](submission/SDC2026_Yaponomics_TechDeclaration.pdf) |
 | Preliminary submission | [Project proposal](submission/SDC2026_Yaponomics_Preliminary_Submission.pdf) |
 | Preliminary slide deck | [Yapoz-Pitch Slide Deck.pdf](submission/Yapoz-Pitch%20Slide%20Deck.pdf) |
 | Technical & Tools Declaration (Preliminary) | [Tools declaration](submission/SDC2026_Yaponomics_Technical%20Tools%20Declaration.pdf) |
@@ -346,6 +347,7 @@ Our submission comprises the source repository, live prototype, final report, pi
 | File in `submission/` | Purpose |
 | --- | --- |
 | [`SDC2026_Yaponomics_Final.pdf`](submission/SDC2026_Yaponomics_Final.pdf) | Final Project & Prototype Report |
+| [`SDC2026_Yaponomics_TechDeclaration.pdf`](submission/SDC2026_Yaponomics_TechDeclaration.pdf) | Technical & Tools Declaration for the Final |
 | `SDC2026_Yaponomics_Preliminary_Submission.pdf` | Official preliminary proposal |
 | `SDC2026_Yaponomics_Technical Tools Declaration.pdf` | Preliminary technical stack, APIs, tools and resource declarations |
 | `Yapoz-Pitch Slide Deck.pdf` | Presentation slides from the preliminary round |
