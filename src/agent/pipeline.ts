@@ -203,6 +203,9 @@ async function answer({ ws, thread, customer, inbound, mode, stopTyping, started
     else convo.push({ role, content: text });
   }
   while (convo.length && convo[0].role !== "user") convo.shift();
+  // Providers (Gemini especially) reject a conversation that ends on an assistant turn. That happens when the message that
+  // triggered this run has no text (a sticker, reaction or unsupported type), so the customer's turn is always the last one.
+  if (!convo.length || convo[convo.length - 1].role !== "user") convo.push({ role: "user", content: inbound.text.trim() || "(the customer sent something that isn't text, such as a sticker or reaction)" });
 
   const usage: Usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   const ctx: ToolContext = {
