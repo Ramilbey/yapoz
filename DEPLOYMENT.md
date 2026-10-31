@@ -1,4 +1,4 @@
-# Jawab (Yapoz) — Complete Deployment & Operations Manual
+# Yapoz — Complete Deployment & Operations Manual
 > **Notice for Future AI Agents & Developers:**  
 > Read this document completely before modifying the codebase, pushing commits, or altering cloud infrastructure. This manual details the live infrastructure, deployment pipeline, secret management, database pooler architecture, and known failure modes with their exact solutions.
 

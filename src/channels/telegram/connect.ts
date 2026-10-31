@@ -20,7 +20,7 @@ const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 /** One-time code for t.me/<shared bot>?start=link_<code>, valid for 15 minutes. */
 export async function createLinkCode(workspaceId: string) {
-  if (!env.telegramToken || !env.telegramBotUsername) throw new Error("The shared Jawab bot isn't set up on this server (TELEGRAM_BOT_TOKEN, TELEGRAM_BOT_USERNAME).");
+  if (!env.telegramToken || !env.telegramBotUsername) throw new Error("The shared Yapoz bot isn't set up on this server (TELEGRAM_BOT_TOKEN, TELEGRAM_BOT_USERNAME).");
   const bytes = randomBytes(10);
   const code = Array.from(bytes, (b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join("");
   const expiresAt = new Date(Date.now() + 15 * 60_000);
@@ -43,7 +43,7 @@ export async function connectOwnBot(workspaceId: string, token: string, opts: { 
     .select({ ws: t.channels.workspaceId })
     .from(t.channels)
     .where(and(eq(t.channels.type, "telegram"), ne(t.channels.workspaceId, workspaceId), sql`${t.channels.config}->>'botId' = ${String(me.id)}`));
-  if (taken) throw new Error(`@${me.username} is already connected to another business on Jawab.`);
+  if (taken) throw new Error(`@${me.username} is already connected to another business on Yapoz.`);
 
   const ch = await channelOf(workspaceId, "telegram");
   const secret = randomBytes(24).toString("base64url");

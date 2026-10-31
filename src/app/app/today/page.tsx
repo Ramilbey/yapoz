@@ -16,6 +16,7 @@ import { Input, Textarea, Label } from "@/components/ui/field";
 import { useToast } from "@/components/app/toast";
 import { cx } from "@/components/ui/cx";
 import type { AppointmentView } from "@/lib/appointment-types";
+import type { BenefitRow } from "@/lib/benefit";
 
 type Today = {
   today: string;
@@ -204,6 +205,57 @@ function StockCards() {
   );
 }
 
+/** Owner-only: anyone else gets a 403 from the API, so nothing shows. */
+function BenefitPanel({ includeDemo }: { includeDemo: boolean }) {
+  const { data, mutate } = useSWR<{ sets: { demo: boolean; measured: boolean; rows: BenefitRow[] }[] }>(`/api/owner/benefit?demo=${includeDemo ? 1 : 0}`, getJson, { shouldRetryOnError: false });
+  useLive(["orders", "order_receipts"], () => mutate(), 2000);
+  if (!data) return null;
+  return (
+    <section className="panel mt-6 p-5" aria-label="Measured benefit">
+      <SectionTitle title="Measured benefit" sub="Worked out from recorded orders and receipts, compared with the Phase 2 targets. Only you can see this." />
+      <div className="space-y-5">
+        {data.sets.map((set) => (
+          <div key={String(set.demo)}>
+            <h3 className="mb-1 flex items-center gap-2 text-[14px] font-medium">
+              {set.demo ? <><Chip tone="brass">Demo data</Chip> Seeded test records, not real customers</> : "Real orders"}
+            </h3>
+            {set.measured ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-[14px]">
+                  <thead>
+                    <tr className="border-b border-line text-left text-[12px] text-muted">
+                      <th className="py-2 pr-3 font-normal">Measure</th>
+                      <th className="px-3 text-right font-normal">Baseline</th>
+                      <th className="px-3 text-right font-normal">Target</th>
+                      <th className="px-3 text-right font-normal">Measured</th>
+                      <th className="px-3 font-normal">Counted</th>
+                      <th className="pl-3 text-right font-normal">Result</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-line">
+                    {set.rows.map((r) => (
+                      <tr key={r.label}>
+                        <td className="py-2 pr-3 font-medium">{r.label}</td>
+                        <td className="num px-3 text-right text-fg-2">{r.baseline ?? "–"}</td>
+                        <td className="num px-3 text-right text-fg-2 whitespace-nowrap">{r.target}</td>
+                        <td className="num px-3 text-right font-medium">{r.measured ?? "No data yet"}</td>
+                        <td className="px-3 text-fg-2">{r.counted}</td>
+                        <td className="pl-3 text-right">{r.met === null ? <Chip>No data yet</Chip> : r.met ? <Chip tone="answered">Target met</Chip> : <Chip tone="signal">Target not met</Chip>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-[14px] text-muted">No data yet. This fills in once orders are placed and decided.</p>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function secs(ms: number | null) {
   if (ms === null || ms === undefined) return "–";
   return ms < 10_000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms / 1000)}s`;
@@ -323,6 +375,8 @@ export default function TodayPage() {
           </ul>
         </section>
       ) : null}
+
+      <BenefitPanel includeDemo={includeDemo} />
 
       <StockCards />
 

@@ -4,7 +4,7 @@ import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { eq } from "drizzle-orm";
 import { db, t, sql } from "../src/db";
-import { benefitReport, measureBenefit, missingChecks, summarise } from "../src/lib/benefit";
+import { benefitReport, benefitRows, measureBenefit, missingChecks, summarise } from "../src/lib/benefit";
 import { runSyntheticOrders } from "../scripts/synthetic-orders";
 
 const workspaces: string[] = [];
@@ -63,6 +63,20 @@ test("a synthetic run of 20 orders is labelled as demo data and measured from wh
   assert.equal(b.receipts.total, 22);
   assert.equal(b.receipts.fullyChecked, 22);
   assert.equal((await measureBenefit(id)).orders.total, 0, "test records never count as real ones");
+});
+
+test("the Today panel's rows carry the baseline, targets and counts, and nothing measured stays no data", () => {
+  const empty = benefitRows(summarise([], []));
+  assert.deepEqual(empty.map((r) => [r.measured, r.met]), [[null, null], [null, null], [null, null]]);
+  assert.equal(empty[0].baseline, "5");
+
+  const rows = benefitRows(summarise(
+    [{ steps: 1, priced: true, stockChecked: true }, { steps: 2, priced: true, stockChecked: true }, { steps: null, priced: true, stockChecked: false }],
+    [{ checks: codes("amount", "payee", "date", "reuse") }],
+  ));
+  assert.deepEqual(rows[0], { label: "Manual steps per order", baseline: "5", target: "1 or fewer", measured: "1.50", counted: "2 orders decided, 1 not decided yet", met: false });
+  assert.deepEqual(rows[1], { label: "Orders priced and stock-checked", baseline: null, target: "90.0% or more", measured: "66.7%", counted: "2 of 3 orders", met: false });
+  assert.deepEqual(rows[2], { label: "Receipts checked for amount, payee, date and reuse", baseline: null, target: "100.0%", measured: "100.0%", counted: "1 of 1 receipt", met: true });
 });
 
 test("a staff chat message before the decision counts as a step", async () => {
