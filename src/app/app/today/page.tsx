@@ -16,7 +16,7 @@ import { Input, Textarea, Label } from "@/components/ui/field";
 import { useToast } from "@/components/app/toast";
 import { cx } from "@/components/ui/cx";
 import type { AppointmentView } from "@/lib/appointment-types";
-import type { BenefitRow } from "@/lib/benefit";
+import type { BenefitRow, OutcomeRow } from "@/lib/benefit";
 
 type Today = {
   today: string;
@@ -207,7 +207,7 @@ function StockCards() {
 
 /** Owner-only: anyone else gets a 403 from the API, so nothing shows. */
 function BenefitPanel({ includeDemo }: { includeDemo: boolean }) {
-  const { data, mutate } = useSWR<{ sets: { demo: boolean; measured: boolean; rows: BenefitRow[] }[] }>(`/api/owner/benefit?demo=${includeDemo ? 1 : 0}`, getJson, { shouldRetryOnError: false });
+  const { data, mutate } = useSWR<{ sets: { demo: boolean; measured: boolean; rows: BenefitRow[]; outcomes: OutcomeRow[] }[] }>(`/api/owner/benefit?demo=${includeDemo ? 1 : 0}`, getJson, { shouldRetryOnError: false });
   useLive(["orders", "order_receipts"], () => mutate(), 2000);
   if (!data) return null;
   return (
@@ -241,6 +241,19 @@ function BenefitPanel({ includeDemo }: { includeDemo: boolean }) {
                         <td className="num px-3 text-right font-medium">{r.measured ?? "No data yet"}</td>
                         <td className="px-3 text-fg-2">{r.counted}</td>
                         <td className="pl-3 text-right">{r.met === null ? <Chip>No data yet</Chip> : r.met ? <Chip tone="answered">Target met</Chip> : <Chip tone="signal">Target not met</Chip>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <h4 className="mb-1 mt-5 text-[13px] font-medium">Decisions and replies</h4>
+                <p className="mb-1 text-[12px] text-muted">No baseline or target for these yet, so they are shown as plain numbers.</p>
+                <table className="w-full text-[14px]">
+                  <tbody className="divide-y divide-line">
+                    {set.outcomes.map((r) => (
+                      <tr key={r.label}>
+                        <td className="py-2 pr-3 font-medium">{r.label}</td>
+                        <td className="num px-3 text-right font-medium">{r.measured ?? "No data yet"}</td>
+                        <td className="pl-3 text-fg-2">{r.counted}</td>
                       </tr>
                     ))}
                   </tbody>

@@ -13,6 +13,7 @@ import { bookingFacts, lockStaff, SlotTaken, slotTaken, when, type BookingFacts 
 import { human } from "./time";
 import type { OrderAppointment } from "./appointment-types";
 import { log } from "./log";
+import type { ReasonCode } from "./order-reasons";
 
 type Ws = typeof t.workspaces.$inferSelect;
 export type OrderRow = typeof t.orders.$inferSelect;
@@ -166,7 +167,7 @@ async function already(tx: Tx, order: OrderRow, what: string): Promise<Transitio
  * Move an order along. Workspace-scoped and row-locked, so a double click or two staff at once can't apply the same step
  * twice: the hold is consumed exactly once on confirm (refused if short) and released exactly once on reject/cancel.
  */
-export async function transitionOrder(o: { workspaceId: string; orderId: string; action: OrderAction; userId: string; reason?: string | null }): Promise<Transition> {
+export async function transitionOrder(o: { workspaceId: string; orderId: string; action: OrderAction; userId: string; reason?: string | null; /** Why it was turned down or called off, counted in the benefit measures. */ reasonCode?: ReasonCode | null }): Promise<Transition> {
   const r = await db.transaction(async (tx): Promise<Transition> => {
     const [order] = await tx.select().from(t.orders).where(and(eq(t.orders.id, o.orderId), eq(t.orders.workspaceId, o.workspaceId))).for("update");
     if (!order) return { ok: false, status: 404, error: "Order not found." };
@@ -253,7 +254,7 @@ export async function transitionOrder(o: { workspaceId: string; orderId: string;
     const [updated] = await tx.update(t.orders).set(set).where(eq(t.orders.id, order.id)).returning();
     await tx.insert(t.events).values({
       workspaceId: o.workspaceId, type: EVENT[action],
-      props: { orderId: order.id, refCode: order.refCode, by: o.userId, threadId: order.threadId, ...(reason && (action === "cancel" || action === "reject") ? { reason } : {}), ...(action === "confirm" && stockMoved ? { stock: "deducted" } : {}), ...((action === "cancel" || action === "reject") && stockMoved ? { stock: "returned" } : {}) },
+      props: { orderId: order.id, refCode: order.refCode, by: o.userId, threadId: order.threadId, ...(reason && (action === "cancel" || action === "reject") ? { reason } : {}), ...(o.reasonCode && (action === "cancel" || action === "reject") ? { reasonCode: o.reasonCode } : {}), ...(action === "confirm" && stockMoved ? { stock: "deducted" } : {}), ...((action === "cancel" || action === "reject") && stockMoved ? { stock: "returned" } : {}) },
       isDemo: order.isDemo,
     });
     if (stockMoved && (action === "cancel" || action === "reject")) await tx.insert(t.events).values({ workspaceId: o.workspaceId, type: "stock.released", props: { orderId: order.id, refCode: order.refCode, threadId: order.threadId, why: action, by: o.userId }, isDemo: order.isDemo });
@@ -266,6 +267,78 @@ export async function transitionOrder(o: { workspaceId: string; orderId: string;
     await checkLowStock(o.workspaceId, r.items.map((i) => i.variantId).filter((x): x is string => Boolean(x))).catch((e) => log.error("stock.low_stock_check_failed", { workspaceId: o.workspaceId, orderId: o.orderId, err: e }));
   }
   return r;
+}
+
+export type OrderEdit = { lines?: { id: string; quantity: number }[]; notes?: string | null; wanted?: string | null; address?: string | null };
+export type EditResult = { ok: true; order: OrderRow; items: OrderItemRow[] } | { ok: false; status: number; error: string };
+
+class EditRefused extends Error {}
+
+/**
+ * The owner fixes an order the AI saved before deciding on it: quantities (0 removes a line), notes, the time wanted, the
+ * address. Prices stay the catalogue's. Stock holds are taken again for the new quantities, or the edit is refused and
+ * nothing changes. Logged as order.corrected, which is what the "needed a correction" measure counts.
+ */
+export async function editOrder(o: { workspaceId: string; orderId: string; userId: string; edit: OrderEdit }): Promise<EditResult> {
+  try {
+    return await db.transaction(async (tx): Promise<EditResult> => {
+      const fail = (status: number, error: string): EditResult => ({ ok: false, status, error });
+      const [order] = await tx.select().from(t.orders).where(and(eq(t.orders.id, o.orderId), eq(t.orders.workspaceId, o.workspaceId))).for("update");
+      if (!order) return fail(404, "Order not found.");
+      if (order.kind !== "order") return fail(409, "Bookings can't be edited here: reject it and ask the customer to book again.");
+      if (order.status !== "pending") return fail(409, `This order is already ${order.status}, so it can't be edited. Only orders waiting for you can.`);
+      const items = await tx.select().from(t.orderItems).where(eq(t.orderItems.orderId, order.id));
+      const changes: { name: string; from: number; to: number }[] = [];
+      const fields: string[] = [];
+      let kept = items;
+      if (o.edit.lines?.length) {
+        for (const l of o.edit.lines) {
+          const it = items.find((i) => i.id === l.id);
+          if (!it) return fail(400, "One of those lines isn't on this order.");
+          if (!Number.isInteger(l.quantity) || l.quantity < 0 || l.quantity > MAX_QTY) return fail(400, `Quantity must be a whole number from 0 to ${MAX_QTY}.`);
+          if (l.quantity !== it.quantity) changes.push({ name: it.name, from: it.quantity, to: l.quantity });
+        }
+        if (changes.length) {
+          kept = items.filter((i) => (o.edit.lines!.find((l) => l.id === i.id)?.quantity ?? i.quantity) > 0).map((i) => ({ ...i, quantity: o.edit.lines!.find((l) => l.id === i.id)?.quantity ?? i.quantity }));
+          if (!kept.length) return fail(409, "That would remove every line. Reject the order instead.");
+          const [r] = await tx.select({ n: sql<number>`count(*)::int` }).from(t.orderReceipts).where(and(eq(t.orderReceipts.orderId, order.id), isNull(t.orderReceipts.rejectedAt)));
+          if (r?.n) return fail(409, "A receipt was already checked against the old total. Ask for another receipt instead of changing the quantities.");
+          fields.push("items");
+        }
+      }
+      const text = (v: string | null | undefined, max: number) => (v === undefined ? undefined : v?.trim().slice(0, max) || null);
+      const set: Partial<typeof t.orders.$inferInsert> = {};
+      for (const [key, max] of [["notes", 500], ["wanted", 120], ["address", 300]] as const) {
+        const v = text(o.edit[key], max);
+        if (v !== undefined && v !== order[key]) { set[key] = v; fields.push(key); }
+      }
+      if (!fields.length) return fail(400, "Nothing was changed.");
+      const total = kept.reduce((a, i) => a + lineTotal(i), 0);
+      if (changes.length) {
+        const [wsRow] = await tx.select().from(t.workspaces).where(eq(t.workspaces.id, o.workspaceId));
+        await tx.update(t.stockHolds).set({ status: "released" }).where(and(eq(t.stockHolds.orderId, order.id), inArray(t.stockHolds.status, ["held", "firm"])));
+        const held = await holdForOrder(tx, wsRow, { lines: kept.filter((i): i is typeof i & { variantId: string } => Boolean(i.variantId)), date: order.wantedDate ?? businessDate(wsRow) });
+        if (held.problems.length) throw new EditRefused(held.problems.join(" "));
+        const firm = Boolean(order.firmedBy);
+        if (held.holds.length) await tx.insert(t.stockHolds).values(held.holds.map((h) => ({ workspaceId: order.workspaceId, orderId: order.id, variantId: h.variantId, date: h.date, qty: h.qty, status: firm ? ("firm" as const) : ("held" as const), expiresAt: firm ? null : order.holdExpiresAt, isDemo: order.isDemo })));
+        for (const l of o.edit.lines!) {
+          if (l.quantity === 0) await tx.delete(t.orderItems).where(eq(t.orderItems.id, l.id));
+          else await tx.update(t.orderItems).set({ quantity: l.quantity }).where(eq(t.orderItems.id, l.id));
+        }
+        set.totalMinor = total;
+      }
+      const [updated] = await tx.update(t.orders).set(set).where(eq(t.orders.id, order.id)).returning();
+      await tx.insert(t.events).values({
+        workspaceId: o.workspaceId, type: "order.corrected",
+        props: { orderId: order.id, refCode: order.refCode, by: o.userId, threadId: order.threadId, fields, ...(changes.length ? { changes, totalMinor: { from: order.totalMinor, to: total } } : {}) },
+        isDemo: order.isDemo,
+      });
+      return { ok: true, order: updated, items: await tx.select().from(t.orderItems).where(eq(t.orderItems.orderId, order.id)) };
+    });
+  } catch (e) {
+    if (e instanceof EditRefused) return { ok: false, status: 409, error: `Can't change it: ${e.message}` };
+    throw e;
+  }
 }
 
 /**

@@ -69,7 +69,7 @@ export async function runSyntheticOrders() {
       } else if (scenario === "wrong_payee") await upload(png(`payee-${i}`), reading(order.totalMinor, { payeeAccount: "9999 8888 7777" }));
       else await upload(scenario === "reused" || i === 0 ? firstReceipt : png(`clean-${i}`), paid);
       const reject = scenario === "wrong_payee" || scenario === "reused";
-      const done = await transitionOrder({ workspaceId, orderId: order.id, action: reject ? "reject" : "confirm", userId: user.id, reason: reject ? "The receipt didn't pass" : null });
+      const done = await transitionOrder({ workspaceId, orderId: order.id, action: reject ? "reject" : "confirm", userId: user.id, reason: reject ? "The receipt didn't pass" : null, reasonCode: reject ? "other" : null });
       if (!done.ok) throw new Error(`Synthetic order ${i}: ${done.error}`);
     }
   } finally {

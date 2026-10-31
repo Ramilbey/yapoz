@@ -14,6 +14,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/field";
 import { cx } from "@/components/ui/cx";
+import { AiTimeline, EditDialog, StopDialog } from "./order-tools";
+import type { ReasonCode } from "@/lib/order-reasons";
 import type { OrderAppointment } from "@/lib/appointment-types";
 
 type Check = { code: string; level: "pass" | "warn" | "fail"; message: string };
@@ -301,6 +303,8 @@ function Orders() {
   const [kind, setKind] = useState<Kind>("all");
   const [busy, setBusy] = useState<string | null>(null);
   const [asking, setAsking] = useState<Order | null>(null);
+  const [stopping, setStopping] = useState<{ order: Order; action: "reject" | "cancel" } | null>(null);
+  const [editing, setEditing] = useState<Order | null>(null);
   // Server time minus client time, so countdowns stay right when this device's clock is off.
   const skew = useMemo(() => (data?.now ? new Date(data.now).getTime() - Date.now() : 0), [data]);
   const [tick, setTick] = useState(0);
@@ -338,12 +342,12 @@ function Orders() {
     else toast(`${o.refCode}: ${done}. The message waits for approval in the Inbox.`);
   }
 
-  async function act(o: Order, action: Action, reason?: string) {
+  async function act(o: Order, action: Action, reason?: string, reasonCode?: ReasonCode) {
     if (busy) return;
     setBusy(`${o.id}:${action}`);
     const DONE: Record<Action, string> = { keep_reserved: "kept reserved", confirm: "confirmed", ready: "marked ready", complete: "completed", reject: "rejected", cancel: "cancelled", paid: "marked paid", unpaid: "marked unpaid" };
     try {
-      const r = await send<{ notified: Notified }>(`/api/orders/${o.id}`, "PATCH", { action, reason });
+      const r = await send<{ notified: Notified }>(`/api/orders/${o.id}`, "PATCH", { action, reason: reason || undefined, reasonCode });
       report(o, r.notified, DONE[action]);
     } catch (e) {
       toast((e as Error).message, "error");
@@ -373,8 +377,7 @@ function Orders() {
   }
 
   function stop(o: Order, action: "reject" | "cancel") {
-    const reason = window.prompt(`${action === "reject" ? "Reject" : "Cancel"} ${o.refCode}? The customer is told in chat${o.status !== "pending" ? " and stock goes back" : ""}. Reason (optional, the customer sees it):`, "");
-    if (reason !== null) void act(o, action, reason);
+    setStopping({ order: o, action });
   }
 
   const tz = data?.timezone ?? "UTC";
@@ -487,6 +490,7 @@ function Orders() {
                       {o.cancelReason ? <p className="mt-1 text-[14px]"><span className="text-muted">{o.status === "expired" ? "Expired" : o.confirmedAt ? "Cancelled" : "Rejected"} because:</span> {o.cancelReason}</p> : null}
                       {o.status === "expired" && o.expiredAt ? <p className="mt-1 text-[14px]"><span className="text-muted">Expired:</span> {stamp(o.expiredAt, tz)}</p> : null}
                       <Delivery o={o} tz={tz} busy={busy === `${o.id}:retry`} onRetry={() => retry(o)} />
+                      {o.kind === "order" ? <AiTimeline orderId={o.id} /> : null}
                       <p className="num mt-3 text-[12px] text-muted">
                         {timeline(o, tz)}
                         {o.handledByName ? ` · by ${o.handledByName}` : ""}
@@ -526,6 +530,9 @@ function Orders() {
                           {o.paid ? "Mark unpaid" : "Mark paid"}
                         </Button>
                       ) : null}
+                      {o.status === "pending" && o.kind === "order" ? (
+                        <Button size="sm" variant="secondary" disabled={pending} onClick={() => setEditing(o)}>Correct order</Button>
+                      ) : null}
                       {o.status === "pending" ? (
                         <Button size="sm" variant="danger" disabled={pending} onClick={() => stop(o, "reject")}>{o.kind === "appointment" ? "Reject booking" : "Reject order"}</Button>
                       ) : o.status === "confirmed" || o.status === "ready" ? (
@@ -544,6 +551,17 @@ function Orders() {
           )}
         </>
       )}
+      <StopDialog
+        order={stopping?.order ?? null}
+        action={stopping?.action ?? "reject"}
+        onClose={() => setStopping(null)}
+        onDone={(code, reason) => {
+          const x = stopping;
+          setStopping(null);
+          if (x) void act(x.order, x.action, reason, code);
+        }}
+      />
+      <EditDialog order={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void mutate(); }} />
       <ReceiptRequestDialog
         order={asking}
         onClose={() => setAsking(null)}

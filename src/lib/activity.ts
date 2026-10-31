@@ -39,8 +39,14 @@ export function describe(type: string, p: P, currency: string, timeZone = "UTC")
     case "order.created": if (p.kind === "appointment") return { text: `New booking ${ref} from chat, ${money(p.totalMinor)}, waiting for approval`, level: "info" };
       return { text: `New order ${ref} from chat, ${money(p.totalMinor)} (${str(p.items)} line${p.items === 1 ? "" : "s"}), waiting for approval`, level: "info" };
     case "order.confirmed": return { text: `Confirmed ${ref}${p.stock === "deducted" ? "; stock deducted" : ""}`, level: "good" };
-    case "order.rejected": return { text: `Rejected ${ref}${p.reason ? `: ${q(p.reason)}` : ""}${p.stock === "returned" ? "; stock returned" : ""}`, level: "warn" };
+    case "order.rejected": return { text: `Rejected ${ref}${p.reasonCode ? ` (${str(p.reasonCode).replace("_", " ")})` : ""}${p.reason ? `: ${q(p.reason)}` : ""}${p.stock === "returned" ? "; stock returned" : ""}`, level: "warn" };
     case "order.cancelled": return { text: `Cancelled ${ref}${p.reason ? `: ${q(p.reason)}` : ""}${p.stock === "returned" ? "; stock returned" : ""}`, level: "warn" };
+    case "order.corrected": {
+      const ch = (Array.isArray(p.changes) ? p.changes : []) as { name?: unknown; from?: unknown; to?: unknown }[];
+      const fields = (Array.isArray(p.fields) ? p.fields : []).map(str).filter((f) => f !== "items");
+      const parts = [...ch.map((c) => (Number(c.to) === 0 ? `removed ${str(c.name)}` : `${str(c.name)} ${str(c.from)} → ${str(c.to)}`)), ...fields.map((f) => `${f} changed`)];
+      return { text: `Corrected ${ref} before deciding: ${parts.join(", ")}`, level: "info" };
+    }
     case "order.ready": return { text: `Marked ${ref} ready`, level: "good" };
     case "order.completed": return { text: `Completed ${ref}`, level: "good" };
     case "order.paid": return { text: `Marked ${ref} paid`, level: "good" };
