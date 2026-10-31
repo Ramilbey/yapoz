@@ -282,6 +282,7 @@ export function assessReceipt(i: AssessInput): { verdict: Verdict; checks: Recei
 
   // Reuse
   for (const d of i.duplicates) add("duplicate", "fail", `${d.why === "same file" ? "The same file" : "The same transaction reference"} was already used for order ${d.refCode}.`);
+  if (!i.duplicates.length) add("reuse", "pass", "Not used for another order.");
   if (!r.reference) add("reference", "warn", "No transaction or reference number shown.");
 
   // Visual oddities: advice only, never enough on its own to say a receipt is wrong

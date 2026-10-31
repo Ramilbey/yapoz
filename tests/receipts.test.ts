@@ -32,7 +32,7 @@ const level = (r: ReturnType<typeof assess>, code: string) => r.checks.find((c) 
 test("a receipt that matches the order, the account and the time is consistent, with every check passing", () => {
   const r = assess(good());
   assert.equal(r.verdict, "consistent");
-  assert.deepEqual(r.checks.map((c) => `${c.code}:${c.level}`), ["amount:pass", "payee:pass", "date:pass"]);
+  assert.deepEqual(r.checks.map((c) => `${c.code}:${c.level}`), ["amount:pass", "payee:pass", "date:pass", "reuse:pass"]);
 });
 
 test("amount: short is a mismatch, more than the total is only worth a look, a different currency is a mismatch", () => {
