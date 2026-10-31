@@ -5,7 +5,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { eq } from "drizzle-orm";
 import { db, t, sql } from "../src/db";
-import { approvedOrderEvent, loadApprovedOrderEvent } from "../src/lib/orbyte";
+import { approvedOrderEvent, loadApprovedOrderEvent, NotApproved } from "../src/lib/orbyte";
+import { expireDueOrders } from "../src/lib/stock";
 import { placeOrder, transitionOrder, type OrderItemRow, type OrderRow } from "../src/lib/orders";
 import { createWorkspace } from "../src/lib/workspace";
 
@@ -58,4 +59,18 @@ test("from the database: the event appears only after approval, names the approv
   assert.equal(event?.approvedBy.userId, user.id);
   assert.equal(event?.order.totalMinor, 2400);
   assert.deepEqual(event?.order.lines.map((l) => l.lineTotalMinor), [2400]);
+
+  // What the preview route refuses: pending, rejected, expired, and cancelled after approval.
+  const place = async () => (await placeOrder(ws, { lines: [{ itemId: kb.id, variantId: variant.id, name: "Sample Loaf", quantity: 1, unitPriceMinor: 1200, note: null }], customerName: "Sample Customer", fulfilment: "pickup" })).order;
+  const refused = (id: string) => assert.rejects(loadApprovedOrderEvent(workspaceId, id), NotApproved);
+  const pending = await place();
+  await refused(pending.id);
+  await transitionOrder({ workspaceId, orderId: pending.id, action: "reject", userId: user.id });
+  await refused(pending.id);
+  const expired = await place();
+  await db.update(t.orders).set({ holdExpiresAt: new Date(Date.now() - 60_000) }).where(eq(t.orders.id, expired.id));
+  assert.equal(await expireDueOrders(workspaceId), 1);
+  await refused(expired.id);
+  await transitionOrder({ workspaceId, orderId: placed.id, action: "cancel", userId: user.id });
+  await refused(placed.id);
 });

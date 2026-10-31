@@ -8,9 +8,11 @@ export const APPROVED_ORDER_EVENT = "yapoz.order.approved.v1";
 
 export type ApprovedOrderEvent = ReturnType<typeof approvedOrderEvent>;
 
+export class NotApproved extends Error {}
+
 /** Only an order a person confirmed: pending, rejected, expired, and cancelled-after-confirming orders all throw. */
 export function approvedOrderEvent(order: OrderRow, items: OrderItemRow[], approvedBy: string) {
-  if (!order.confirmedAt || !["confirmed", "ready", "completed"].includes(order.status)) throw new Error(`Order ${order.refCode} isn't approved.`);
+  if (!order.confirmedAt || !["confirmed", "ready", "completed"].includes(order.status)) throw new NotApproved(`Order ${order.refCode} isn't approved.`);
   return {
     event: APPROVED_ORDER_EVENT,
     eventId: `${order.id}:approved`,
@@ -42,6 +44,6 @@ export async function loadApprovedOrderEvent(workspaceId: string, orderId: strin
   const items = await db.select().from(t.orderItems).where(eq(t.orderItems.orderId, order.id));
   const logged = await db.select({ props: t.events.props }).from(t.events).where(and(eq(t.events.workspaceId, workspaceId), eq(t.events.type, "order.confirmed")));
   const by = logged.map((e) => e.props as { orderId?: string; by?: string }).find((p) => p.orderId === order.id)?.by;
-  if (!by) throw new Error(`Order ${order.refCode} has no recorded approval.`);
+  if (!by) throw new NotApproved(`Order ${order.refCode} has no recorded approval.`);
   return approvedOrderEvent(order, items, by);
 }
