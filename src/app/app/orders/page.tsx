@@ -5,6 +5,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { format } from "date-fns";
 import { tz as tzIn } from "@date-fns/tz";
+import * as Menu from "@radix-ui/react-dropdown-menu";
 import { PageHeader } from "@/components/app/shell";
 import { getJson, send } from "@/components/app/fetcher";
 import { useLive } from "@/components/app/live";
@@ -15,6 +16,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/field";
 import { cx } from "@/components/ui/cx";
 import type { OrderAppointment } from "@/lib/appointment-types";
+import { cardIssues, cardNotes, displayText, holdText, issueLine, itemsLine, money, moreActions, nextStep, type CardIssue, type MoreAction } from "@/lib/order-card";
 
 type Check = { code: string; level: "pass" | "warn" | "fail"; message: string };
 type Receipt = {
@@ -46,19 +48,8 @@ const TABS: { key: Tab; label: string; match: (o: Order) => boolean }[] = [
 ];
 
 const statusLabel = (o: Order) => (o.status === "cancelled" ? (o.confirmedAt ? "Cancelled" : "Rejected") : { pending: "Waiting for you", confirmed: "Confirmed", ready: "Ready", completed: "Completed", expired: "Expired" }[o.status]);
-const canKeep = (o: Order) => o.status === "pending" && Boolean(o.holdExpiresAt) && !o.firmedBy;
 const forDate = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short", timeZone: "UTC" });
-function holdText(expiresAt: string, nowMs: number) {
-  const mins = Math.ceil((new Date(expiresAt).getTime() - nowMs) / 60000);
-  return mins <= 0 ? "Time's up: expiring" : `Held for ${mins} more minute${mins === 1 ? "" : "s"}`;
-}
 const KIND: Record<string, string> = { confirmed: "the order is confirmed", ready: "it's ready", rejected: "the order was rejected", cancelled: "the order was cancelled", receipt_request: "you need another receipt" };
-
-function money(minor: number, currency: string) {
-  const major = minor / 100;
-  if (currency === "MYR") return `RM ${Number.isInteger(major) ? major : major.toFixed(2)}`;
-  return new Intl.NumberFormat("en", { style: "currency", currency }).format(major);
-}
 
 const VERDICT: Record<Receipt["verdict"], { label: string; tone: "answered" | "brass" | "signal" | "neutral" }> = {
   consistent: { label: "Looks consistent", tone: "answered" },
@@ -69,7 +60,6 @@ const VERDICT: Record<Receipt["verdict"], { label: string; tone: "answered" | "b
 const MARK: Record<Check["level"], string> = { pass: "✓", warn: "!", fail: "✗" };
 const stamp = (iso: string, tz: string) => new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: tz });
 
-/** A receipt the customer sent, what Yapoz read off it, and each check against the order and your accounts. Advice only. */
 /** What Orbyte would receive for an approved order. Loaded on request, from the same records; nothing is sent anywhere. */
 function OrbytePreview({ orderId }: { orderId: string }) {
   const [open, setOpen] = useState(false);
@@ -87,6 +77,7 @@ function OrbytePreview({ orderId }: { orderId: string }) {
   );
 }
 
+/** A receipt the customer sent, what Yapoz read off it, and each check against the order and your accounts. Advice only. */
 function ReceiptCard({ order, r, tz }: { order: Order; r: Receipt; tz: string }) {
   const v = VERDICT[r.verdict];
   const url = `/api/orders/${order.id}/receipts/${r.id}`;
@@ -101,7 +92,7 @@ function ReceiptCard({ order, r, tz }: { order: Order; r: Receipt; tz: string })
           {r.rejectedAt ? <Chip>Turned down</Chip> : <Chip tone={v.tone}>{v.label}</Chip>}
           <span className="num text-[12px] text-muted">{stamp(r.createdAt, tz)}</span>
         </div>
-        {r.rejectedAt ? <p className="mt-1 text-[12.5px] text-fg-2">You asked for another: “{r.rejectedReason}”</p> : null}
+        {r.rejectedAt ? <p className="mt-1 text-[12.5px] text-fg-2">You asked for another: “{displayText(r.rejectedReason ?? "")}”</p> : null}
         {rd && (rd.amount !== null || rd.payeeName || rd.reference) ? (
           <p className="num mt-1.5 text-[12.5px] text-fg-2">
             {[rd.amount !== null ? `${rd.currency ?? ""} ${rd.amount.toFixed(2)}`.trim() : null, rd.payeeName, rd.payeeAccount, rd.method, rd.reference ? `ref ${rd.reference}` : null].filter(Boolean).join(" · ")}
@@ -111,7 +102,7 @@ function ReceiptCard({ order, r, tz }: { order: Order; r: Receipt; tz: string })
           {r.checks.map((c, i) => (
             <li key={i} className={cx("flex gap-2", c.level === "fail" ? "text-signal-ink" : c.level === "pass" ? "text-fg-2" : "text-fg")}>
               <span aria-hidden className="num w-3 shrink-0">{MARK[c.level]}</span>
-              <span>{c.message}</span>
+              <span>{displayText(c.message)}</span>
             </li>
           ))}
         </ul>
@@ -142,50 +133,43 @@ function AppointmentBox({ a, tz }: { a: OrderAppointment; tz: string }) {
   );
 }
 
-/** Why this order needs a look and what to do about it: every line names the fact behind it. */
-function AttentionBox({ o }: { o: Order }) {
-  if (!o.attention.length && !o.recommendation) return null;
-  const blocked = o.attention.some((a) => a.level === "block");
+/** Everything worth knowing about this order, each meaning once, then what to do about it. */
+function IssueList({ o, issues }: { o: Order; issues: CardIssue[] }) {
+  const notes = cardNotes(o);
+  if (!issues.length && !notes.length && !o.recommendation) return null;
   return (
-    <div className={cx("mt-3 rounded-xl border px-3.5 py-3 text-[13.5px]", blocked ? "border-signal/50 bg-signal/[0.06]" : "border-line bg-raised/50")}>
-      {o.attention.length ? (
-        <ul className="space-y-1">
-          {o.attention.map((a, i) => (
-            <li key={i} className={cx("flex gap-2", a.level === "block" ? "text-signal-ink" : a.level === "warn" ? "text-fg" : "text-fg-2")}>
-              <span aria-hidden className="num w-3 shrink-0">{a.level === "block" ? "✗" : a.level === "warn" ? "!" : "i"}</span>
-              <span>{a.text}</span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {o.recommendation ? <p className={cx("font-medium", o.attention.length && "mt-2 border-t border-line pt-2")}>Suggested: {o.recommendation}</p> : null}
+    <div className={cx("rounded-xl border px-3.5 py-3 text-[13.5px]", issues.some((i) => i.blocks) ? "border-signal/50 bg-signal/[0.06]" : "border-line bg-raised/50")}>
+      <ul className="space-y-1">
+        {issues.map((i) => (
+          <li key={i.key} className={cx("flex gap-2", i.rank <= 1 ? "text-signal-ink" : "text-fg")}>
+            <span aria-hidden className="num w-3 shrink-0">{i.blocks ? "✗" : "!"}</span>
+            <span className="min-w-0">{i.text}</span>
+          </li>
+        ))}
+        {notes.map((n) => (
+          <li key={n} className="flex gap-2 text-fg-2">
+            <span aria-hidden className="num w-3 shrink-0">i</span>
+            <span className="min-w-0">{n}</span>
+          </li>
+        ))}
+      </ul>
+      {o.recommendation ? <p className={cx("font-medium", (issues.length > 0 || notes.length > 0) && "mt-2 border-t border-line pt-2")}>Suggested: {displayText(o.recommendation)}</p> : null}
     </div>
   );
 }
 
 /** "Order confirmed" and "customer told" are separate facts: this is the second one, with delivery receipts where the channel sends them. */
-function Delivery({ o, tz, onRetry, busy }: { o: Order; tz: string; onRetry: () => void; busy: boolean }) {
-  if (!o.notificationsView.length) return null;
-  const last = o.notificationsView[o.notificationsView.length - 1];
+function Delivery({ o, tz }: { o: Order; tz: string }) {
+  const last = o.notificationsView.at(-1);
+  if (!last || last.status === "failed" || last.status === "no_chat") return null;
   const what = KIND[last.kind] ?? last.kind;
-  return (
-    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]">
-      {last.status === "sent" ? (
-        <span className="text-fg-2">
-          ✓ Customer told {what} · {stamp(last.at, tz)}
-          {last.readAt ? " · read" : last.deliveredAt ? " · delivered to their phone" : o.channel === "whatsapp" ? " · sent, not delivered yet" : ""}
-        </span>
-      ) : last.status === "failed" ? (
-        <>
-          <span className="text-signal-ink">✗ Customer NOT told {what}: {last.error ?? "the message didn't go through"}</span>
-          <Button size="sm" variant="secondary" loading={busy} onClick={onRetry}>Retry message</Button>
-        </>
-      ) : last.status === "no_chat" ? (
-        <span className="text-signal-ink">No chat to tell the customer {what}. Contact them another way.</span>
-      ) : (
-        <span className="text-brass-ink">Message to the customer is waiting for approval in the Inbox.</span>
-      )}
-    </div>
+  return last.status === "sent" ? (
+    <p className="text-[13px] text-fg-2">
+      ✓ Customer told {what} · {stamp(last.at, tz)}
+      {last.readAt ? " · read" : last.deliveredAt ? " · delivered to their phone" : o.channel === "whatsapp" ? " · sent, not delivered yet" : ""}
+    </p>
+  ) : (
+    <p className="text-[13px] text-brass-ink">Message to the customer is waiting for approval in the Inbox.</p>
   );
 }
 
@@ -283,6 +267,80 @@ function ReceiptRequestDialog({ order, onClose, onSent }: { order: Order | null;
   );
 }
 
+const MENU_LABEL = (o: Order): Record<MoreAction, string> => ({
+  keep_reserved: "Keep reserved", complete: "Mark completed", ask_receipt: "Ask for another receipt", paid: "Mark paid", unpaid: "Mark unpaid", retry: "Retry message to customer",
+  cancel: o.kind === "appointment" ? "Cancel booking" : "Cancel order",
+});
+
+/** Every action besides the next step. Each one does what its button always did, confirmations included. */
+function MoreMenu({ o, actions, busy, disabled, onPick }: { o: Order; actions: MoreAction[]; busy: boolean; disabled: boolean; onPick: (a: MoreAction) => void }) {
+  const label = MENU_LABEL(o);
+  return (
+    <Menu.Root modal={false}>
+      <Menu.Trigger asChild>
+        <Button size="sm" variant="secondary" loading={busy} disabled={disabled} aria-label={`More actions for ${o.refCode}`}>···</Button>
+      </Menu.Trigger>
+      <Menu.Portal>
+        <Menu.Content align="end" sideOffset={6} collisionPadding={16} className="z-30 min-w-[210px] max-w-[calc(100vw-32px)] rounded-xl border border-line-strong bg-bg p-1 shadow-lg">
+          {actions.map((a) => (
+            <Menu.Item key={a} onSelect={() => onPick(a)} className={cx("cursor-pointer rounded-lg px-3 py-2 text-[14px] outline-none data-[highlighted]:bg-raised", a === "cancel" && "text-signal-ink")}>
+              {label[a]}
+            </Menu.Item>
+          ))}
+        </Menu.Content>
+      </Menu.Portal>
+    </Menu.Root>
+  );
+}
+
+/** The full record behind a card. Only built while open; whether it's open lives in the page, so live refreshes leave it alone. */
+function OrderDetails({ o, tz, issues }: { o: Order; tz: string; issues: CardIssue[] }) {
+  return (
+    <div className="mt-3 min-w-0 space-y-3 border-t border-line pt-3 text-[14px]">
+      <IssueList o={o} issues={issues} />
+      {o.appointment ? <AppointmentBox a={o.appointment} tz={tz} /> : null}
+      <div>
+        <ul className="space-y-1 text-[15px]">
+          {o.items.map((i) => (
+            <li key={i.id} className="flex flex-wrap items-baseline gap-x-2">
+              <span className="num w-8 text-fg-2">{i.quantity}×</span>
+              <span className="min-w-0 break-words">{i.name}</span>
+              {i.note ? <span className="text-[13px] text-muted">({i.note})</span> : null}
+              <span className="num ml-auto text-[13px] text-muted">{money(i.quantity * i.unitPriceMinor, o.currency)}</span>
+            </li>
+          ))}
+        </ul>
+        <div className="mt-2 flex items-baseline justify-between gap-3 border-t border-line pt-2 text-[15px] font-medium">
+          <span>Total{o.kind === "order" && o.fulfilment === "delivery" ? " (items; add the delivery fee)" : ""}</span>
+          <span className="num shrink-0">{money(o.totalMinor, o.currency)}</span>
+        </div>
+      </div>
+      {o.phone || o.address || o.wanted || o.wantedDate || o.notes || o.cancelReason ? (
+        <div className="space-y-1 break-words">
+          {o.phone ? <p><span className="text-muted">Phone:</span> <span className="num">{o.phone}</span></p> : null}
+          {o.address ? <p><span className="text-muted">Deliver to:</span> {o.address}</p> : null}
+          {o.wanted ? <p><span className="text-muted">Wanted:</span> {o.wanted}</p> : null}
+          {o.wantedDate ? <p><span className="text-muted">For</span> {forDate(o.wantedDate)}</p> : null}
+          {o.notes ? <p><span className="text-muted">Notes:</span> {o.notes}</p> : null}
+          {o.cancelReason ? <p><span className="text-muted">{o.status === "expired" ? "Expired" : o.confirmedAt ? "Cancelled" : "Rejected"} because:</span> {o.cancelReason}</p> : null}
+        </div>
+      ) : null}
+      {o.receipts.map((r) => (
+        <ReceiptCard key={r.id} order={o} r={r} tz={tz} />
+      ))}
+      <Delivery o={o} tz={tz} />
+      <p className="num break-words text-[12px] text-muted">
+        {timeline(o, tz)}
+        {o.handledByName ? ` · by ${o.handledByName}` : ""}
+        {" · "}
+        <Link href={`/app/activity?order=${o.id}`} className="underline-offset-4 hover:text-fg hover:underline">Full activity</Link>
+      </p>
+      {o.threadId ? <Link href={`/app/inbox?t=${o.threadId}`} className="inline-block text-[13px] font-medium text-accent underline-offset-4 hover:underline">Open conversation</Link> : null}
+      {o.confirmedAt && ["confirmed", "ready", "completed"].includes(o.status) ? <OrbytePreview orderId={o.id} /> : null}
+    </div>
+  );
+}
+
 export default function OrdersPage() {
   return (
     <Suspense>
@@ -301,6 +359,8 @@ function Orders() {
   const [kind, setKind] = useState<Kind>("all");
   const [busy, setBusy] = useState<string | null>(null);
   const [asking, setAsking] = useState<Order | null>(null);
+  const [opened, setOpened] = useState<ReadonlySet<string>>(new Set());
+  const setDetails = (id: string, open: boolean) => setOpened((now) => { const next = new Set(now); if (open) next.add(id); else next.delete(id); return next; });
   // Server time minus client time, so countdowns stay right when this device's clock is off.
   const skew = useMemo(() => (data?.now ? new Date(data.now).getTime() - Date.now() : 0), [data]);
   const [tick, setTick] = useState(0);
@@ -368,7 +428,7 @@ function Orders() {
 
   function confirm(o: Order) {
     const issues = o.attention.filter((a) => a.level !== "info");
-    if (issues.length && !window.confirm(`Before you confirm ${o.refCode}:\n\n${issues.map((a) => `• ${a.text}`).join("\n")}\n\nConfirm the ${word(o)} anyway?`)) return;
+    if (issues.length && !window.confirm(`Before you confirm ${o.refCode}:\n\n${issues.map((a) => `• ${displayText(a.text)}`).join("\n")}\n\nConfirm the ${word(o)} anyway?`)) return;
     void act(o, "confirm");
   }
 
@@ -429,114 +489,71 @@ function Orders() {
                 const asked = o.receiptRequest && !o.receiptRequest.fulfilledAt;
                 const liveReceipts = o.receipts.filter((r) => !r.rejectedAt).length;
                 const canAsk = data.payments.enabled && (o.status === "pending" || o.status === "confirmed" || o.status === "ready") && !asked && o.receipts.length > 0;
+                const closed = o.status === "cancelled" || o.status === "expired";
+                const issues = cardIssues(o, nowMs);
+                const line = issueLine(o, issues);
+                const next = nextStep(o);
+                const more = moreActions(o, canAsk);
+                const open = opened.has(o.id);
+                const panel = `order-details-${o.id}`;
+                const pick = (a: MoreAction) => {
+                  if (a === "ask_receipt") setAsking(o);
+                  else if (a === "retry") void retry(o);
+                  else if (a === "cancel") stop(o, "cancel");
+                  else void act(o, a);
+                };
                 return (
-                  <li
-                    key={o.id}
-                    id={`order-${o.id}`}
-                    className={cx("panel k-slide grid grid-cols-1 gap-4 p-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:gap-8", o.status === "pending" && "border-accent!", fresh.has(o.id) && "row-new", (o.status === "cancelled" || o.status === "expired") && "opacity-60", focus === o.id && "bg-raised!")}
-                  >
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                        <span className="num text-[15px] font-semibold">{o.refCode}</span>
-                        {o.kind === "appointment" ? <Chip tone="brass">Booking</Chip> : null}
-                        <Chip tone={o.status === "pending" ? "signal" : o.status === "cancelled" || o.status === "expired" ? "neutral" : "answered"}>{statusLabel(o)}</Chip>
-                        {o.status === "pending" && o.holdExpiresAt && !o.firmedBy ? <Chip tone="brass">{holdText(o.holdExpiresAt, nowMs)}</Chip> : null}
-                        {o.firmedBy ? <Chip tone="answered">{o.firmedBy === "receipt" ? "Firm: paid" : "Kept reserved"}</Chip> : null}
-                        {o.kind === "order" ? <Chip>{o.fulfilment === "delivery" ? "Delivery" : "Pickup"}</Chip> : null}
-                        {o.paid ? <Chip tone="brass">Paid</Chip> : null}
-                        {asked ? <Chip tone="signal">Waiting for new receipt</Chip> : null}
-                        {o.isDemo ? <Chip>Sample</Chip> : null}
-                      </div>
-                      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-                        <span className="text-[15px] font-medium">{o.customerName}</span>
-                        {o.channel ? <ChannelMark channel={o.channel} /> : null}
-                        {o.phone ? <span className="num text-[12px] text-muted">{o.phone}</span> : null}
-                      </div>
-                      {o.status !== "completed" && o.status !== "cancelled" && o.status !== "expired" ? <AttentionBox o={o} /> : null}
-                      {o.appointment ? <AppointmentBox a={o.appointment} tz={tz} /> : null}
-                      <ul className="mt-3 space-y-1 text-[15px]">
-                        {o.items.map((i) => (
-                          <li key={i.id} className="flex flex-wrap items-baseline gap-x-2">
-                            <span className="num w-8 text-fg-2">{i.quantity}×</span>
-                            <span>{i.name}</span>
-                            {i.note ? <span className="text-[13px] text-muted">({i.note})</span> : null}
-                            <span className="num ml-auto text-[13px] text-muted">{money(i.quantity * i.unitPriceMinor, o.currency)}</span>
+                  <li key={o.id} id={`order-${o.id}`} className={cx("panel k-slide min-w-0 p-5", o.status === "pending" && "border-accent!", fresh.has(o.id) && "row-new", closed && "opacity-60", focus === o.id && "bg-raised!")}>
+                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+                      <span className="num text-[15px] font-semibold">{o.refCode}</span>
+                      <span className="min-w-0 break-words text-[15px] font-medium">{o.customerName}</span>
+                      {o.channel ? <ChannelMark channel={o.channel} /> : null}
+                      <Chip tone={o.status === "pending" ? "signal" : closed ? "neutral" : "answered"}>{statusLabel(o)}</Chip>
+                      {o.kind === "appointment" ? <Chip tone="brass">Booking</Chip> : <Chip>{o.fulfilment === "delivery" ? "Delivery" : "Pickup"}</Chip>}
+                      {o.paid ? <Chip tone="brass">Paid</Chip> : closed ? null : <Chip>Not paid</Chip>}
+                      {o.isDemo ? <Chip>Sample</Chip> : null}
+                    </div>
+                    <p className="mt-2 break-words text-[15px]">
+                      {itemsLine(o)}
+                      {o.appointment ? ` · ${format(new Date(o.appointment.startsAt), "EEE d MMM, h:mmaaa", { in: tzIn(tz) })}` : ""}
+                    </p>
+                    {line.shown.length ? (
+                      <ul className="mt-1.5 space-y-0.5 text-[14px]">
+                        {line.shown.map((i, n) => (
+                          <li key={i.key} className={cx("flex flex-wrap items-baseline gap-x-2 font-medium", i.rank <= 1 ? "text-signal-ink" : "text-fg")}>
+                            <span className="min-w-0 break-words">{i.text}</span>
+                            {n === line.shown.length - 1 && line.more ? (
+                              <button type="button" onClick={() => setDetails(o.id, true)} className="shrink-0 font-normal text-fg-2 underline underline-offset-4 hover:text-fg">+{line.more} more</button>
+                            ) : null}
                           </li>
                         ))}
                       </ul>
-                      <div className="mt-3 flex items-baseline justify-between border-t border-line pt-2 text-[15px] font-medium">
-                        <span>Total{o.kind === "order" && o.fulfilment === "delivery" ? " (items; add the delivery fee)" : ""}</span>
-                        <span className="num">{money(o.totalMinor, o.currency)}</span>
-                      </div>
-                      {data.payments.enabled && o.status !== "cancelled" && o.status !== "expired" ? (
-                        <div className="mt-3">
-                          {liveReceipts === 0 && !asked && o.status !== "completed" ? (
-                            <p className="text-[13.5px] text-fg-2">
-                              <Chip tone="signal">Waiting for receipt</Chip> <span className="ml-1">The customer was asked to pay and send a receipt in chat.</span>
-                            </p>
-                          ) : null}
-                          {o.receipts.map((r) => (
-                            <ReceiptCard key={r.id} order={o} r={r} tz={tz} />
-                          ))}
-                        </div>
-                      ) : null}
-                      {o.address ? <p className="mt-2 text-[14px]"><span className="text-muted">Deliver to:</span> {o.address}</p> : null}
-                      {o.wanted ? <p className="mt-1 text-[14px]"><span className="text-muted">Wanted:</span> {o.wanted}</p> : null}
-                      {o.wantedDate ? <p className="mt-1 text-[14px]"><span className="text-muted">For</span> {forDate(o.wantedDate)}</p> : null}
-                      {o.notes ? <p className="mt-1 text-[14px]"><span className="text-muted">Notes:</span> {o.notes}</p> : null}
-                      {o.cancelReason ? <p className="mt-1 text-[14px]"><span className="text-muted">{o.status === "expired" ? "Expired" : o.confirmedAt ? "Cancelled" : "Rejected"} because:</span> {o.cancelReason}</p> : null}
-                      {o.status === "expired" && o.expiredAt ? <p className="mt-1 text-[14px]"><span className="text-muted">Expired:</span> {stamp(o.expiredAt, tz)}</p> : null}
-                      <Delivery o={o} tz={tz} busy={busy === `${o.id}:retry`} onRetry={() => retry(o)} />
-                      <p className="num mt-3 text-[12px] text-muted">
-                        {timeline(o, tz)}
-                        {o.handledByName ? ` · by ${o.handledByName}` : ""}
-                        {" · "}
-                        <Link href={`/app/activity?order=${o.id}`} className="underline-offset-4 hover:text-fg hover:underline">Full activity</Link>
-                      </p>
-                      {o.confirmedAt && ["confirmed", "ready", "completed"].includes(o.status) ? <OrbytePreview orderId={o.id} /> : null}
-                    </div>
-                    <div className="flex flex-wrap items-start gap-2 lg:w-[210px] lg:flex-col lg:items-stretch">
-                      {o.status === "pending" ? (
-                        <Button size="sm" variant="primary" loading={busy === `${o.id}:confirm`} disabled={pending || Boolean(asked) || (data.payments.receiptRequired && liveReceipts === 0)} onClick={() => confirm(o)}>
-                          {o.kind === "appointment" ? "Confirm booking" : "Confirm order"}
-                        </Button>
-                      ) : null}
-                      {canKeep(o) ? (
-                        <Button size="sm" variant="secondary" loading={busy === `${o.id}:keep_reserved`} disabled={pending} onClick={() => act(o, "keep_reserved")}>
-                          Keep reserved
-                        </Button>
-                      ) : null}
-                      {o.status === "confirmed" && o.kind === "order" ? (
+                    ) : line.receiptOk ? (
+                      <p className="mt-1.5 text-[14px] text-fg-2">✓ Receipt matches</p>
+                    ) : null}
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      {next === "confirm" ? (
+                        <>
+                          <Button size="sm" variant="primary" loading={busy === `${o.id}:confirm`} disabled={pending || Boolean(asked) || (data.payments.receiptRequired && liveReceipts === 0)} onClick={() => confirm(o)}>
+                            {o.kind === "appointment" ? "Confirm booking" : "Confirm order"}
+                          </Button>
+                          <Button size="sm" variant="danger" disabled={pending} onClick={() => stop(o, "reject")}>{o.kind === "appointment" ? "Reject booking" : "Reject order"}</Button>
+                        </>
+                      ) : next === "ready" ? (
                         <Button size="sm" variant="primary" loading={busy === `${o.id}:ready`} disabled={pending} onClick={() => act(o, "ready")}>
                           {o.fulfilment === "delivery" ? "Out for delivery" : "Ready for pickup"}
                         </Button>
+                      ) : next === "complete" ? (
+                        <Button size="sm" variant="primary" loading={busy === `${o.id}:complete`} disabled={pending} onClick={() => act(o, "complete")}>Mark completed</Button>
+                      ) : o.kind === "appointment" && o.status === "confirmed" ? (
+                        <Link href="/app/calendar" className="inline-flex h-8 items-center justify-center rounded-[10px] border border-line-strong px-3 text-[13px] font-medium hover:bg-raised">Open calendar</Link>
                       ) : null}
-                      {(o.status === "confirmed" || o.status === "ready") && o.kind === "order" ? (
-                        <Button size="sm" variant={o.status === "ready" ? "primary" : "secondary"} loading={busy === `${o.id}:complete`} disabled={pending} onClick={() => act(o, "complete")}>
-                          Mark completed
-                        </Button>
-                      ) : null}
-                      {canAsk ? (
-                        <Button size="sm" variant="secondary" disabled={pending} onClick={() => setAsking(o)}>
-                          Ask for another receipt
-                        </Button>
-                      ) : null}
-                      {o.status !== "cancelled" && o.status !== "expired" ? (
-                        <Button size="sm" variant="secondary" loading={busy === `${o.id}:${o.paid ? "unpaid" : "paid"}`} disabled={pending} onClick={() => act(o, o.paid ? "unpaid" : "paid")}>
-                          {o.paid ? "Mark unpaid" : "Mark paid"}
-                        </Button>
-                      ) : null}
-                      {o.status === "pending" ? (
-                        <Button size="sm" variant="danger" disabled={pending} onClick={() => stop(o, "reject")}>{o.kind === "appointment" ? "Reject booking" : "Reject order"}</Button>
-                      ) : o.status === "confirmed" || o.status === "ready" ? (
-                        <Button size="sm" variant="danger" disabled={pending} onClick={() => stop(o, "cancel")}>{o.kind === "appointment" ? "Cancel booking" : "Cancel order"}</Button>
-                      ) : null}
-                      {o.threadId ? (
-                        <Link href={`/app/inbox?t=${o.threadId}`} className="inline-flex h-8 items-center justify-center rounded-[10px] px-3 text-[13px] text-fg-2 underline-offset-4 hover:text-fg hover:underline">
-                          Open conversation
-                        </Link>
-                      ) : null}
+                      {more.length ? <MoreMenu o={o} actions={more} busy={more.some((a) => busy === `${o.id}:${a}`)} disabled={pending} onPick={pick} /> : null}
+                      <button type="button" aria-expanded={open} aria-controls={panel} onClick={() => setDetails(o.id, !open)} className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-[10px] px-2 text-[13px] font-medium text-fg-2 hover:text-fg">
+                        Details <span aria-hidden className={cx("transition-transform", open && "rotate-180")}>▾</span>
+                      </button>
                     </div>
+                    <div id={panel} hidden={!open}>{open ? <OrderDetails o={o} tz={tz} issues={issues} /> : null}</div>
                   </li>
                 );
               })}
