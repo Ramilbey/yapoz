@@ -335,7 +335,7 @@ export function Site({ stats }: { stats: SiteStats }) {
       // Section titles: words rise once on entry. Created after the pins so their positions include pin spacing.
       q(".kinetic").forEach((el) => {
         const s = SplitText.create(el, { type: "words", mask: "words" });
-        gsap.from(s.words, { yPercent: 108, rotate: 4, duration: 0.95, ease: "expo.out", stagger: 0.045, scrollTrigger: { trigger: el, start: "top 86%" } });
+        gsap.from(s.words, { yPercent: 108, rotate: 4, duration: 0.95, ease: "expo.out", stagger: 0.045, scrollTrigger: { trigger: el, start: "top 86%" }, onComplete: () => s.revert() });
       });
       return () => cleanups.forEach((fn) => fn());
     },

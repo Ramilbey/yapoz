@@ -419,6 +419,10 @@ body {
 .hero-title > div {
   overflow-clip-margin: 0.2em;
 }
+/* The section titles rise word by word through a clip box each. The slanted accent words lean past their box, so let it clip further out. */
+.kinetic div {
+  overflow-clip-margin: 0.3em;
+}
 .yp-mono {
   font-family: var(--font-martian), ui-monospace, monospace;
   letter-spacing: 0.04em;
