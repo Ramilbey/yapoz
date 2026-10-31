@@ -175,9 +175,25 @@ export function normalizeWhatsApp(workspaceId: string, payload: WaPayload) {
   return out;
 }
 
+/**
+ * Starts "typing…" the moment a message arrives, in parallel with saving it, instead of after the reply pipeline has loaded
+ * everything. Only when the AI is going to answer on its own: live, in autopilot and not taken over by a person.
+ */
+async function typingNow(workspaceId: string, externalThreadId: string, messageId: string | null | undefined) {
+  if (!messageId) return;
+  const [ws, ch, th] = await Promise.all([
+    db.select({ settings: t.workspaces.settings }).from(t.workspaces).where(eq(t.workspaces.id, workspaceId)),
+    db.select({ mode: t.channels.mode }).from(t.channels).where(and(eq(t.channels.workspaceId, workspaceId), eq(t.channels.type, "whatsapp"))),
+    db.select({ paused: t.threads.aiPaused }).from(t.threads).where(and(eq(t.threads.workspaceId, workspaceId), eq(t.threads.channel, "whatsapp"), eq(t.threads.externalThreadId, externalThreadId))),
+  ]);
+  if (!ws[0]?.settings.live || (ch[0]?.mode ?? "autopilot") !== "autopilot" || th[0]?.paused) return;
+  await sendWhatsAppTyping(workspaceId, messageId);
+}
+
 export async function handleWhatsAppJob(payload: Record<string, unknown>) {
   const workspaceId = String(payload.workspaceId);
   for (const { event } of normalizeWhatsApp(workspaceId, payload.body as WaPayload)) {
+    void typingNow(workspaceId, event.externalThreadId, event.externalMessageId).catch(() => {});
     const r = await ingest(event);
     if (!r.duplicate) await respond(r.thread.id, r.messageId);
   }
