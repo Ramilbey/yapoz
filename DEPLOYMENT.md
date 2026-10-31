@@ -124,6 +124,17 @@ Do not enable `prepare: true` when running against Supabase port 6543, as PgBoun
 - An expired order returns its stock and the customer gets a fixed message.
 - Availability is computed live, so a late sweep never oversells. Expiry messages and booking reminders, though, only go out when something runs the sweep: call `GET /api/jobs/sweep` with `Authorization: Bearer $CRON_SECRET` about every 5 minutes (cron-job.org or Supabase pg_cron; the Vercel cron in `vercel.json` only runs once a day on the Hobby plan).
 
+### Setting up the 5-minute sweep
+
+Keep the daily cron in `vercel.json` as a backstop. Don't make it more frequent while on the Hobby plan.
+
+1. In Vercel → Settings → Environment Variables, check that `CRON_SECRET` is set for Production. If it isn't, add a long random value and redeploy.
+2. On cron-job.org, create a job for `https://yapoz.vercel.app/api/jobs/sweep` that runs every 5 minutes.
+3. Add the request header `Authorization` with the value `Bearer <CRON_SECRET>`.
+4. Run the job once. It should return HTTP 200 with JSON. A 401 means the header is wrong or Vercel hasn't redeployed since the secret was set.
+
+Overlapping calls are safe: each reminder and expiry is claimed once. `docs/ops-setup-appointments.md` has more detail, plus a Supabase pg_cron alternative.
+
 ### Appointments
 
 - Customers book services in chat (tools `find_times`, `book_appointment`, `change_appointment`). A booking is an order with kind `appointment` and ref code `APT-xxxx`, so approval, payment receipts, the 20-minute payment timer, Keep reserved and expiry work exactly as for orders.
