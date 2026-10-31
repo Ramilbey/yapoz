@@ -414,6 +414,11 @@ body {
   letter-spacing: -0.01em;
   color: var(--color-yp-mint);
 }
+/* The headline rises through one clipping box per line (SplitText mask). The lines are set tighter than the letters are tall,
+   so each box may clip a little past its edge to keep tails, commas and tall italics whole. The layout is untouched. */
+.hero-title > div {
+  overflow-clip-margin: 0.2em;
+}
 .yp-mono {
   font-family: var(--font-martian), ui-monospace, monospace;
   letter-spacing: 0.04em;

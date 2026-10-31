@@ -170,7 +170,8 @@ export function Site({ stats }: { stats: SiteStats }) {
       // 01: the headline rises once the preloader is gone.
       if (ready) {
         const split = SplitText.create(q(".hero-title"), { type: "lines,words", mask: "lines" });
-        gsap.from(split.words, { yPercent: 115, rotate: 5, duration: 1.1, ease: "expo.out", stagger: 0.05 });
+        // Once the words have risen the clipping boxes have no job left, so they come off and nothing can shave a letter.
+        gsap.from(split.words, { yPercent: 115, rotate: 5, duration: 1.1, ease: "expo.out", stagger: 0.05, onComplete: () => split.revert() });
         gsap.fromTo(q(".hero-in"), { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.8, delay: 0.5, stagger: 0.09, ease: "power3.out", clearProps: "opacity,transform" });
       }
       // The two lanes of messages drift apart as you leave the hero.
