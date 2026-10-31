@@ -10,7 +10,7 @@ import { addLocalDays, localDate, localTime, human, zoned } from "@/lib/time";
 import { placeOrder, lineTotal, MAX_LINES, MAX_QTY, StockProblem, type OrderLine } from "@/lib/orders";
 import { handOver, paymentInstruction, receiptRequired } from "@/lib/receipts";
 import { availability, availKey, businessDate, dateProblem, dayLabel, modeOf, shortMessage, stockSettings, type Avail } from "@/lib/stock";
-import { recordGap } from "@/lib/gaps";
+import { recordGap, gapWords } from "@/lib/gaps";
 import { bookAppointment, changeAppointment, chatBookings } from "@/lib/appointments";
 import { appointmentSettings, bookableStaff, checkTime, freeTimes, serviceMinutes, type Offer } from "@/lib/schedule";
 import type { ToolCallLog } from "@/db/schema";
@@ -237,6 +237,27 @@ function itemSummary(ws: Workspace, i: Item, av: Map<string, Avail>, date: strin
 
 const STOP = new Set(["free", "without", "no", "based", "option", "options", "do", "you", "have", "got", "any", "the", "a", "an", "is", "there", "ada", "or", "not", "can", "i", "get", "some", "with", "for", "me", "your", "u", "something", "what", "which", "how", "much", "price", "prices"]);
 
+/**
+ * FAQ answers (the ones the owner wrote, or taught from Knowledge → Gaps) that fit a question: at least half of its content
+ * words appear in the FAQ's question and answer. Lets a tool that found nothing still hand the model the house answer.
+ */
+function matchFaqs(ctx: ToolContext, query: string) {
+  const words = gapWords(query);
+  if (!words.length) return [];
+  return ctx.catalog.all
+    .filter((i) => i.kind === "faq")
+    .map((i) => {
+      const have = new Set(gapWords(`${i.title} ${i.body}`));
+      return { i, hits: words.filter((w) => have.has(w)).length };
+    })
+    .filter((x) => x.hits >= Math.max(1, Math.ceil(words.length / 2)))
+    .sort((a, b) => b.hits - a.hits)
+    .slice(0, 3)
+    .map((x) => ({ question: x.i.title, answer: x.i.body }));
+}
+
+const NO_MATCH = "Check faq (if given) and the FAQ in KNOWLEDGE first: if either answers the question, answer from it and do NOT escalate. Only if nothing answers it, say you'll check with the team and escalate as knowledge_gap.";
+
 async function searchCatalog(ctx: ToolContext, query: string, rawDate?: string) {
   const q = norm(query);
   const words = q.split(" ").filter((w) => w && !STOP.has(w));
@@ -271,8 +292,9 @@ async function searchCatalog(ctx: ToolContext, query: string, rawDate?: string) 
   results = results.slice(0, 16);
   const date = rawDate && /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : businessDate(ctx.ws);
   const av = await availability(db, ctx.ws, results.flatMap((i) => i.variants.map((v) => ({ variantId: v.id, date }))));
+  const faq = results.length ? [] : matchFaqs(ctx, query);
   return {
-    output: { query, count: results.length, items: results.map((i) => itemSummary(ctx.ws, i, av, date)), note: results.length ? undefined : "Nothing in the catalog matches. Don't guess: say you'll check with the team and escalate as knowledge_gap." },
+    output: { query, count: results.length, items: results.map((i) => itemSummary(ctx.ws, i, av, date)), ...(faq.length ? { faq } : {}), note: results.length ? undefined : `Nothing in the catalog matches. Don't guess. ${NO_MATCH}` },
     label: `searched catalog: “${query}” → ${results.length} found`,
   };
 }
@@ -363,7 +385,7 @@ function businessInfo(ctx: ToolContext, input: { topic: string; date?: string })
   const topic = (input.topic ?? "").toLowerCase().trim();
   if (topic === "hours" || topic.includes("open")) {
     const hours = all.find((i) => i.kind === "hours")?.data as unknown as HoursData | undefined;
-    if (!hours) return { output: { found: false, note: "No hours on file. Say you'll check with the team and escalate as knowledge_gap." }, label: "checked hours ✗ none on file" };
+    if (!hours) return { output: { found: false, note: `No hours on file. ${NO_MATCH}`, faq: matchFaqs(ctx, input.topic) }, label: "checked hours ✗ none on file" };
     const today = localDate(new Date(), tz);
     const days = input.date && /^\d{4}-\d{2}-\d{2}$/.test(input.date) ? [input.date] : Array.from({ length: 7 }, (_, i) => addLocalDays(today, i));
     const status = openStatus(hours, new Date(), tz);
@@ -387,7 +409,10 @@ function businessInfo(ctx: ToolContext, input: { topic: string; date?: string })
     policies.find((p) => p.category.toLowerCase() === topic) ??
     policies.find((p) => p.title.toLowerCase().includes(topic) || topic.includes(p.category.toLowerCase())) ??
     policies.find((p) => norm(p.body).includes(norm(topic)));
-  if (!policy) return { output: { found: false, topic: input.topic, note: "No policy on file. Say you'll check with the team and escalate as knowledge_gap." }, label: `checked ${input.topic} ✗ nothing on file` };
+  if (!policy) {
+    const faq = matchFaqs(ctx, input.topic);
+    return { output: { found: false, topic: input.topic, ...(faq.length ? { faq } : {}), note: faq.length ? "No policy on file under that name, but the FAQ answers it: answer from faq, using its wording and nothing more." : `No policy on file. ${NO_MATCH}` }, label: faq.length ? `checked ${input.topic} → FAQ answer` : `checked ${input.topic} ✗ nothing on file` };
+  }
   return { output: { topic: input.topic, title: policy.title, details: policy.body, data: policy.data }, label: `checked ${policy.title.toLowerCase()}` };
 }
 

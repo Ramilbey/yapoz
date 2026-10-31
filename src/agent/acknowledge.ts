@@ -31,3 +31,14 @@ export const holdingReply = (hold: string, log: ToolCallLog[]) => {
   const saved = acknowledgement(log);
   return saved ? `${saved}\n\n${hold}` : hold;
 };
+
+/** The assistant says a payment, receipt or file arrived. */
+const CLAIMS_RECEIPT = /\b(received|recieved|got|have|has|recorded|saved|logged|noted)\b[^.!?\n]{0,40}\b(payment|receipt|proof|file|photo|screenshot|image|picture|transfer|document|pdf)\b|\b(payment|receipt|proof of payment|transfer)\b[^.!?\n]{0,40}\b(received|recieved|confirmed|accepted|verified|went through|came through|looks (good|fine|great))\b|\bthanks? (you )?for (the|your|sending)\b[^.!?\n]{0,30}\b(payment|receipt|proof|transfer)\b/i;
+
+export const claimsReceipt = (reply: string) => CLAIMS_RECEIPT.test(reply);
+
+/**
+ * A file arrived but the receipt check didn't take it (not a photo or PDF, nothing waiting for payment, or the check
+ * failed), so nothing was saved. The customer must not be told it was.
+ */
+export const UNSAVED_FILE_REPLY = "Sorry, that file didn't come through as a payment receipt on our side, so nothing has been recorded yet. If you're paying for an order, please send a clear photo or screenshot (JPG, PNG or WebP) or a PDF of the whole payment receipt here.";

@@ -3,7 +3,7 @@ import { db, t } from "@/db";
 import { and, desc, eq, gt, lte, ne, sql } from "drizzle-orm";
 import { claude, addUsage, textOf, type Usage } from "./claude";
 import { explainAiError } from "./ai-router";
-import { acknowledgement, holdingReply } from "./acknowledge";
+import { acknowledgement, holdingReply, claimsReceipt, UNSAVED_FILE_REPLY } from "./acknowledge";
 import { receiptIntake, orderAwaitingReceipt } from "@/lib/receipts";
 import { expireDueOrders } from "@/lib/stock";
 import { sendDueReminders, teamLines } from "@/lib/appointments";
@@ -202,7 +202,9 @@ async function answer({ ws, thread, customer, inbound, mode, stopTyping, started
   const convo: Anthropic.Messages.MessageParam[] = [];
   for (const m of historyRows) {
     const role = m.direction === "in" ? "user" : "assistant";
-    const text = (m.author === "staff" ? "[staff] " : "") + (m.text || (m.attachments.length ? `[sent a ${m.attachments[0].kind}]` : ""));
+    // A file the receipt check didn't save is flagged, so the AI never mistakes it for a received receipt.
+    const files = m.direction === "in" && m.attachments.length ? m.attachments.map((a) => `[sent a ${a.kind}${a.name ? ` named "${a.name.slice(0, 60)}"` : ""}${a.mime ? ` (${a.mime})` : ""}: you can't open it and it was NOT saved as a payment receipt]`).join(" ") : "";
+    const text = (m.author === "staff" ? "[staff] " : "") + [m.text, files].filter(Boolean).join(" ");
     if (!text.trim()) continue;
     const last = convo[convo.length - 1];
     if (last && last.role === role) last.content = `${last.content as string}\n${text}`;
@@ -283,6 +285,8 @@ async function answer({ ws, thread, customer, inbound, mode, stopTyping, started
       ]);
       cls = c;
       reply = agentText;
+      // A file got here only because the receipt check didn't take it: nothing was saved, so never let the reply say it was.
+      if (inbound.attachments.length && reply && !acknowledgement(toolLog) && claimsReceipt(reply)) reply = UNSAVED_FILE_REPLY;
 
       // Safety net: serious escalation categories always land with a human.
       const threshold = ws.settings.confidenceThreshold ?? 0.55;
