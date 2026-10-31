@@ -40,7 +40,7 @@ We looked through a committee-provided demo account on 31 October 2026, without 
 | `yapoz.order.rejected.v1` | A person rejects | Close the item | None |
 | `yapoz.usage.order_completed.v1` | An order is completed | Record one unit of usage | None |
 
-All four are built and tested in `src/lib/orbyte.ts`. Nothing sends them.
+All four are built and tested in `src/lib/orbyte.ts`. Staff can see the events an order has reached under **Details → Orbyte events** on its card. Nothing sends them.
 
 ## How delivery would work
 

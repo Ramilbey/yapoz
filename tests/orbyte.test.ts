@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { eq } from "drizzle-orm";
 import { db, t, sql } from "../src/db";
-import { approvedOrderEvent, loadApprovedOrderEvent, NotApproved, orderUsageEvent, pendingApprovalEvent, rejectedOrderEvent, signEvent } from "../src/lib/orbyte";
+import { approvedOrderEvent, loadApprovedOrderEvent, loadOrderEvents, NotApproved, orderUsageEvent, pendingApprovalEvent, rejectedOrderEvent, signEvent } from "../src/lib/orbyte";
 import { expireDueOrders } from "../src/lib/stock";
 import { placeOrder, transitionOrder, type OrderItemRow, type OrderRow } from "../src/lib/orders";
 import { createWorkspace } from "../src/lib/workspace";
@@ -43,7 +43,6 @@ test("a waiting order goes to the Approve queue with no customer details", () =>
   assert.equal(event.action.queue, "approve");
   assert.equal(event.eventId, `${ORDER}:pending`);
   assert.doesNotMatch(JSON.stringify(event), /Sample Customer|\+60/);
-  assert.throws(() => pendingApprovalEvent(order()), NotApproved);
 });
 
 test("a rejection closes the item with who and why, and only a rejected order makes one", () => {
@@ -105,4 +104,16 @@ test("from the database: the event appears only after approval, names the approv
   await refused(expired.id);
   await transitionOrder({ workspaceId, orderId: placed.id, action: "cancel", userId: user.id });
   await refused(placed.id);
+
+  const stages = async (id: string) => (await loadOrderEvents(workspaceId, id))!.map((e) => e.stage);
+  assert.deepEqual(await stages((await place()).id), ["Waiting for approval"]);
+  assert.deepEqual(await stages(expired.id), ["Waiting for approval"]);
+  assert.deepEqual(await stages(placed.id), ["Waiting for approval"], "cancelled after approval is neither approved nor rejected");
+  const rejected = await place();
+  await transitionOrder({ workspaceId, orderId: rejected.id, action: "reject", userId: user.id, reason: "Sold out" });
+  assert.deepEqual(await stages(rejected.id), ["Waiting for approval", "Rejected"]);
+  const done = await place();
+  for (const action of ["confirm", "complete"] as const) await transitionOrder({ workspaceId, orderId: done.id, action, userId: user.id });
+  assert.deepEqual(await stages(done.id), ["Waiting for approval", "Approved", "Completed: one unit of usage"]);
+  assert.equal(await loadOrderEvents("SOMEONE-ELSE", done.id), null);
 });

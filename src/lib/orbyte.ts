@@ -1,7 +1,7 @@
 // An approved order as the event Orbyte would receive. The format is our assumption, not a real Orbyte API (see
 // docs/orbyte-integration.md), and nothing here sends it: this only reads, and approval itself stays in transitionOrder.
 import { createHmac } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db, t } from "@/db";
 import { lineTotal, noun, type OrderItemRow, type OrderRow } from "./orders";
 
@@ -40,9 +40,8 @@ export function approvedOrderEvent(order: OrderRow, items: OrderItemRow[], appro
 
 const summary = (order: OrderRow) => ({ id: order.id, refCode: order.refCode, type: noun(order), currency: order.currency, totalMinor: order.totalMinor });
 
-/** A waiting order, for Orbyte's Approve queue. No customer details: the person decides inside Yapoz. */
+/** An order as it started waiting, for Orbyte's Approve queue. No customer details: the person decides inside Yapoz. */
 export function pendingApprovalEvent(order: OrderRow) {
-  if (order.status !== "pending") throw new NotApproved(`Order ${order.refCode} isn't waiting for approval.`);
   return {
     event: "yapoz.order.pending_approval.v1",
     eventId: `${order.id}:pending`,
@@ -86,6 +85,22 @@ export function orderUsageEvent(order: OrderRow) {
 /** How a receiver would know an event is from Yapoz and is recent: an HMAC over the timestamp and the exact body. */
 export function signEvent(body: string, secret: string, timestampMs: number) {
   return { "x-yapoz-timestamp": String(timestampMs), "x-yapoz-signature": `sha256=${createHmac("sha256", secret).update(`${timestampMs}.${body}`).digest("hex")}` };
+}
+
+/** Every event an order would have produced so far, oldest first, with who decided from the activity log. */
+export async function loadOrderEvents(workspaceId: string, orderId: string) {
+  const [order] = await db.select().from(t.orders).where(and(eq(t.orders.id, orderId), eq(t.orders.workspaceId, workspaceId)));
+  if (!order) return null;
+  const items = await db.select().from(t.orderItems).where(eq(t.orderItems.orderId, order.id));
+  const logged = await db.select({ type: t.events.type, props: t.events.props }).from(t.events).where(and(eq(t.events.workspaceId, workspaceId), inArray(t.events.type, ["order.confirmed", "order.rejected"])));
+  const decider = (type: string) => logged.map((e) => ({ type: e.type, ...(e.props as { orderId?: string; by?: string }) })).find((e) => e.type === type && e.orderId === order.id)?.by;
+  const approver = decider("order.confirmed");
+  const rejecter = decider("order.rejected");
+  const events: { stage: string; event: unknown }[] = [{ stage: "Waiting for approval", event: pendingApprovalEvent(order) }];
+  if (approver && order.confirmedAt && ["confirmed", "ready", "completed"].includes(order.status)) events.push({ stage: "Approved", event: approvedOrderEvent(order, items, approver) });
+  if (rejecter && order.status === "cancelled" && !order.confirmedAt && order.cancelledAt) events.push({ stage: "Rejected", event: rejectedOrderEvent(order, rejecter) });
+  if (order.status === "completed" && order.completedAt) events.push({ stage: "Completed: one unit of usage", event: orderUsageEvent(order) });
+  return events;
 }
 
 /** The event for one order in one business, with the person who confirmed it from the activity log. */

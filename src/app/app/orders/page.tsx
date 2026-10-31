@@ -62,17 +62,22 @@ const VERDICT: Record<Receipt["verdict"], { label: string; tone: "answered" | "b
 const MARK: Record<Check["level"], string> = { pass: "✓", warn: "!", fail: "✗" };
 const stamp = (iso: string, tz: string) => new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: tz });
 
-/** What Orbyte would receive for an approved order. Loaded on request, from the same records; nothing is sent anywhere. */
-function OrbytePreview({ orderId }: { orderId: string }) {
+/** What Orbyte would receive at each stage of this order. Loaded on request, from the same records; nothing is sent anywhere. */
+function OrbytePreview({ orderId, status }: { orderId: string; status: string }) {
   const [open, setOpen] = useState(false);
-  const { data, error } = useSWR<{ event: unknown }>(open ? `/api/orders/${orderId}/orbyte` : null, getJson, { shouldRetryOnError: false, revalidateOnFocus: false });
+  const { data, error } = useSWR<{ events: { stage: string; event: unknown }[] }>(open ? `/api/orders/${orderId}/orbyte?status=${status}` : null, getJson, { shouldRetryOnError: false, revalidateOnFocus: false });
   return (
     <div className="mt-2 text-[13px]">
-      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="font-medium text-accent underline-offset-4 hover:underline">{open ? "Hide Orbyte event" : "Orbyte event"}</button>
+      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="font-medium text-accent underline-offset-4 hover:underline">{open ? "Hide Orbyte events" : "Orbyte events"}</button>
       {open ? (
         <div className="mt-2 rounded-lg border border-line p-3">
           <p className="text-muted">Preview only. This is our assumed format, not a real Orbyte API, and it isn't sent anywhere.</p>
-          {error ? <p className="mt-2 text-signal-ink">{(error as Error).message}</p> : data ? <pre className="num mt-2 max-h-80 overflow-auto text-[12px]">{JSON.stringify(data.event, null, 2)}</pre> : <p className="mt-2 text-muted">Loading…</p>}
+          {error ? <p className="mt-2 text-signal-ink">{(error as Error).message}</p> : data ? data.events.map((e) => (
+            <div key={e.stage} className="mt-3">
+              <p className="font-medium">{e.stage}</p>
+              <pre className="num mt-1 max-h-64 overflow-auto text-[12px]">{JSON.stringify(e.event, null, 2)}</pre>
+            </div>
+          )) : <p className="mt-2 text-muted">Loading…</p>}
         </div>
       ) : null}
     </div>
@@ -339,7 +344,7 @@ function OrderDetails({ o, tz, issues }: { o: Order; tz: string; issues: CardIss
         <Link href={`/app/activity?order=${o.id}`} className="underline-offset-4 hover:text-fg hover:underline">Full activity</Link>
       </p>
       {o.threadId ? <Link href={`/app/inbox?t=${o.threadId}`} className="inline-block text-[13px] font-medium text-accent underline-offset-4 hover:underline">Open conversation</Link> : null}
-      {o.confirmedAt && ["confirmed", "ready", "completed"].includes(o.status) ? <OrbytePreview orderId={o.id} /> : null}
+      <OrbytePreview orderId={o.id} status={o.status} />
     </div>
   );
 }
