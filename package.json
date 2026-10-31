@@ -15,6 +15,7 @@
     "telegram:poll": "tsx scripts/telegram-poll.ts",
     "telegram:webhook": "tsx scripts/telegram-set-webhook.ts",
     "worker": "tsx scripts/worker.ts",
+    "measure": "tsx scripts/measure-benefit.ts",
     "fonts": "node scripts/fetch-fonts.mjs",
     "places": "node scripts/build-places.mjs",
     "test": "tsx --test tests/*.test.ts"
