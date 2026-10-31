@@ -222,6 +222,12 @@ On Windows, copy `.env.example` to `.env.local` through your editor or file mana
 | `APP_ENCRYPTION_KEY` | Encryption key for saved integration credentials |
 | `GROQ_API_KEY` | Groq access for the demo's AI routing |
 | `GEMINI_API_KEY` | Google Gemini access, including supported vision requests |
+| `KRACKEDDEVS_API_KEY` | Opt-in hackathon LiteLLM gateway key; with a fast model set it is tried first, and the providers above stay as fallbacks |
+| `KRACKEDDEVS_BASE_URL` | Gateway base URL (default `https://litellm.rapidscreen.io/v1`) |
+| `KRACKEDDEVS_FAST_MODEL` | Model for everyday replies (`gpt-5.4-nano`); required to enable the gateway |
+| `KRACKEDDEVS_SMART_MODEL` | Model for harder turns (`gpt-5.4-mini`); defaults to the fast model |
+| `KRACKEDDEVS_VISION` | `true` lets the gateway read images such as receipts |
+| `KRACKEDDEVS_TIMEOUT_MS` | Gateway request timeout (default 12000) |
 | `DEMO_MODE` | `true` for the synthetic demonstration |
 | `DEMO_WORKSPACE_ID` | `FORNO7` |
 | `DEMO_PASSWORD` | Password for locally seeded demo users |

@@ -7,6 +7,8 @@ for (const file of [".env.local", ".env"]) {
     if (!m) continue;
     const [, k, raw] = m;
     if (process.env[k] !== undefined) continue;
+    // Tests stub the network; the real gateway key must never reach them.
+    if (process.env.NODE_TEST_CONTEXT && k.startsWith("KRACKEDDEVS_")) continue;
     process.env[k] = raw.replace(/^["']|["']$/g, "");
   }
 }

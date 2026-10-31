@@ -15,9 +15,14 @@ const openai = (input: number, output: number): Price => ({ input, output, cache
  * Matched in order against the stored model string ("Provider: model" or a bare model id), case-insensitively.
  * The first row whose pattern matches wins.
  */
+/** Prices the hackathon gateway itself reports at /model/info (read 31 Oct 2026). Cached reads at the gateway's cache_read rate, no cache-write charge. */
+const gateway = (input: number, output: number, cacheRead: number): Price => ({ input, output, cacheRead, cacheWrite: input });
+
 export const PRICE_TABLE: { pattern: RegExp; label: string; price: Price }[] = [
   { pattern: /^(groq|google gemini|ollama|openrouter)\b/i, label: "free-tier provider (Groq, Gemini, OpenRouter, Ollama)", price: FREE },
   { pattern: /:free$/i, label: "OpenRouter :free model", price: FREE },
+  { pattern: /^krackeddevs:\s*gpt-5\.4-nano$/i, label: "KrackedDevs gateway gpt-5.4-nano (gateway-reported $0.20 in / $1.25 out)", price: gateway(0.2, 1.25, 0.02) },
+  { pattern: /^krackeddevs:\s*gpt-5\.4-mini$/i, label: "KrackedDevs gateway gpt-5.4-mini (gateway-reported $0.75 in / $4.50 out)", price: gateway(0.75, 4.5, 0.075) },
   { pattern: /claude-haiku/i, label: "Claude Haiku (assumed $1 in / $5 out)", price: anthropic(1, 5) },
   { pattern: /claude-sonnet/i, label: "Claude Sonnet (assumed $3 in / $15 out)", price: anthropic(3, 15) },
   { pattern: /claude-opus/i, label: "Claude Opus (assumed $15 in / $75 out)", price: anthropic(15, 75) },

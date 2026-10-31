@@ -22,6 +22,7 @@ export const env = {
   },
   get hasAnthropic() {
     return Boolean(
+      (process.env.KRACKEDDEVS_API_KEY && process.env.KRACKEDDEVS_FAST_MODEL) ||
       process.env.GROQ_API_KEY ||
       process.env.GEMINI_API_KEY ||
       process.env.OPENROUTER_API_KEY ||

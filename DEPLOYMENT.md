@@ -152,19 +152,31 @@ The app features an automated cascading fallback router that translates Claude/A
 
 ```mermaid
 flowchart TD
-    Req[Incoming Customer Message] --> Groq{1. Groq Free Tier\nGROQ_API_KEY}
-    Groq -- Success --> Res[Customer Auto-Reply]
-    Groq -- 429 Rate Limit / Error --> Gemini{2. Google Gemini Free\nGEMINI_API_KEY}
+    Req[Incoming Customer Message] --> Krack{1. KrackedDevs gateway, opt-in\nKRACKEDDEVS_API_KEY}
+    Krack -- Success --> Res[Customer Auto-Reply]
+    Krack -- 401/402/403 / Timeout --> Groq{2. Groq Free Tier\nGROQ_API_KEY}
+    Groq -- Success --> Res
+    Groq -- 429 Rate Limit / Error --> Gemini{3. Google Gemini Free\nGEMINI_API_KEY}
     Gemini -- Success --> Res
-    Gemini -- 429 Rate Limit / Error --> OpenRouter{3. OpenRouter Free\nOPENROUTER_API_KEY}
+    Gemini -- 429 Rate Limit / Error --> OpenRouter{4. OpenRouter Free\nOPENROUTER_API_KEY}
     OpenRouter -- Success --> Res
-    OpenRouter -- 429 Rate Limit / Error --> Ollama{4. Ollama Local\nOLLAMA_BASE_URL}
+    OpenRouter -- 429 Rate Limit / Error --> Ollama{5. Ollama Local\nOLLAMA_BASE_URL}
     Ollama -- Success --> Res
-    Ollama -- Error --> OpenAI{5. OpenAI Paid Fallback\nOPENAI_API_KEY}
+    Ollama -- Error --> OpenAI{6. OpenAI Paid Fallback\nOPENAI_API_KEY}
     OpenAI -- Success --> Res
-    OpenAI -- Error --> Anthropic{6. Anthropic Claude\nANTHROPIC_API_KEY}
+    OpenAI -- Error --> Anthropic{7. Anthropic Claude\nANTHROPIC_API_KEY}
     Anthropic -- Success --> Res
 ```
+
+### KrackedDevs hackathon gateway (opt-in, first choice)
+
+`KRACKEDDEVS_API_KEY` and `KRACKEDDEVS_FAST_MODEL` must both be set or the gateway is skipped. It is an OpenAI-compatible LiteLLM proxy (`https://litellm.rapidscreen.io/v1`) run for the hackathon that forwards to model vendors.
+
+- **Locally:** put the variables in `.env.local` (gitignored). Never commit the key.
+- **On the host:** in Vercel → Settings → Environment Variables set `KRACKEDDEVS_API_KEY`, `KRACKEDDEVS_BASE_URL`, `KRACKEDDEVS_FAST_MODEL` (`gpt-5.4-nano`) and `KRACKEDDEVS_SMART_MODEL` (`gpt-5.4-mini`), plus `KRACKEDDEVS_VISION=true` so it can read receipt images. Optional: `KRACKEDDEVS_TIMEOUT_MS` (default 12000). Redeploy.
+- **Cutoff:** the team's pooled $100 credit switches off on 7 Nov 2026 12:12 AM MYT. After that every call fails (401/402/timeout).
+- **Fallback:** on a 401/402/403 or timeout the gateway is tried last for 5 minutes, and replies come from the next configured provider (Groq, Gemini, ...). If every provider fails, the customer still gets the "passed this to our team" holding reply and staff get a "Needs you" card. Remove the `KRACKEDDEVS_*` variables after the cutoff to skip it entirely.
+- **Privacy:** customer messages and receipt images pass through this third-party proxy. Its retention and training terms are unknown; confirm with the organisers.
 
 ### Adding New AI Providers:
 To add or change API keys in Vercel:
@@ -185,6 +197,7 @@ The following variables are active in Vercel Production:
 | `APP_ENCRYPTION_KEY` | Hex encryption key for customer credentials |
 | `DEMO_MODE` | Set to `"true"` to enable demo desk logins |
 | `DEMO_WORKSPACE_ID` | Set to `"FORNO7"` |
+| `KRACKEDDEVS_API_KEY`, `KRACKEDDEVS_BASE_URL`, `KRACKEDDEVS_FAST_MODEL`, `KRACKEDDEVS_SMART_MODEL`, `KRACKEDDEVS_VISION` | Opt-in hackathon LiteLLM gateway, tried first when the key and fast model are set. Credit ends 7 Nov 2026 12:12 AM MYT; see section 5 |
 | `GROQ_API_KEY` | Primary ultra-fast free tier model provider |
 | `GEMINI_API_KEY` | Secondary free tier provider (15 RPM, 1M TPM) |
 | `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile human check on sign-up. **Required:** production refuses sign-ups without them |
@@ -245,6 +258,7 @@ Expected output:
 | **`That email and password don't match` on `/login`** | Supabase database tables are empty / unseeded. | Paste `drizzle/seed_data.sql` into the Supabase SQL Editor and click **Run**. |
 | **AI requests fail with rate limits** | Single provider quota exhausted. | Ensure both `GROQ_API_KEY` and `GEMINI_API_KEY` are provided in Vercel environment variables so `ai-router.ts` can cascade. |
 | **AI replies are always "I've passed this to our team"** | Every provider rejected its model (models get retired), so each message escalates. | Signed in as an owner, open `/api/health?test=ai`: it shows the model each provider uses and whether a tool call works. `ai-router.ts` lists each provider's models and swaps a retired one for a served one; `GROQ_*_MODEL` / `GEMINI_*_MODEL` env vars override it. |
+| **AI replies slow, or fall back to another provider after 7 Nov 2026** | The KrackedDevs gateway credit has ended (401/402) or it timed out, so it is skipped for 5 minutes at a time. | Expected after the cutoff. Make sure Groq or Gemini keys are set, and remove the `KRACKEDDEVS_*` variables in Vercel to stop the retries. |
 | **`AUTH_SECRET must be set` / everyone logged out** | `AUTH_SECRET` (32+ chars) or `APP_ENCRYPTION_KEY` is missing in Vercel. Production refuses the public fallback values. | Set them in Vercel → Settings → Environment Variables and redeploy. Keep `APP_ENCRYPTION_KEY` unchanged once channels are connected, or their saved tokens can't be decrypted. |
 | **WhatsApp: nothing arrives in Inbox** | Settings → Channels → WhatsApp says which link is broken. Usually the Meta app is unpublished (Meta then delivers only its dashboard Test sample), or `messages` isn't subscribed under Webhook fields. | Subscribe `messages`, press Test (Settings should then say the test arrived), and publish the app with `https://yapoz.vercel.app/privacy` as its privacy policy URL. |
 | **WhatsApp: webhooks rejected (401 in the logs)** | `META_APP_SECRET` isn't the secret of the Meta app that sends the webhooks. | Copy App settings → Basic → App secret into `META_APP_SECRET` in Vercel and redeploy. |

@@ -50,7 +50,7 @@ const sections: { id?: string; title: string; body: React.ReactNode }[] = [
     body: (
       <>
         To write replies, Yapoz sends the text of the conversation to an AI service. To read a receipt, it sends the receipt image or PDF. Which services get this depends on how
-        this deployment is set up. The code can use any of these: Groq, Google Gemini, OpenRouter, OpenAI, Anthropic, or a model running on the server itself (Ollama). The shop
+        this deployment is set up. The code can use any of these: a hackathon gateway run by a third party (KrackedDevs, a proxy that forwards to model vendors; customer messages and receipt images pass through it, and we do not yet know its retention or training terms), Groq, Google Gemini, OpenRouter, OpenAI, Anthropic, or a model running on the server itself (Ollama). The shop
         owner can see which ones are switched on in Settings. If one is busy, Yapoz tries the next. Once your message goes to one of them, it follows that company&apos;s own rules. We
         cannot promise how long they keep it or whether they train on it. Please check each provider&apos;s own terms. Not every provider can read images, so receipt images only go to
         the ones that can.

@@ -11,7 +11,7 @@ Checked `src/app/privacy/page.tsx` (old version) against code. Not legal advice;
 | 3 | Handles messages, name/username/phone, orders | Verified (incomplete) | export.ts fields; orders also hold address, notes; receipts omitted from old page. |
 | 4 | Used only to answer, hand off to staff, show analytics; no selling/ads | Unverifiable | No ad/analytics code found (grep), but a negative cannot be proven. Reworded to "found no ... code". |
 | 5 | Business staff see it "according to role" | Verified | ROLE_SECTIONS in src/lib/session.ts; export/delete are owner-only (api/export/route.ts, DELETE in api/inbox/threads/[id]/route.ts). |
-| 6 | AI providers are "currently Groq and Google Gemini" | Wrong | getProviders() in src/agent/ai-router.ts supports Groq, Gemini, OpenRouter, OpenAI, Anthropic, Ollama, enabled by env keys. |
+| 6 | AI providers are "currently Groq and Google Gemini" | Wrong | getProviders() in src/agent/ai-router.ts supports the KrackedDevs hackathon gateway (opt-in, first choice), Groq, Gemini, OpenRouter, OpenAI, Anthropic, Ollama, enabled by env keys. |
 | 7 | Messages travel via Meta / Telegram | Verified | src/channels/. |
 | 8 | "Conversations stay while the business uses Yapoz" | Wrong | Owner can set 30/90/180/365-day purge (settings page; src/lib/retention.ts; run by api/jobs/sweep). Default is keep (null). |
 | 9 | Channel access tokens stored encrypted | Verified | `encryptJson` AES-256-GCM (src/lib/crypto.ts) used in channels/connections.ts, telegram/connect.ts. "Never shown in browser" not exhaustively checked; kept as "stored encrypted". |
@@ -29,11 +29,15 @@ Checked `src/app/privacy/page.tsx` (old version) against code. Not legal advice;
 
 ## Deliberately "we don't know / depends"
 
-- Which AI providers are active, and their retention/training policies (check each provider's terms).
+- Which AI providers are active, and their retention/training policies (check each provider's terms). For the KrackedDevs gateway see the finding below.
 - Who at the operator can access the database.
 - Whether the daily sweep is scheduled (Vercel Hobby cron is daily; docs suggest external cron) and backup retention at the host.
 - Hosting location and legal entity / contact address.
 - Whether the Cloudflare Turnstile / Meta / Telegram terms suit the seller.
+
+## Finding: KrackedDevs gateway
+
+When `KRACKEDDEVS_API_KEY` and `KRACKEDDEVS_FAST_MODEL` are set, customer messages and receipt images (if `KRACKEDDEVS_VISION=true`) go first to `https://litellm.rapidscreen.io/v1`, a third-party LiteLLM proxy run for the hackathon that forwards to model vendors. Its retention and training terms are UNKNOWN to us and must be confirmed with the organisers; no claim is made about them. The same applies to the vendors behind it. The privacy page says this. Its credit ends 7 Nov 2026; after that calls fail and other providers answer.
 
 ## Gaps developers should fix
 

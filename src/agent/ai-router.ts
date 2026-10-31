@@ -23,6 +23,10 @@ export type AIProviderConfig = {
   spare?: (ids: string[]) => string[];
   /** A model the owner chose with an env variable: kept as long as the provider serves it. Otherwise the router picks the best served one. */
   pinned?: { fast: boolean; smart: boolean };
+  /** Per-request timeout; the default suits the free tiers. */
+  timeoutMs?: number;
+  /** A provider that can run out for good (credit, a revoked key): a 401/402/403 or a timeout sends it to the back of the line for a while. */
+  coolOnFailure?: boolean;
   enabled: boolean;
 };
 
@@ -48,6 +52,23 @@ export const pickGemini: Picker = (ids, tier) => {
 
 export function getProviders(): AIProviderConfig[] {
   const providers: AIProviderConfig[] = [];
+
+  // 0. The hackathon LiteLLM gateway (OpenAI-compatible). Opt-in: needs its key and a model id, first choice while it works,
+  // and everything below stays as the fallback for when its credit ends or it is down. Model ids come from GET <base>/models.
+  if (process.env.KRACKEDDEVS_API_KEY && process.env.KRACKEDDEVS_FAST_MODEL) {
+    providers.push({
+      name: "KrackedDevs",
+      type: "openai_compatible",
+      apiKey: process.env.KRACKEDDEVS_API_KEY,
+      baseURL: process.env.KRACKEDDEVS_BASE_URL || "https://litellm.rapidscreen.io/v1",
+      fastModel: process.env.KRACKEDDEVS_FAST_MODEL,
+      smartModel: process.env.KRACKEDDEVS_SMART_MODEL || process.env.KRACKEDDEVS_FAST_MODEL,
+      vision: process.env.KRACKEDDEVS_VISION === "true",
+      timeoutMs: Number(process.env.KRACKEDDEVS_TIMEOUT_MS) || 12000,
+      coolOnFailure: true,
+      enabled: true,
+    });
+  }
 
   // 1. Groq (free tier, very fast)
   if (process.env.GROQ_API_KEY) {
@@ -424,7 +445,7 @@ async function callOpenAICompatible(
   const client = new OpenAI({
     apiKey: provider.apiKey || "dummy",
     baseURL: provider.baseURL,
-    timeout: 20000,
+    timeout: provider.timeoutMs ?? 20000,
     // No SDK retries: on a 429 it sleeps out retry-after (often 20s+) while the next provider is ready now.
     maxRetries: 0,
   });
@@ -556,6 +577,7 @@ function gist(a: AIAttempt): string {
   if (a.status === 413 || /request too large/i.test(text)) return "request too large for this model";
   if (a.status === 404) return "model not found";
   if (a.status === 401 || a.status === 403) return "API key rejected";
+  if (a.status === 402) return "out of credit";
   if (/timed? ?out|timeout|aborted/i.test(text)) return "timed out";
   return `${a.status ?? "error"}: ${text.replace(/\s+/g, " ").slice(0, 70)}`;
 }
@@ -571,6 +593,8 @@ export function explainAiError(e: unknown): string {
 /** Models that just answered 429 ("Groq:openai/gpt-oss-20b") go to the back of the line until their window passes. */
 const coolingUntil = new Map<string, number>();
 const MAX_ATTEMPTS = 6;
+/** A gateway that answered 401/402/403 or timed out is tried last for this long, so every customer message doesn't wait on it. */
+const GATEWAY_COOLDOWN_MS = 5 * 60_000;
 
 function retryAfterMs(err: any): number {
   const h = err?.headers;
@@ -583,7 +607,7 @@ export async function executeWithFallback(params: AnthropicMessageParams): Promi
   const providers = getProviders();
 
   if (providers.length === 0) {
-    throw new Error("No AI API keys configured. Please configure GROQ_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY, or ANTHROPIC_API_KEY.");
+    throw new Error("No AI API keys configured. Please configure KRACKEDDEVS_API_KEY, GROQ_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY, or ANTHROPIC_API_KEY.");
   }
   const tier = tierOf(params.model);
   let attempts = (await Promise.all(providers.map(async (p) => (await modelsFor(p, tier)).map((model) => ({ p, model }))))).flat();
@@ -605,6 +629,9 @@ export async function executeWithFallback(params: AnthropicMessageParams): Promi
       errors.push({ provider: p.name, model, status: typeof err?.status === "number" ? err.status : undefined, message: msg });
       const isRateLimit = err?.status === 429 || msg.includes("429") || msg.toLowerCase().includes("rate limit");
       if (isRateLimit) coolingUntil.set(`${p.name}:${model}`, Date.now() + retryAfterMs(err));
+      if (p.coolOnFailure && (err?.status === 401 || err?.status === 402 || err?.status === 403 || /timed? ?out|timeout|aborted/i.test(msg))) {
+        coolingUntil.set(`${p.name}:${model}`, Date.now() + GATEWAY_COOLDOWN_MS);
+      }
       if (err?.status === 404) {
         badModels.set(`${p.name}:${model}`, Date.now() + BAD_MODEL_MS);
         modelLists.delete(p.name);
