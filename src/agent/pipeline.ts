@@ -136,7 +136,11 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
       .limit(1);
     // Taken over without a reply is a deliberate hold: only a staff message starts the quiet-spell clock.
     if (!lastStaff || Date.now() - lastStaff.at.getTime() < TAKEOVER_IDLE_MS) return { skipped: "takeover" };
-    await db.update(t.threads).set({ aiPaused: false, takenOverBy: null }).where(eq(t.threads.id, threadId));
+    await db.transaction(async (tx) => {
+      // Two messages can arrive together: only the one that actually hands it back logs it.
+      const [resumed] = await tx.update(t.threads).set({ aiPaused: false, takenOverBy: null }).where(and(eq(t.threads.id, threadId), eq(t.threads.aiPaused, true))).returning({ id: t.threads.id });
+      if (resumed) await tx.insert(t.events).values({ workspaceId: thread.workspaceId, type: "thread.ai_resumed", props: { threadId, reason: "staff_idle", idleHours: TAKEOVER_IDLE_MS / 3_600_000 }, isDemo: Boolean(opts.isDemo) });
+    });
     thread.aiPaused = false;
   }
   const [ws] = await db.select().from(t.workspaces).where(eq(t.workspaces.id, thread.workspaceId));

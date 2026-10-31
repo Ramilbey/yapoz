@@ -71,6 +71,7 @@ export function describe(type: string, p: P, currency: string, timeZone = "UTC")
     case "staff.reply": return { text: `Replied in chat${p.status === "failed" ? `, NOT delivered${p.error ? ` (${str(p.error)})` : ""}` : ""}`, level: p.status === "failed" ? "bad" : "info" };
     case "thread.takeover": return { text: "Took over a chat (AI paused)", level: "info" };
     case "thread.release": return { text: "Handed a chat back to the AI", level: "info" };
+    case "thread.ai_resumed": return { text: `AI resumed after ${str(p.idleHours)} hours without a staff message`, level: "info" };
     case "thread.resolved": return { text: "Marked a chat resolved", level: "good" };
     case "thread.reopened": return { text: "Reopened a chat", level: "info" };
     case "draft.approved": return { text: `Approved an AI draft${p.edited ? " (edited)" : ""}`, level: "good" };
