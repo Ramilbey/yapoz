@@ -1,5 +1,5 @@
 # BUILD PROMPT — JAWAB (working name)
-**AI front desk for businesses on Telegram, WhatsApp and Instagram, with a hiring agent and role-based dashboards.**
+**AI front desk for businesses on Telegram and WhatsApp, with a hiring agent and role-based dashboards.**
 
 > Paste this whole file into Claude Code (or keep it in the repo root as `PROMPT.md`). Fill in the `{{placeholders}}` in section 0 first.
 
@@ -21,7 +21,7 @@ When something can't be done the way this prompt describes, tell me and propose 
 ---
 
 ## 2. The product in one paragraph
-Jawab answers a business's customer messages on Telegram, WhatsApp and Instagram using **only that business's own information**: products, sizes, colors, stock, prices, services, hours, booking slots and policies. It books appointments, escalates anything sensitive to a human, and reports what customers ask. A second agent handles **hiring**: HR describes the role in plain language, Jawab ranks candidates from the business's own candidate sources, drafts the outreach and books the interview. **Every outbound hiring step waits for a human "Approve".**
+Jawab answers a business's customer messages on Telegram and WhatsApp using **only that business's own information**: products, sizes, colors, stock, prices, services, hours, booking slots and policies. It books appointments, escalates anything sensitive to a human, and reports what customers ask. A second agent handles **hiring**: HR describes the role in plain language, Jawab ranks candidates from the business's own candidate sources, drafts the outreach and books the interview. **Every outbound hiring step waits for a human "Approve".**
 
 ---
 
@@ -62,12 +62,7 @@ and run it through a single pipeline. **Check each platform's current official d
 - Free-form replies **only inside the 24-hour customer-service window**. Outside it, only approved **templates** (create `interview_invite` and `booking_reminder`).
 - **Policy constraint**: since 15 Jan 2026 Meta prohibits general-purpose AI assistants on the Business API; AI that serves a business's own support, bookings and sales is allowed. The agent must stay **strictly on the business's topics** and decline everything else in one polite line. Surface this in product copy: "Business-scoped by design."
 
-### 5.3 Instagram (Instagram API with Instagram Login)
-- Professional (Business) account; permission `instagram_business_manage_messages`; app in **development mode with tester accounts** (no App Review needed for the demo).
-- Reply-only: a DM opens a 24-hour reply window; a comment allows one **private reply** within 7 days.
-- Implement **comment → private reply**: someone comments "price?" under a post and receives a DM with the answer.
-
-### 5.4 Built-in Simulator (always available)
+### 5.3 Built-in Simulator (always available)
 A web phone component that sends through the exact same pipeline (`channel = "simulator"`), with a selectable channel accent. Used in the landing page's live section and as the on-stage fallback if a Meta webhook fails. **Do not clone any messenger's UI pixel-for-pixel**; build our own chat UI and label which channel it represents.
 
 ---
@@ -158,10 +153,10 @@ Purple/blue gradients · glowing AI orbs, brains or robots · sparkle icons for 
 
 ### 9.6 Scroll story (pinned sections)
 - **00 Preloader**: mono counter `000 → 100` labeled "messages answered", ends on a bell *ding* (sound off by default, toggle in the corner).
-- **01 Hero**: the brass bell under a single warm light; message capsules drop in and strike it, each strike sends an answer capsule flying off-screen. Headline: "Every question, *answered*." Sub: "Jawab replies to your customers on Telegram, WhatsApp and Instagram, from your own menu, stock and calendar." CTAs: **Ring the bell** (scrolls to the live simulator) and **Open dashboard**.
+- **01 Hero**: the brass bell under a single warm light; message capsules drop in and strike it, each strike sends an answer capsule flying off-screen. Headline: "Every question, *answered*." Sub: "Jawab replies to your customers on Telegram and WhatsApp, from your own menu, stock and calendar." CTAs: **Ring the bell** (scrolls to the live simulator) and **Open dashboard**.
 - **02 The pile-up**: pinned phone fills with unread badges while a mono counter climbs. "Your customers don't wait. Your staff can't keep up."
 - **03 Teach it once**: horizontal scroll; menu cards, size and color swatches, hours and policies fly into the bell and become its memory.
-- **04 Answered everywhere**: three lanes (Telegram / WhatsApp / Instagram); capsules route into lanes; counters tick.
+- **04 Answered everywhere**: two lanes (Telegram / WhatsApp); capsules route into lanes; counters tick.
 - **05 Ring the bell (LIVE)**: embedded Simulator talking to Forno Sette's real agent, with suggestion chips, visible tool calls and rate limiting.
 - **06 It knows when to stop**: a partnership message turns `--signal`, lifts out of the stream and drops into a "Needs you" tray.
 - **07 Hiring, handled**: resume paper-cards flutter out of a channel, sort into a ranked stack with fit scores; a calendar block snaps into a week view; the Approve button presses.
@@ -178,7 +173,7 @@ Editorial, dense, calm. Big mono numbers, hairline rules, 12-column grid, genero
 - **Next.js** (App Router, latest stable) + TypeScript strict; **Tailwind CSS v4**; shadcn/ui primitives restyled to our tokens.
 - **Supabase**: Postgres, Auth, Realtime (live inbox), Storage (resumes). **Drizzle** ORM + migrations. Row-level security by `workspace_id`.
 - Webhooks return 200 immediately; processing runs in a job queue (Inngest, or a jobs table + worker).
-- Deploy on **Vercel**; webhooks at `/api/webhooks/{telegram,whatsapp,instagram}`.
+- Deploy on **Vercel**; webhooks at `/api/webhooks/{telegram,whatsapp}`.
 - Security: signature verification on every webhook; channel tokens encrypted at rest; rate-limited public simulator; resumes deletable on request with a retention setting.
 
 ---
@@ -197,7 +192,7 @@ Editorial, dense, calm. Big mono numbers, hairline rules, 12-column grid, genero
    ✅ HR request → ranked list → Approve → teammate's Telegram receives the invite → picks a slot → event appears on the calendar.
 4. **Landing site** with the full scroll story.
    ✅ Smooth on a laptop; graceful on a phone and with reduced motion.
-5. **WhatsApp + Instagram adapters** on test assets.
+5. **WhatsApp adapter** on test assets.
    ✅ A tester's DM gets the same quality answer as on Telegram.
 6. **Demo hardening**: `/api/demo/reset`, seeded state, fallback to Simulator, error toasts, a recorded 3-minute backup of the full flow.
 
@@ -230,8 +225,6 @@ WHATSAPP_TOKEN=
 WHATSAPP_PHONE_NUMBER_ID=
 WHATSAPP_VERIFY_TOKEN=
 META_APP_SECRET=
-INSTAGRAM_ACCESS_TOKEN=
-INSTAGRAM_ACCOUNT_ID=
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 ZOOM_ACCOUNT_ID=          # optional

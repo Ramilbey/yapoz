@@ -1,8 +1,8 @@
-// The Meta app (App ID + App secret, shared by WhatsApp and Instagram) and the WhatsApp number (Phone number ID,
+// The Meta app (App ID + App secret) and the WhatsApp number (Phone number ID,
 // Business Account ID, Access token): what Meta is asked before anything is saved, where each value is stored, which
 // secret webhooks are checked with, and that one business's secret can't speak for another's, against a fake Graph API.
 import "../scripts/env";
-import { test, after, afterEach, before } from "node:test";
+import { test, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { db, t, sql } from "../src/db";
@@ -68,9 +68,6 @@ const rejects = async (p: Promise<unknown>, field: string, message: RegExp) => {
   return e;
 };
 
-before(() => {
-  process.env.INSTAGRAM_APP_SECRET = "p".repeat(32);
-});
 // Every test uses the same fake number, so each one gives it back.
 afterEach(async () => {
   if (made.length) await db.update(t.channels).set({ credentialsEnc: null, config: {} }).where(and(inArray(t.channels.workspaceId, made), eq(t.channels.type, "whatsapp")));
