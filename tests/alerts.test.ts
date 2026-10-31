@@ -8,6 +8,8 @@ test("owners start with email backup, staff don't, and choices override defaults
   assert.equal(alertPrefs({}, "service").email, false);
   assert.equal(alertPrefs({ email: true, sound: false }, "service").email, true);
   assert.equal(alertPrefs({ sound: false }, "owner").sound, false);
+  assert.equal(alertPrefs(null, "owner").emailTo, null);
+  assert.equal(alertPrefs({ emailTo: "alerts@shop.example" }, "owner").emailTo, "alerts@shop.example");
 });
 
 test("quiet hours work across midnight and within a day", () => {

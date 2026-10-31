@@ -29,8 +29,10 @@ export function AlertSettingsForm() {
   async function save(patch: Partial<AlertPrefs>) {
     try {
       await mutate(await send<AlertSettings>(SETTINGS_KEY, "PATCH", patch), { revalidate: false });
+      return true;
     } catch (e) {
       toast((e as Error).message, "error");
+      return false;
     }
   }
   async function togglePush(on: boolean) {
@@ -75,6 +77,22 @@ export function AlertSettingsForm() {
           <Switch checked={push === "on"} disabled={busy || !data.pushKey || (push !== "on" && push !== "off")} onCheckedChange={togglePush} label="Notifications on this device" />,
         )}
         {row("Email backup", "If no device got the notification. Up to 20 a day for each business.", <Switch checked={p.email} onCheckedChange={(v) => save({ email: v })} label="Email backup" />)}
+        {p.email ? (
+          <form
+            className="py-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const value = String(new FormData(e.currentTarget).get("emailTo")).trim();
+              void save({ emailTo: value || null }).then((saved) => saved && toast(value ? `Saved. We sent a note to ${value}.` : "Alerts will go to your sign-in email."));
+            }}
+          >
+            <Label htmlFor="alert-email" hint="Optional">Send alert emails to</Label>
+            <div className="flex items-center gap-3">
+              <Input id="alert-email" name="emailTo" type="email" key={p.emailTo ?? ""} defaultValue={p.emailTo ?? ""} placeholder="Your sign-in email" autoComplete="email" />
+              <Button type="submit" variant="secondary">Save</Button>
+            </div>
+          </form>
+        ) : null}
         {row("Quiet hours", "No bell, notifications or emails. Business time zone.", <Switch checked={Boolean(p.quietHours)} onCheckedChange={(v) => save({ quietHours: v ? { start: "22:00", end: "07:00" } : null })} label="Quiet hours" />)}
         {p.quietHours ? (
           <div className="flex gap-4 py-3">

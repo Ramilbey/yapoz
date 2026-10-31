@@ -110,7 +110,7 @@ export async function deliverAlert(kind: AlertKind, id: string, workspaceId: str
     if (sent.some(Boolean) || !prefs.email) continue;
     if (!(await hit(`alert-email:${workspaceId}`, "day", EMAILS_PER_DAY)).ok) continue;
     try {
-      await sendAlertEmail(u.email, ws.name, alert);
+      await sendAlertEmail(prefs.emailTo ?? u.email, ws.name, alert);
       emailed++;
     } catch (e) {
       console.error("[alerts] email failed", e);
