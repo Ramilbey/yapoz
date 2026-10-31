@@ -6,21 +6,17 @@ We built Yapoz to help Malaysian micro and small businesses turn customer conver
 
 **SDC Hackathon 2026 · Domain 2 · Orbyte Smart SME Challenge: Less Busywork, Better Business**
 
-## New accounts
-
-Sign-up has a Cloudflare Turnstile human check, then a 6-digit emailed code (`/verify`, valid 15 minutes, five tries): nobody can sign in until it's entered, and signing in to an unverified account sends a new code. Invited staff skip this. Without `RESEND_API_KEY`, local dev prints the code in the server console. After that, setup is compulsory for owners: until it's finished, `proxy.ts` only opens setup and the pages it links to, and it can't finish without business basics and at least one knowledge entry.
-
 ## Team Information
 
 | Field | Details |
 | --- | --- |
-| Team name | Yaponomics |
-| Project | Yapoz |
-| Domain | Domain 2 — Alpha Red Solutions Sdn Bhd |
-| SDG track | SDG 8 — Decent Work and Economic Growth; targets 8.2 and 8.3 |
-| Team leader | Abdulrahman Imaad Mohamed |
-| University | Xiamen University Malaysia |
-| Team size | 5 members |
+| **Team Name** | Yaponomics |
+| **Project** | Yapoz |
+| **Team Domain** | Domain 2 — Alpha Red Solutions Sdn Bhd |
+| **SDG Track (1–17)** | SDG 8 — Decent Work and Economic Growth; targets 8.2 and 8.3 |
+| **Team Leader** | Abdulrahman Imaad Mohamed |
+| **University** | Xiamen University Malaysia |
+| **Number of Members** | 5 |
 
 ## Links
 
@@ -30,7 +26,8 @@ Sign-up has a Cloudflare Turnstile human check, then a 6-digit emailed code (`/v
 | Live application | [yapoz.vercel.app](https://yapoz.vercel.app) |
 | Staff login | [Demo accounts](https://yapoz.vercel.app/login) |
 | Customer simulator | [Ring the bell](https://yapoz.vercel.app/#ring) |
-| Full pitch and demonstration | [Watch on YouTube](https://youtu.be/9oFCyjG2bRc) |
+| Demo video (full pitch and demonstration) | [Watch on YouTube](https://youtu.be/9oFCyjG2bRc) |
+| RunPod endpoint | Not used (see [How We Use RunPod](#how-we-use-runpod)) |
 | Slide deck | [Yapoz-Pitch Slide Deck.pdf](submission/Yapoz-Pitch%20Slide%20Deck.pdf) |
 | Preliminary submission | [Project proposal](submission/SDC2026_Yaponomics_Preliminary_Submission.pdf) |
 | Technical & Tools Declaration | [Tools declaration](submission/SDC2026_Yaponomics_Technical%20Tools%20Declaration.pdf) |
@@ -39,9 +36,7 @@ Sign-up has a Cloudflare Turnstile human check, then a 6-digit emailed code (`/v
 
 ### Problem
 
-A customer asks, “Can I order two of these for tomorrow?” Before confirming, the owner must identify the product, check availability, calculate the price, collect missing details and record the order. A receipt may arrive later in another message. For a small team already serving customers and running the shop, these repeated steps compete for attention and leave information scattered across chats, spreadsheets and notes.
-
-DOSM reports that MSMEs contributed **39.7% of Malaysia's GDP and 48.7% of employment in 2025**. Those figures include medium enterprises; our initial users are micro and small businesses. Khazanah Research Institute's May 2026 paper identifies digital adoption concentrated in sales, marketing and payments, with weaker back-end integration. We address the gap between customer conversations and internal order handling.
+A customer asks, “Can I order two of these for tomorrow?” Before confirming, the owner must identify the product, check availability, work out the price, collect missing details and record the order, and a receipt may arrive later in another message. For a small team that is also serving customers, these repeated steps leave information scattered across chats, spreadsheets and notes. MSMEs make up **39.7% of Malaysia's GDP and 48.7% of employment in 2025** (DOSM, medium firms included), and Khazanah Research Institute (May 2026) finds digital adoption concentrated in sales, marketing and payments with weak back-end integration, which is the gap we address.
 
 ### Solution
 
@@ -69,6 +64,10 @@ AI interprets the request and calls defined business tools. Backend rules valida
 Receipt analysis is advisory. It does not authenticate a receipt, access a bank account or prove payment. **Mark paid** records a staff decision; Yapoz does not process real payments. Staff agree delivery fees separately from catalogue item prices.
 
 Staff can also ask a customer for another receipt with a reason ("pay the remaining RM 10"); the chat then waits for it and the AI knows what to expect. An **Activity** page logs every action with who did it, and each order explains why it needs attention and whether the customer was actually notified.
+
+### New Accounts and Setup
+
+Sign-up has a Cloudflare Turnstile human check, then a 6-digit emailed code (`/verify`, valid 15 minutes, five tries): nobody can sign in until it's entered, and signing in to an unverified account sends a new code. Invited staff skip this. Without `RESEND_API_KEY`, local dev prints the code in the server console. After that, setup is compulsory for owners: until it's finished, `proxy.ts` only opens setup and the pages it links to, and it can't finish without business basics and at least one knowledge entry.
 
 ### Orbyte Fit and Reuse
 
@@ -329,13 +328,13 @@ Dependencies appear in `package.json` and `package-lock.json`. Third-party libra
 
 ## Team
 
-| Member | Contribution |
-| --- | --- |
-| Abdulrahman Imaad Mohamed — Team leader | Application development and integrations, including WhatsApp |
-| Gameel Abduljalil Yousef Al-Bazeli | Application development and integrations, including WhatsApp |
-| Ramil Kutlimuratov | Application development and integrations, including WhatsApp |
-| Omer Muawia Mohamed Salih | Presentation, pitch, demonstration and slide deck |
-| Asanali Ashimov | Presentation, pitch, demonstration and slide deck |
+| Name | Role | GitHub |
+| --- | --- | --- |
+| Abdulrahman Imaad Mohamed | Team leader; application development and integrations, including WhatsApp | [@ImaddyM2819](https://github.com/ImaddyM2819) |
+| Gameel Abduljalil Yousef Al-Bazeli | Application development and integrations, including WhatsApp | [@gameelaj](https://github.com/gameelaj) |
+| Ramil Kutlimuratov | Application development and integrations, including WhatsApp | [@Ramilbey](https://github.com/Ramilbey) |
+| Omer Muawia Mohamed Salih | Presentation, pitch, demonstration and slide deck | [@silknox](https://github.com/silknox) |
+| Asanali Ashimov | Presentation, pitch, demonstration and slide deck | [@gameelacademy](https://github.com/gameelacademy) |
 
 ## Submission Documents
 
@@ -347,6 +346,19 @@ Our submission comprises the source repository, live prototype, slide deck, prel
 | `SDC2026_Yaponomics_Technical Tools Declaration.pdf` | Technical stack, APIs, tools and resource declarations |
 | `Yapoz-Pitch Slide Deck.pdf` | Presentation slides |
 | `Replit Usage Proof.pdf` | Replit proof of use |
+
+## Submission Checklist
+
+- [x] Team name, domain (Domain 2) and SDG track filled in
+- [x] Slide deck link added
+- [x] Demo video link added
+- [x] Replit used, with proof of use in `submission/`
+- [x] RunPod not used, and explained in [How We Use RunPod](#how-we-use-runpod)
+- [x] Preliminary submission completed (`SDC2026_Yaponomics_Preliminary_Submission.pdf`)
+- [ ] Technical & Tools Declaration updated for the Final
+- [ ] Final report added to `submission/`
+- [ ] "How to Run" steps verified on a clean machine
+- [x] No API keys or secrets committed to the repository (tracked files scanned; `.env` is git-ignored)
 
 ## References
 
