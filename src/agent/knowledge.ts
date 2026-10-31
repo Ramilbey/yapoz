@@ -98,25 +98,59 @@ function renderBlock(ws: Workspace, c: Catalog): string {
   return lines.join("\n");
 }
 
+/** Words that say nothing about which item it is, so they don't have to appear on the menu. */
+const FILLER = new Set(["the", "and", "for", "with", "please", "pls", "some", "one", "two", "three", "four", "five", "satu", "dua", "tiga", "nak", "lah", "order", "want", "inch", "size"]);
+
+/** One slip in a word of five letters or more, two from eight. Shorter words must be right: beef is not beer. */
+function typo(a: string, b: string) {
+  const shorter = Math.min(a.length, b.length);
+  const limit = shorter >= 8 ? 2 : shorter >= 5 ? 1 : 0;
+  if (!limit || Math.abs(a.length - b.length) > limit) return false;
+  const row = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 0; i < a.length; i++) {
+    let diagonal = row[0];
+    row[0] = i + 1;
+    for (let j = 0; j < b.length; j++) {
+      const above = row[j + 1];
+      row[j + 1] = Math.min(row[j] + 1, above + 1, diagonal + (a[i] === b[j] ? 0 : 1));
+      diagonal = above;
+    }
+  }
+  return row[b.length] <= limit;
+}
+
+const sameWord = (a: string, b: string) => a === b || `${a}s` === b || a === `${b}s` || typo(a, b);
+const hasWords = (text: string, part: string) => ` ${text} `.includes(` ${part} `);
+
+/**
+ * The one item a customer named, or null. Every word that matters has to be on the item, at least one of them in its name,
+ * so "Sushi platter" is never "Kuih platter"; a name that fits several items equally isn't guessed either. Null sends the
+ * assistant to the customer or a person. A description only counts when it holds every word and fits one item alone.
+ */
 export function findProduct(c: Catalog, name: string) {
   const n = norm(name);
   if (!n) return null;
+  const wanted = n.split(" ").filter((w) => w.length > 2 && !FILLER.has(w));
   let best: { item: Catalog["items"][number]; score: number } | null = null;
+  let tied = false;
   for (const item of c.items) {
     const title = norm(item.title);
     const slug = norm(item.slug.replace(/-/g, " "));
+    const named = `${title} ${slug}`.split(" ");
+    const options = norm(item.variants.flatMap((v) => [v.size, v.color, v.option]).filter(Boolean).join(" ")).split(" ");
+    const inName = (w: string) => named.some((x) => sameWord(w, x) || (w.length >= 4 && x.startsWith(w)));
     let score = 0;
     if (title === n || slug === n) score = 100;
-    else if (title.includes(n) || n.includes(title)) score = 80;
-    else {
-      const words = n.split(" ").filter((w) => w.length > 2);
-      const hits = words.filter((w) => title.includes(w) || slug.includes(w) || norm(item.body).includes(w));
-      score = words.length ? (hits.length / words.length) * 60 : 0;
-      if (title.split(" ").some((w) => w.length > 3 && n.includes(w))) score += 20;
+    else if (hasWords(title, n) || hasWords(n, title)) score = 80;
+    else if (wanted.some(inName) && wanted.every((w) => inName(w) || options.some((x) => sameWord(w, x)))) score = 60;
+    else if (wanted.length && wanted.every((w) => inName(w) || [...options, ...norm(item.body).split(" ")].some((x) => sameWord(w, x)))) score = 40;
+    if (best && score === best.score) tied = score > 0 && best.item.id !== item.id;
+    if (!best || score > best.score) {
+      best = { item, score };
+      tied = false;
     }
-    if (!best || score > best.score) best = { item, score };
   }
-  return best && best.score >= 30 ? best.item : null;
+  return best && best.score > 0 && (!tied || best.score === 100) ? best.item : null;
 }
 
 export function norm(s: string) {

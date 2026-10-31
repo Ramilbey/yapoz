@@ -91,12 +91,16 @@ test("GAP 2: lead time written in the policy is not enforced; an order for tomor
   assert.equal(o.wantedDate, tomorrow);
 });
 
-test("GAP 3: an unlisted dish that shares one word with a listed one is matched to it (Sushi platter becomes Kuih platter)", async () => {
+test("an unlisted dish that shares one word with a listed one is refused, and the listed one still works", async () => {
   const { ctx } = await viaSetup();
-  const r = await runTool(ctx, "create_order", { fulfilment: "pickup", customer_name: "Puan Rohani", items: [{ product: "Sushi platter", quantity: 20 }] }, "");
-  const out = r.output as { ok: boolean; items?: { name: string }[] };
-  assert.ok(out.ok, "if this fails, partial-word matching was tightened: delete this test and update docs/third-business-gaps.md");
-  assert.match(out.items![0].name, /Kuih platter/);
+  for (const product of ["Sushi platter", "Nasi lemak"]) {
+    const r = await runTool(ctx, "create_order", { fulfilment: "pickup", customer_name: "Puan Rohani", items: [{ product, quantity: 20 }] }, "");
+    const out = r.output as { ok: boolean; problems?: string[] };
+    assert.ok(!out.ok, product);
+    assert.match(out.problems!.join(" "), /isn't in the catalog/);
+  }
+  const listed = await place(ctx, { items: [{ product: "Kuih platter", quantity: 1 }] });
+  assert.ok(listed.ok, JSON.stringify(listed));
 });
 
 test("GAP 4: a line is capped at 50, so a 150-portion kenduri can't be ordered in chat and goes to a person", async () => {
