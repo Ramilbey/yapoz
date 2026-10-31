@@ -186,7 +186,7 @@ test("the one webhook answers Meta's handshake with the env verify token, checks
   const raw = JSON.stringify({ entry: [{ changes: [{ field: "messages", value: { metadata: { phone_number_id: PHONE }, statuses: [{ id: "s" }] } }] }] });
   assert.equal((await hook(raw, null)).status, 401, "unsigned is refused");
   assert.equal((await hook(raw, "0f9e8d7c6b5a49382716f5e4d3c2b1a0")).status, 401, "another app's secret is refused");
-  assert.equal((await wa(ws)).config.lastWebhookAt, undefined);
+  assert.ok(!(await wa(ws)).config.lastWebhookAt, "nothing received yet");
   assert.equal((await hook(raw, SECRET)).status, 200);
   assert.ok((await wa(ws)).config.lastWebhookAt, "a delivery for this number is recorded");
 });

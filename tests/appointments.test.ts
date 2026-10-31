@@ -117,7 +117,7 @@ test("free times sit on the grid inside opening hours ∩ the person's hours; a 
   // Off-grid times are fine when free; outside hours and too soon are refused with the reason.
   assert.ok((await checkTime(db, ws, { itemId: svc.item.id, minutes: 40, start: at("11:10"), staffId: A.id })).ok);
   const late = await checkTime(db, ws, { itemId: svc.item.id, minutes: 40, start: at("17:45") });
-  assert.ok(!late.ok && /outside working hours/.test(late.problem));
+  assert.ok(!late.ok && /outside opening hours/.test(late.problem));
   const soon = await checkTime(db, ws, { itemId: svc.item.id, minutes: 40, start: new Date(Date.now() + 30 * 60_000) });
   assert.ok(!soon.ok && /at least 2 hours notice/.test(soon.problem));
   const far = await checkTime(db, ws, { itemId: svc.item.id, minutes: 40, start: at("10:00", addLocalDays(today(), 40)) });
