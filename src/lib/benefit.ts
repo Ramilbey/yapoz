@@ -84,6 +84,17 @@ export async function measureBenefit(workspaceId: string, o: { demo?: boolean } 
 const pct = (x: number | null) => (x === null ? "no data" : `${(x * 100).toFixed(1)}%`);
 const verdict = (met: boolean | null) => (met === null ? "NO DATA" : met ? "MET" : "NOT MET");
 
+export type BenefitRow = { label: string; baseline: string | null; target: string; measured: string | null; counted: string; met: boolean | null };
+
+/** The three measures as the Today panel shows them. Only manual steps has a Phase 1 baseline. measured null = nothing recorded yet. */
+export function benefitRows(b: Benefit): BenefitRow[] {
+  return [
+    { label: "Manual steps per order", baseline: String(b.steps.baseline), target: `${TARGET.steps} or fewer`, measured: b.steps.mean === null ? null : b.steps.mean.toFixed(2), counted: `${b.steps.decided} ${b.steps.decided === 1 ? "order" : "orders"} decided${b.steps.undecided ? `, ${b.steps.undecided} not decided yet` : ""}`, met: b.steps.met },
+    { label: "Orders priced and stock-checked", baseline: null, target: `${pct(TARGET.pricedShare)} or more`, measured: b.orders.share === null ? null : pct(b.orders.share), counted: `${b.orders.pricedAndChecked} of ${b.orders.total} ${b.orders.total === 1 ? "order" : "orders"}`, met: b.orders.met },
+    { label: "Receipts checked for amount, payee, date and reuse", baseline: null, target: pct(TARGET.receiptShare), measured: b.receipts.share === null ? null : pct(b.receipts.share), counted: `${b.receipts.fullyChecked} of ${b.receipts.total} ${b.receipts.total === 1 ? "receipt" : "receipts"}`, met: b.receipts.met },
+  ];
+}
+
 export function benefitReport(b: Benefit): string {
   const missing = Object.entries(b.receipts.missing).map(([k, n]) => `${k} ${n}`).join(", ");
   return [
