@@ -70,6 +70,23 @@ const MARK: Record<Check["level"], string> = { pass: "✓", warn: "!", fail: "�
 const stamp = (iso: string, tz: string) => new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: tz });
 
 /** A receipt the customer sent, what Yapoz read off it, and each check against the order and your accounts. Advice only. */
+/** What Orbyte would receive for an approved order. Loaded on request, from the same records; nothing is sent anywhere. */
+function OrbytePreview({ orderId }: { orderId: string }) {
+  const [open, setOpen] = useState(false);
+  const { data, error } = useSWR<{ event: unknown }>(open ? `/api/orders/${orderId}/orbyte` : null, getJson, { shouldRetryOnError: false, revalidateOnFocus: false });
+  return (
+    <div className="mt-2 text-[13px]">
+      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="font-medium text-accent underline-offset-4 hover:underline">{open ? "Hide Orbyte event" : "Orbyte event"}</button>
+      {open ? (
+        <div className="mt-2 rounded-lg border border-line p-3">
+          <p className="text-muted">Preview only. This is our assumed format, not a real Orbyte API, and it isn't sent anywhere.</p>
+          {error ? <p className="mt-2 text-signal-ink">{(error as Error).message}</p> : data ? <pre className="num mt-2 max-h-80 overflow-auto text-[12px]">{JSON.stringify(data.event, null, 2)}</pre> : <p className="mt-2 text-muted">Loading…</p>}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ReceiptCard({ order, r, tz }: { order: Order; r: Receipt; tz: string }) {
   const v = VERDICT[r.verdict];
   const url = `/api/orders/${order.id}/receipts/${r.id}`;
@@ -476,6 +493,7 @@ function Orders() {
                         {" · "}
                         <Link href={`/app/activity?order=${o.id}`} className="underline-offset-4 hover:text-fg hover:underline">Full activity</Link>
                       </p>
+                      {o.confirmedAt && ["confirmed", "ready", "completed"].includes(o.status) ? <OrbytePreview orderId={o.id} /> : null}
                     </div>
                     <div className="flex flex-wrap items-start gap-2 lg:w-[210px] lg:flex-col lg:items-stretch">
                       {o.status === "pending" ? (
