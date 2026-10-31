@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { env } from "@/lib/env";
 import { extractPdfText } from "@/lib/pdf";
+import { log } from "@/lib/log";
 
 type Tier = "fast" | "smart";
 /** Picks a model from the ids a provider actually serves, in order of preference. */
@@ -175,7 +176,7 @@ function tierOf(model?: string): Tier {
 }
 
 const MODEL_LIST_TTL = 10 * 60_000;
-const modelLists = new Map<string, { at: number; ids: Promise<string[] | null> }>();
+const modelLists = new Map<string, { at: number; ids: Promise<string[] | null>; known?: string[] }>();
 
 /**
  * A model that answered 404 is set aside for an hour. Google keeps listing models that a key can no longer call
@@ -197,15 +198,28 @@ function availableModels(p: AIProviderConfig): Promise<string[] | null> {
   const hit = modelLists.get(p.name);
   if (hit && Date.now() - hit.at < MODEL_LIST_TTL) return hit.ids;
   const client = new OpenAI({ apiKey: p.apiKey || "dummy", baseURL: p.baseURL, timeout: 8000, maxRetries: 0 });
-  const ids = client.models
+  const fetched = client.models
     .list()
     .then((page) => page.data.map((m) => m.id.replace(/^models\//, "")))
     .catch((e) => {
-      console.warn(`[AI Router] Couldn't list ${p.name} models: ${e?.message ?? e}`);
+      log.warn("ai_router.list_models_failed", { provider: p.name, err: e });
       return null;
     });
-  modelLists.set(p.name, { at: Date.now(), ids });
-  return ids;
+  // An expired list we already have is used as-is while the new one loads, so a customer's reply never waits on this call.
+  if (hit?.known) {
+    const entry = { at: Date.now(), ids: Promise.resolve(hit.known), known: hit.known };
+    modelLists.set(p.name, entry);
+    void fetched.then((ids) => {
+      if (ids && modelLists.get(p.name) === entry) modelLists.set(p.name, { at: Date.now(), ids: Promise.resolve(ids), known: ids });
+    });
+    return entry.ids;
+  }
+  const entry: { at: number; ids: Promise<string[] | null>; known?: string[] } = { at: Date.now(), ids: fetched };
+  modelLists.set(p.name, entry);
+  void fetched.then((ids) => {
+    if (ids) entry.known = ids;
+  });
+  return fetched;
 }
 
 /** The configured model if the provider still serves it, otherwise the best replacement it does serve. */
@@ -221,7 +235,7 @@ async function modelFor(p: AIProviderConfig, tier: Tier): Promise<string> {
   const ids = listed ? listed.filter((id) => !isBad(p.name, id)) : null;
   // A model the owner pinned stays while it's served; otherwise the best served model wins, not a name written into the code.
   const chosen = p.pinned?.[tier] ? chooseModel(ids, wanted, tier, p.pick) : ids?.length ? p.pick(ids, tier) ?? wanted : wanted;
-  if (chosen !== wanted) console.warn(`[AI Router] ${p.name}: using "${chosen}" instead of "${wanted}".`);
+  if (chosen !== wanted) log.warn("ai_router.model_substituted", { provider: p.name, chosen, wanted });
   return chosen;
 }
 
@@ -598,9 +612,9 @@ export async function executeWithFallback(params: AnthropicMessageParams): Promi
       const next = attempts[i + 1];
 
       if (next) {
-        console.warn(`[AI Router] ${p.name} ${model} ${isRateLimit ? "rate limited (429)" : "failed: " + msg}. Falling back to ${next.p.name} ${next.model}...`);
+        log.warn("ai_router.fallback", { provider: p.name, model, rateLimited: isRateLimit, err: msg, next: `${next.p.name} ${next.model}` });
       } else {
-        console.error(`[AI Router] ${p.name} ${model} failed: ${msg}. No more fallbacks.`);
+        log.error("ai_router.failed", { provider: p.name, model, err: msg });
       }
     }
   }

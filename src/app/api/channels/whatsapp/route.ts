@@ -13,10 +13,7 @@ const Connect = z.object({
   accessToken: z.string().trim().min(20, "Paste the whole access token").max(1000).regex(/^\S+$/, "The access token has no spaces"),
 });
 
-/**
- * Connect a WhatsApp number to the business's Meta app (saved first, in the Meta app box). Meta checks the token, the number
- * and the Business Account before anything is stored; the answer carries the callback URL and verify token for Meta's webhook settings.
- */
+/** Connect a WhatsApp number from its own details. Meta checks the token, the number and the Business Account before anything is stored. */
 export const POST = handle(async (req: Request) => {
   const s = await apiSession(["owner"]);
   if (!(await hit(`connect:${s.workspaceId}`, "hour", 20)).ok) throw new HttpError(429, "Too many attempts. Try again in an hour.");
@@ -29,7 +26,7 @@ export const POST = handle(async (req: Request) => {
   }
 });
 
-/** Disconnect the number. The verify token is kept, so reconnecting doesn't break Meta's webhook settings. */
+/** Disconnect the number. */
 export const DELETE = handle(async () => {
   const s = await apiSession(["owner"]);
   await disconnectWhatsApp(s.workspaceId);

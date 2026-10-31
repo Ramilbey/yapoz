@@ -1,15 +1,15 @@
 import { enqueue } from "@/lib/jobs";
 import { env } from "@/lib/env";
 import { verifyMetaSignature, safeEqual } from "@/lib/crypto";
-import { workspaceForWhatsAppNumber } from "@/channels/connections";
+import { noteWhatsAppWebhook, workspaceForWhatsAppNumber } from "@/channels/connections";
 import { applyWhatsAppStatuses } from "@/channels/whatsapp";
 import { createHash } from "node:crypto";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-// Yapoz's own Meta app (env): the demo number and every number connected with Embedded Signup. Businesses that paste their
-// own app's credentials use /api/webhooks/whatsapp/<channelId>.
+// The one webhook of Yapoz's Meta app (env): every number, connected with Embedded Signup or manually, arrives here and is
+// routed to its business by the phone number it came in on.
 export async function GET(req: Request) {
   const u = new URL(req.url);
   const mode = u.searchParams.get("hub.mode");
@@ -36,6 +36,7 @@ export async function POST(req: Request) {
     for (const c of e.changes ?? []) {
       const ws = await workspaceForWhatsAppNumber(c.value?.metadata?.phone_number_id ?? "");
       if (!ws) continue;
+      await noteWhatsAppWebhook(ws);
       // Delivery receipts are a few quick updates: applied right away, no job needed.
       if (c.value?.statuses?.length) await applyWhatsAppStatuses(ws, { entry: [{ id: "", changes: [c as never] }] });
       if (!c.value?.messages?.length) continue;

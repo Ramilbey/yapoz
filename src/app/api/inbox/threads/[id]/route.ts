@@ -94,7 +94,7 @@ export const POST = handle(async (req: Request, ctx: { params: Promise<{ id: str
       await log(s, "thread.release", { threadId: id });
       return ok({ ok: true });
     case "resolve":
-      await db.update(t.threads).set({ status: "resolved" }).where(eq(t.threads.id, id));
+      await db.update(t.threads).set({ status: "resolved", aiPaused: false, takenOverBy: null }).where(eq(t.threads.id, id));
       await db.update(t.escalations).set({ status: "resolved", resolvedAt: new Date(), resolvedBy: s.userId }).where(and(eq(t.escalations.threadId, id), eq(t.escalations.status, "open")));
       await log(s, "thread.resolved", { threadId: id });
       return ok({ ok: true });

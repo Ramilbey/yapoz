@@ -25,7 +25,6 @@ const bytea = customType<{ data: Buffer; driverData: Buffer }>({
 
 const ts = (name: string) => timestamp(name, { withTimezone: true, mode: "date" });
 
-// The database type still lists "hr" and "instagram" (removed modules); nothing writes them any more.
 export const roleEnum = pgEnum("role", ["owner", "service"]);
 export const channelTypeEnum = pgEnum("channel_type", ["telegram", "whatsapp", "simulator"]);
 export const channelModeEnum = pgEnum("channel_mode", ["autopilot", "copilot"]);

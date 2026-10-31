@@ -39,8 +39,14 @@ export function describe(type: string, p: P, currency: string, timeZone = "UTC")
     case "order.created": if (p.kind === "appointment") return { text: `New booking ${ref} from chat, ${money(p.totalMinor)}, waiting for approval`, level: "info" };
       return { text: `New order ${ref} from chat, ${money(p.totalMinor)} (${str(p.items)} line${p.items === 1 ? "" : "s"}), waiting for approval`, level: "info" };
     case "order.confirmed": return { text: `Confirmed ${ref}${p.stock === "deducted" ? "; stock deducted" : ""}`, level: "good" };
-    case "order.rejected": return { text: `Rejected ${ref}${p.reason ? `: ${q(p.reason)}` : ""}${p.stock === "returned" ? "; stock returned" : ""}`, level: "warn" };
+    case "order.rejected": return { text: `Rejected ${ref}${p.reasonCode ? ` (${str(p.reasonCode).replace("_", " ")})` : ""}${p.reason ? `: ${q(p.reason)}` : ""}${p.stock === "returned" ? "; stock returned" : ""}`, level: "warn" };
     case "order.cancelled": return { text: `Cancelled ${ref}${p.reason ? `: ${q(p.reason)}` : ""}${p.stock === "returned" ? "; stock returned" : ""}`, level: "warn" };
+    case "order.corrected": {
+      const ch = (Array.isArray(p.changes) ? p.changes : []) as { name?: unknown; from?: unknown; to?: unknown }[];
+      const fields = (Array.isArray(p.fields) ? p.fields : []).map(str).filter((f) => f !== "items");
+      const parts = [...ch.map((c) => (Number(c.to) === 0 ? `removed ${str(c.name)}` : `${str(c.name)} ${str(c.from)} → ${str(c.to)}`)), ...fields.map((f) => `${f} changed`)];
+      return { text: `Corrected ${ref} before deciding: ${parts.join(", ")}`, level: "info" };
+    }
     case "order.ready": return { text: `Marked ${ref} ready`, level: "good" };
     case "order.completed": return { text: `Completed ${ref}`, level: "good" };
     case "order.paid": return { text: `Marked ${ref} paid`, level: "good" };
@@ -55,6 +61,8 @@ export function describe(type: string, p: P, currency: string, timeZone = "UTC")
     case "appointment.cancelled": return { text: `Customer cancelled ${ref} (${when(p.startsAt)}) in chat`, level: "warn" };
     case "appointment.attended": return { text: `${ref}: ${({ present: "attended", late: "arrived late", no_show: "no-show" } as P)[str(p.attendance)] ?? str(p.attendance)}${p.previous ? ` (was ${str(p.previous).replace("_", "-")})` : ""}`, level: p.attendance === "no_show" ? "warn" : "good" };
     case "appointment.staff_updated": return { text: `Changed ${str(p.name)}'s appointment settings: ${(Array.isArray(p.fields) ? p.fields : []).map(str).join(", ")}`, level: "info" };
+    case "appointment.calendar_synced": return { text: `Google Calendar: ${p.outcome === "removed" ? "removed the event for" : p.outcome === "added" ? "added" : "updated"} ${ref}`, level: "good" };
+    case "appointment.calendar_failed": return { text: `Google Calendar NOT updated for ${ref}${p.reason ? ` (${str(p.reason)})` : ""}${p.willRetry ? "; trying again" : ""}. The booking itself is fine.`, level: "bad" };
     case "stock.held": return { text: `Stock held for ${ref}${p.date ? ` (for ${str(p.date)})` : ""}${p.expiresAt ? " while the customer pays" : ""}`, level: "info" };
     case "stock.firmed": return { text: `Receipt for ${ref} passed the checks: its stock stays reserved`, level: "good" };
     case "stock.released": return { text: `Stock for ${ref} went back${p.why === "expired" ? " (expired)" : p.why === "reject" ? " (rejected)" : p.why === "cancel" ? " (cancelled)" : ""}`, level: "info" };

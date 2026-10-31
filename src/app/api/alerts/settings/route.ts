@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db, t } from "@/db";
 import { alertPrefs } from "@/lib/alert-prefs";
 import { apiSession, handle, HttpError } from "@/lib/auth";
@@ -20,6 +20,7 @@ const Body = z.object({
   quietHours: z.object({ start: time, end: time }).nullable(),
 }).partial();
 
+const own = (s: { userId: string; workspaceId: string }) => and(eq(t.users.id, s.userId), eq(t.users.workspaceId, s.workspaceId));
 const pushKey = () => (env.push.publicKey && env.push.privateKey ? env.push.publicKey : null);
 
 /** Alerts carry customer details, so a new address hears about it first: a typo shows up before an order does. */
@@ -36,16 +37,16 @@ async function confirmAddress(to: string, userId: string) {
 
 export const GET = handle(async () => {
   const s = await apiSession();
-  const [u] = await db.select({ alertPrefs: t.users.alertPrefs }).from(t.users).where(eq(t.users.id, s.userId));
+  const [u] = await db.select({ alertPrefs: t.users.alertPrefs }).from(t.users).where(own(s));
   return ok({ prefs: alertPrefs(u?.alertPrefs, s.role), pushKey: pushKey() });
 });
 
 export const PATCH = handle(async (req: Request) => {
   const s = await apiSession();
   const b = await body(req, Body);
-  const [u] = await db.select({ alertPrefs: t.users.alertPrefs }).from(t.users).where(eq(t.users.id, s.userId));
+  const [u] = await db.select({ alertPrefs: t.users.alertPrefs }).from(t.users).where(own(s));
   if (b.emailTo && b.emailTo !== u?.alertPrefs.emailTo) await confirmAddress(b.emailTo, s.userId);
   const stored = { ...u?.alertPrefs, ...b };
-  await db.update(t.users).set({ alertPrefs: stored }).where(eq(t.users.id, s.userId));
+  await db.update(t.users).set({ alertPrefs: stored }).where(own(s));
   return ok({ prefs: alertPrefs(stored, s.role), pushKey: pushKey() });
 });

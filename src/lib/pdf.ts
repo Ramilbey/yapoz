@@ -1,4 +1,5 @@
 import { extractText, getDocumentProxy } from "unpdf";
+import { log } from "./log";
 
 export async function extractPdfText(bytes: Buffer): Promise<string> {
   try {
@@ -6,7 +7,7 @@ export async function extractPdfText(bytes: Buffer): Promise<string> {
     const { text } = await extractText(pdf, { mergePages: true });
     return String(text).replace(/\u0000/g, "").trim().slice(0, 30_000);
   } catch (e) {
-    console.error("[pdf] extract failed", e);
+    log.error("pdf.extract_failed", { err: e });
     return "";
   }
 }

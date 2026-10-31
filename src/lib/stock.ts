@@ -6,9 +6,11 @@
 import { and, asc, eq, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { db, t } from "@/db";
 import type { StockMode, StockSettings } from "@/db/schema";
+import { queueBookingSync } from "./google-calendar";
 import { addLocalDays, fmt, human, localDate, minutesOf, zoned } from "./time";
 import { hoursForDate, type HoursData } from "./hours";
 import { lockStaff, slotTaken, when } from "./schedule";
+import { log } from "./log";
 
 type Ws = typeof t.workspaces.$inferSelect;
 type Order = typeof t.orders.$inferSelect;
@@ -321,12 +323,14 @@ export async function expireDueOrders(workspaceId?: string): Promise<number> {
   const wss = await db.select().from(t.workspaces).where(inArray(t.workspaces.id, [...new Set(claimed.map((o) => o.workspaceId))]));
   for (const o of claimed) {
     const ws = wss.find((w) => w.id === o.workspaceId);
+    // A confirmed booking that was moved and then asked for a new receipt can expire with its calendar event still there.
+    await queueBookingSync(o);
     // A receipt card still warning that this order "expires unless you act" would be stale now: say what happened instead.
     await db
       .update(t.escalations)
       .set({ reason: "Order expired with a doubtful receipt", summary: `${o.refCode} expired${o.expiredAt && ws ? ` at ${human(o.expiredAt, ws.timezone)}` : ""} while its receipt was waiting for you, and its stock went back. If the customer did pay, refund them or place the order again.` })
       .where(and(eq(t.escalations.workspaceId, o.workspaceId), eq(t.escalations.dedupeKey, receiptCardKey(o.id)), eq(t.escalations.status, "open")));
-    await notifyCustomer(o, "expired", expiryMessage(o.refCode, ws ? stockSettings(ws).holdMinutes : STOCK_DEFAULTS.holdMinutes, o.kind), null).catch((e) => console.error("[stock] couldn't tell the customer about an expired order", e));
+    await notifyCustomer(o, "expired", expiryMessage(o.refCode, ws ? stockSettings(ws).holdMinutes : STOCK_DEFAULTS.holdMinutes, o.kind), null).catch((e) => log.error("stock.expiry_notify_failed", { workspaceId: o.workspaceId, orderId: o.id, err: e }));
   }
   return claimed.length;
 }
@@ -359,7 +363,7 @@ export async function reopenExpired(ws: Ws, orderId: string): Promise<{ ok: true
     return { ok: true as const, order: reopened, variantIds: held.holds.map((h) => h.variantId) };
   });
   if (!r.ok) return r;
-  await checkLowStock(ws.id, r.variantIds).catch((e) => console.error("[stock] low-stock check failed", e));
+  await checkLowStock(ws.id, r.variantIds).catch((e) => log.error("stock.low_stock_check_failed", { workspaceId: ws.id, err: e }));
   return { ok: true, order: r.order };
 }
 

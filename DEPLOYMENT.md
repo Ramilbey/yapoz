@@ -1,4 +1,4 @@
-# Jawab (Yapoz) — Complete Deployment & Operations Manual
+# Yapoz — Complete Deployment & Operations Manual
 > **Notice for Future AI Agents & Developers:**  
 > Read this document completely before modifying the codebase, pushing commits, or altering cloud infrastructure. This manual details the live infrastructure, deployment pipeline, secret management, database pooler architecture, and known failure modes with their exact solutions.
 
@@ -125,6 +125,17 @@ Do not enable `prepare: true` when running against Supabase port 6543, as PgBoun
 - An expired order returns its stock and the customer gets a fixed message.
 - Availability is computed live, so a late sweep never oversells. Expiry messages and booking reminders, though, only go out when something runs the sweep: call `GET /api/jobs/sweep` with `Authorization: Bearer $CRON_SECRET` about every 5 minutes (cron-job.org or Supabase pg_cron; the Vercel cron in `vercel.json` only runs once a day on the Hobby plan).
 
+### Setting up the 5-minute sweep
+
+Keep the daily cron in `vercel.json` as a backstop. Don't make it more frequent while on the Hobby plan.
+
+1. In Vercel → Settings → Environment Variables, check that `CRON_SECRET` is set for Production. If it isn't, add a long random value and redeploy.
+2. On cron-job.org, create a job for `https://yapoz.vercel.app/api/jobs/sweep` that runs every 5 minutes.
+3. Add the request header `Authorization` with the value `Bearer <CRON_SECRET>`.
+4. Run the job once. It should return HTTP 200 with JSON. A 401 means the header is wrong or Vercel hasn't redeployed since the secret was set.
+
+Overlapping calls are safe: each reminder and expiry is claimed once. `docs/ops-setup-appointments.md` has more detail, plus a Supabase pg_cron alternative.
+
 ### Appointments
 
 - Customers book services in chat (tools `find_times`, `book_appointment`, `change_appointment`). A booking is an order with kind `appointment` and ref code `APT-xxxx`, so approval, payment receipts, the 20-minute payment timer, Keep reserved and expiry work exactly as for orders.
@@ -236,7 +247,7 @@ Expected output:
 | **AI replies are always "I've passed this to our team"** | Every provider rejected its model (models get retired), so each message escalates. | Signed in as an owner, open `/api/health?test=ai`: it shows the model each provider uses and whether a tool call works. `ai-router.ts` lists each provider's models and swaps a retired one for a served one; `GROQ_*_MODEL` / `GEMINI_*_MODEL` env vars override it. |
 | **`AUTH_SECRET must be set` / everyone logged out** | `AUTH_SECRET` (32+ chars) or `APP_ENCRYPTION_KEY` is missing in Vercel. Production refuses the public fallback values. | Set them in Vercel → Settings → Environment Variables and redeploy. Keep `APP_ENCRYPTION_KEY` unchanged once channels are connected, or their saved tokens can't be decrypted. |
 | **WhatsApp: nothing arrives in Inbox** | Settings → Channels → WhatsApp says which link is broken. Usually the Meta app is unpublished (Meta then delivers only its dashboard Test sample), or `messages` isn't subscribed under Webhook fields. | Subscribe `messages`, press Test (Settings should then say the test arrived), and publish the app with `https://yapoz.vercel.app/privacy` as its privacy policy URL. |
-| **WhatsApp: "signature doesn't match"** | The App secret saved in Jawab isn't the secret of the Meta app that sends the webhooks. | Copy App settings → Basic → App secret from that app, then Disconnect and connect WhatsApp again (the verify token changes, so re-save the webhook in Meta). |
+| **WhatsApp: webhooks rejected (401 in the logs)** | `META_APP_SECRET` isn't the secret of the Meta app that sends the webhooks. | Copy App settings → Basic → App secret into `META_APP_SECRET` in Vercel and redeploy. |
 | **WhatsApp: "Last reply failed … (#131030)"** | Meta's test number only sends to numbers on its list. | WhatsApp → API Setup → To → Manage phone number list: add and verify the phone you test from. |
 | **`relation "orders" does not exist`, or the Orders page shows an error** | The code is deployed but `drizzle/0002_orders.sql` hasn't been run on the Supabase database yet. | Paste that file into the Supabase SQL Editor and run it. Orders already placed in chat before then were not saved: the agent tells staff the AI hit an error. |
 | **`column "..." does not exist` or an unknown `expired` status on Orders or Settings → Stock** | The code is deployed but `drizzle/0005_stock.sql` hasn't been run on the Supabase database yet. | Paste that file into the Supabase SQL Editor and run it. |

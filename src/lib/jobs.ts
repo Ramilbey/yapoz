@@ -1,8 +1,10 @@
 import { after } from "next/server";
 import { db, t } from "@/db";
 import { and, eq, lte, or, sql } from "drizzle-orm";
+import { log } from "./log";
 
 export type JobHandler = (payload: Record<string, unknown>, job: typeof t.jobs.$inferSelect) => Promise<void>;
+export const MAX_ATTEMPTS = 3;
 const handlers = new Map<string, () => Promise<JobHandler>>();
 
 /** Handlers are registered lazily to keep webhook routes light. */
@@ -49,8 +51,8 @@ export async function runJob(id: string): Promise<boolean> {
     return true;
   } catch (e) {
     const msg = e instanceof Error ? `${e.message}\n${e.stack ?? ""}`.slice(0, 2000) : String(e);
-    console.error(`[job ${job.type}] failed:`, e);
-    const failed = job.attempts >= 3;
+    log.error("job.failed", { jobType: job.type, jobId: id, workspaceId: job.workspaceId ?? undefined, err: e });
+    const failed = job.attempts >= MAX_ATTEMPTS;
     await db
       .update(t.jobs)
       .set({ status: failed ? "failed" : "queued", lastError: msg, runAfter: new Date(Date.now() + 15_000 * job.attempts), updatedAt: new Date() })

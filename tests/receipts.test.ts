@@ -1,7 +1,7 @@
 // Payment receipts: the rules that compare a reading with the order and the business's accounts (pure), then a customer
 // sending a file in chat end to end (read, checked, stored, answered from a template), with the AI stubbed out.
 import "../scripts/env";
-import { test, after, before } from "node:test";
+import { test, after, before, mock } from "node:test";
 import assert from "node:assert/strict";
 import { and, eq } from "drizzle-orm";
 import { db, t, sql } from "../src/db";
@@ -9,6 +9,7 @@ import type { PayAccount, ReceiptReading } from "../src/db/schema";
 import { accountMatches, assessReceipt, nameMatches, normaliseReading, paymentInstruction, readWithAI, receiptIntake, setReceiptReader, sniffMime, type AssessInput, type Reader } from "../src/lib/receipts";
 import { transitionOrder } from "../src/lib/orders";
 import { ingest, respond } from "../src/agent/pipeline";
+import { adapterFor } from "../src/channels";
 import { resetAiRouterState } from "../src/agent/ai-router";
 import { createWorkspace } from "../src/lib/workspace";
 
@@ -31,7 +32,7 @@ const level = (r: ReturnType<typeof assess>, code: string) => r.checks.find((c) 
 test("a receipt that matches the order, the account and the time is consistent, with every check passing", () => {
   const r = assess(good());
   assert.equal(r.verdict, "consistent");
-  assert.deepEqual(r.checks.map((c) => `${c.code}:${c.level}`), ["amount:pass", "payee:pass", "date:pass"]);
+  assert.deepEqual(r.checks.map((c) => `${c.code}:${c.level}`), ["amount:pass", "payee:pass", "date:pass", "reuse:pass"]);
 });
 
 test("amount: short is a mismatch, more than the total is only worth a look, a different currency is a mismatch", () => {
@@ -312,6 +313,46 @@ test("through the pipeline: a customer's receipt is answered by the template, as
   const sent = await db.select().from(t.messages).where(and(eq(t.messages.threadId, thread.id), eq(t.messages.direction, "out")));
   assert.equal(sent[0]?.text, TEMPLATE(order.refCode));
   assert.equal((await db.select().from(t.agentRuns).where(eq(t.agentRuns.threadId, thread.id))).length, 0, "no assistant run was made");
+});
+
+/** Typing every few ms (WhatsApp's repeat, sped up), so a run that forgets to stop it keeps counting after it returns. */
+async function typingStopsAfter(run: () => Promise<unknown>, onStart = () => {}) {
+  const sim = adapterFor("simulator");
+  let shown = 0;
+  sim.typingEveryMs = 25;
+  sim.typing = async () => {
+    if (!shown++) onStart();
+  };
+  try {
+    await run();
+    const atEnd = shown;
+    await new Promise((r) => setTimeout(r, 80));
+    assert.ok(atEnd >= 1, "typing was shown");
+    assert.equal(shown, atEnd, "typing stopped with the run");
+  } finally {
+    delete sim.typing;
+    delete sim.typingEveryMs;
+  }
+}
+
+test("typing stops when a receipt is answered from the template", async () => {
+  const { thread } = await chatWithOrder();
+  setReceiptReader(reads(good({ paidAt: paidNow() })));
+  const m = await send(thread, [{ kind: "image", ref: dataUrl(PNG("typing")) }]);
+  await typingStopsAfter(async () => assert.equal((await respond(thread.id, m.id, { isDemo: true })).outcome, "receipt"));
+});
+
+test("typing stops when the run throws", async () => {
+  const { thread } = await chatWithOrder();
+  const m = await send(thread, [], "hello?");
+  const broken = () => mock.method(db, "select", () => {
+    throw new Error("database went away");
+  });
+  try {
+    await typingStopsAfter(() => assert.rejects(respond(thread.id, m.id, { isDemo: true }), /database went away/), broken);
+  } finally {
+    mock.restoreAll();
+  }
 });
 
 // ───────────────────────────── the AI step

@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { and, eq } from "drizzle-orm";
 import { db, t } from "@/db";
 import { SESSION_COOKIE, verifySession, type Role, type Session, ROLE_HOME } from "./session";
+import { log } from "./log";
 
 /**
  * The signed cookie, checked against the database: a removed team member, a changed role, a changed password or
@@ -51,7 +52,7 @@ export function handle<T extends unknown[]>(fn: (...args: T) => Promise<Response
       if (e instanceof HttpError) return Response.json({ error: e.message }, { status: e.status });
       // Internal errors (SQL, provider responses) stay in the server log: the browser only gets a reference to quote.
       const ref = Math.random().toString(36).slice(2, 8);
-      console.error(`[api error ${ref}]`, e);
+      log.error("api.error", { ref, err: e });
       return Response.json({ error: `Something went wrong on our side (ref ${ref}). Try again, and if it keeps happening, share the ref.` }, { status: 500 });
     }
   };

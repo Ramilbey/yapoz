@@ -57,7 +57,7 @@ test("channels whose indicator doesn't expire are asked once; channels without o
   }
 });
 
-test("WhatsApp is the channel that refreshes, every 20 s; Telegram and Instagram don't", () => {
+test("WhatsApp is the channel that refreshes, every 20 s; Telegram doesn't", () => {
   assert.equal(adapterFor("whatsapp").typingEveryMs, 20_000);
   assert.equal(adapterFor("telegram").typingEveryMs, undefined);
   assert.equal(adapterFor("simulator").typing, undefined);

@@ -81,7 +81,7 @@ async function onBusinessConnection(ctx: BotCtx, c: BusinessConnection) {
   if (ws) await db.insert(t.events).values({ workspaceId: ws, type: "telegram.business_connection", props: { enabled: c.is_enabled, canReply: Boolean(c.rights?.can_reply), owner: displayName(c.user) } });
   if (!c.is_enabled) return;
   const text = !ws
-    ? `I'm connected to your Telegram Business account, but I don't know which business it is yet. Open Jawab → Channels → Telegram and tap “Link my Telegram”.`
+    ? `I'm connected to your Telegram Business account, but I don't know which business it is yet. Open Yapoz → Channels → Telegram and tap “Link my Telegram”.`
     : c.rights?.can_reply
       ? `Connected to ${await wsName(ws)}. I'll answer customer chats from your own account. Messages you type yourself are never touched.`
       : `Connected to ${await wsName(ws)}, but I can't reply yet: allow “Reply to messages” in Settings → Business → Chatbots.`;
@@ -121,7 +121,7 @@ async function onStart(ctx: BotCtx, m: Message, arg: string | undefined): Promis
     const code = arg.slice(5);
     const [link] = await db.select().from(t.telegramLinks).where(and(eq(t.telegramLinks.code, code), gt(t.telegramLinks.expiresAt, new Date()), isNull(t.telegramLinks.usedAt)));
     if (!link) {
-      await ctx.api.sendMessage(m.chat.id, "That link has expired. Open Jawab → Channels → Telegram and tap “Link my Telegram” again.");
+      await ctx.api.sendMessage(m.chat.id, "That link has expired. Open Yapoz → Channels → Telegram and tap “Link my Telegram” again.");
       return true;
     }
     await db.update(t.telegramLinks).set({ telegramUserId: from, usedAt: new Date() }).where(eq(t.telegramLinks.code, code));
@@ -159,7 +159,7 @@ async function onPrivateMessage(ctx: BotCtx, m: Message) {
   if (!workspaceId) {
     await ctx.api.sendMessage(
       m.chat.id,
-      `Hi! I'm Jawab, the assistant that answers customers for many businesses. Open the Telegram link a business shared with you to chat with them.\n\nRun a business? Set up your own assistant at ${env.appUrl}/signup`,
+      `Hi! I'm Yapoz, the assistant that answers customers for many businesses. Open the Telegram link a business shared with you to chat with them.\n\nRun a business? Set up your own assistant at ${env.appUrl}/signup`,
     );
     return;
   }

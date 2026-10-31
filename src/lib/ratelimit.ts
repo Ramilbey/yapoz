@@ -1,5 +1,6 @@
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
+import { log } from "./log";
 
 /** Fixed-window counter in Postgres so limits hold across serverless instances. */
 export async function hit(key: string, window: "minute" | "hour" | "day", limit: number): Promise<{ ok: boolean; count: number }> {
@@ -13,7 +14,7 @@ export async function hit(key: string, window: "minute" | "hour" | "day", limit:
     const count = Number(rows[0]?.count ?? 0);
     return { ok: count <= limit, count };
   } catch (err) {
-    console.warn("Rate limit check failed (non-fatal, continuing):", err);
+    log.warn("ratelimit.check_failed", { err });
     return { ok: true, count: 1 };
   }
 }

@@ -4,7 +4,7 @@ Checked against the official docs on 20–21 Oct 2026. These APIs change often; 
 
 Every business connects its own accounts (Settings → Channels). `src/channels/connections.ts` resolves a business's
 credentials (encrypted on its `channels` row) and maps incoming webhooks to the right business. The env credentials
-below are only used by the shared Telegram bot, Jawab's own Meta app, and as a fallback for the demo workspace.
+below are only used by the shared Telegram bot, Yapoz's own Meta app, and as a fallback for the demo workspace.
 
 ## Telegram Bot API (via grammY 1.46, types for Bot API 10.x)
 
@@ -14,7 +14,7 @@ below are only used by the shared Telegram bot, Jawab's own Meta app, and as a f
   The route enqueues the update and returns 200 at once (Telegram retries non-2xx responses).
 - `allowed_updates` is set explicitly in `scripts/telegram-set-webhook.ts` and `scripts/telegram-poll.ts`:
   `message, edited_message, channel_post, callback_query, my_chat_member, business_connection, business_message, edited_business_message, deleted_business_messages`.
-- **Shared bot vs own bot.** The shared Jawab bot (`TELEGRAM_BOT_TOKEN`) serves every business: a customer opening
+- **Shared bot vs own bot.** The shared Yapoz bot (`TELEGRAM_BOT_TOKEN`) serves every business: a customer opening
   `t.me/<bot>?start=<WORKSPACE>` is bound to that business (`telegram_chat_bindings`); an unbound chat is pointed to the
   business's link or sign-up. A business can instead paste its own
   @BotFather token: we `getMe`, store `{token, secret}` encrypted and `setWebhook` to `/api/webhooks/telegram/<channelId>`
@@ -44,9 +44,9 @@ below are only used by the shared Telegram bot, Jawab's own Meta app, and as a f
 - Reply buttons: `type: "interactive", interactive: { type: "button", body: { text }, action: { buttons: [{ type: "reply", reply: { id, title } }] } }`,
   max **3** buttons, title ≤ **20** chars, id ≤ 256. Taps arrive as `messages[].interactive.button_reply.{id,title}`.
 - **Connecting a business, option 1: Connect with Facebook (Embedded Signup).** The business clicks "Connect with Facebook"
-  in Settings → Channels and completes Meta's Embedded Signup flow. It runs on Jawab's own Meta app (`META_APP_ID`,
-  `META_APP_SECRET`) with the Login configuration in `META_EMBEDDED_SIGNUP_CONFIG_ID`. Numbers connected this way arrive at
-  `/api/webhooks/whatsapp`, which routes each event by `metadata.phone_number_id` to the right business. Jawab also reads
+  in Settings → Channels and completes Meta's Embedded Signup flow. It runs on Yapoz's own Meta app (`META_APP_ID`,
+  `META_APP_SECRET`) with the optional Login configuration in `META_EMBEDDED_SIGNUP_CONFIG_ID`. Numbers connected this way arrive at
+  `/api/webhooks/whatsapp`, which routes each event by `metadata.phone_number_id` to the right business. Yapoz also reads
   delivery status callbacks, so the app's webhook must subscribe to the `messages` field.
   Setup for the platform owner (once):
   1. At developers.facebook.com, create a Meta app of type Business.
@@ -56,26 +56,19 @@ below are only used by the shared Telegram bot, Jawab's own Meta app, and as a f
   4. Put the app's App ID and App secret into `META_APP_ID` and `META_APP_SECRET`.
   5. In the app's webhook settings, set the callback URL to `<APP_URL>/api/webhooks/whatsapp` with the verify token
      (`WHATSAPP_VERIFY_TOKEN`), and subscribe to `messages`.
-- **Connecting a business, option 2: manual credentials.** The business enters its own credentials in Settings → Channels.
-  Two steps, because the Meta app and the WhatsApp number are saved separately.
-  1. *Meta app*: App ID + App secret. Checked with `GET /{app_id}?fields=name` using the app access token `{app_id}|{app_secret}`
-     (Meta rejects a wrong pair); saved in `integrations` (provider `meta_app`), the secret encrypted.
-  2. *WhatsApp number*: Phone number ID, WhatsApp Business Account ID, access token. Checked with
-     `GET /debug_token?input_token=…` (valid, `app_id` equals the saved App ID, scopes include `whatsapp_business_messaging` and
-     `whatsapp_business_management`, `expires_at` shown to the owner), `GET /{waba_id}/phone_numbers` (the Phone number ID
-     must be on that account) and `POST /{waba_id}/subscribed_apps`. Only then is the token saved (encrypted).
-     Meta's own **test numbers** sit on an account no System User can be assigned to: the token can read the number
-     (`GET /{phone_number_id}`) but not the account. Then the number alone is confirmed, the account is flagged as not
-     confirmed in Settings, and no subscription is attempted (Meta's app-level webhook delivers). A number that isn't on an
-     account the token *can* see is still refused.
-  We then show a per-business callback URL `/api/webhooks/whatsapp/<channelId>` plus a verify token to paste into the app's
-  webhook settings (field `messages`). The verify token is generated on the first connect and then kept: reconnecting, or
-  disconnecting and connecting again, reuses it, so Meta's webhook settings never go stale. While disconnected the handshake
-  still passes but deliveries are ignored (answered 200 so Meta doesn't keep retrying). Env fallbacks for the demo workspace: `META_APP_ID`, `META_APP_SECRET`,
-  `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_BUSINESS_ACCOUNT_ID`, `WHATSAPP_TOKEN`.
+- **Connecting a business, option 2: manual credentials.** The business enters only its number's details in Settings → Channels:
+  Phone number ID, WhatsApp Business Account ID, access token. Everything about the Meta app is the platform's (env), never a
+  business's input. Checked with `GET /debug_token?input_token=…` (valid, `app_id` equals `META_APP_ID`, scopes include
+  `whatsapp_business_messaging` and `whatsapp_business_management`, `expires_at` shown to the owner), `GET /{waba_id}/phone_numbers`
+  (the Phone number ID must be on that account) and `POST /{waba_id}/subscribed_apps`. The token therefore has to come from the
+  platform's Meta app (a System User with that app and the business's account assigned). Meta's own **test numbers** sit on an
+  account no System User can be assigned to: the token can read the number but not the account. Then the number alone is
+  confirmed in Settings, and no subscription is attempted (Meta's app-level webhook delivers). A number that isn't on an
+  account the token CAN see is still refused. The token is stored encrypted on the channel row, never sent back to the browser.
+  Env fallbacks for the demo workspace's number: `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_BUSINESS_ACCOUNT_ID`, `WHATSAPP_TOKEN`.
 - Webhook: `GET` verification with `hub.mode=subscribe`, `hub.verify_token`, `hub.challenge`; `POST` bodies are verified with
-  `X-Hub-Signature-256 = "sha256=" + HMAC_SHA256(raw body, app secret)` before parsing (the business's saved Meta app secret
-  on its per-channel URL, falling back to the secret stored with an older connection; `META_APP_SECRET` on the platform URL).
+  `X-Hub-Signature-256 = "sha256=" + HMAC_SHA256(raw body, app secret)` before parsing (`META_APP_SECRET`). One URL serves every
+  number, whichever way it was connected: `<APP_URL>/api/webhooks/whatsapp`, handshake checked against `WHATSAPP_VERIFY_TOKEN`.
 - **24-hour customer-service window:** free-form messages only within 24 h of the customer's last message (we check
   `threads.last_inbound_at`). Outside it, only approved templates (helper `sendWhatsAppTemplate`); a staff message that
   can't be sent shows as "Customer NOT told" on the order, with the reason and a Retry.

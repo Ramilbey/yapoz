@@ -16,6 +16,7 @@ import { formatMoney } from "./money";
 import { fetchAttachment } from "@/channels/media";
 import { human, zoned } from "./time";
 import { firmHolds, receiptCardKey, reopenExpired, stockSettings } from "./stock";
+import { log } from "./log";
 
 type Ws = typeof t.workspaces.$inferSelect;
 type Thread = typeof t.threads.$inferSelect;
@@ -157,7 +158,7 @@ export const readWithAI: Reader = async (bytes, mime) => {
     if (mime !== "application/pdf" && !answeredByVision(res.model)) return { reading: null, model: res.model ?? null };
     return { reading: normaliseReading(use.input), model: res.model ?? null };
   } catch (e) {
-    console.error("[receipts] reading failed", e);
+    log.error("receipts.reading_failed", { err: e });
     return { reading: null, model: null };
   }
 };
@@ -283,6 +284,7 @@ export function assessReceipt(i: AssessInput): { verdict: Verdict; checks: Recei
 
   // Reuse
   for (const d of i.duplicates) add("duplicate", "fail", `${d.why === "same file" ? "The same file" : "The same transaction reference"} was already used for order ${d.refCode}.`);
+  if (!i.duplicates.length) add("reuse", "pass", "Not used for another order.");
   if (!r.reference) add("reference", "warn", "No transaction or reference number shown.");
 
   // Visual oddities: advice only, never enough on its own to say a receipt is wrong
@@ -355,7 +357,7 @@ export async function receiptIntake(ws: Ws, thread: Thread, inbound: Message, op
   try {
     bytes = await fetchAttachment(thread, file);
   } catch (e) {
-    console.error("[receipts] couldn't fetch the file", e);
+    log.error("receipts.fetch_failed", { workspaceId: thread.workspaceId, threadId: thread.id, orderId: order.id, err: e });
     return { reply: askAgain("I couldn't open that file."), orderRef: order.refCode, verdict: null };
   }
   const mime = sniffMime(bytes);
