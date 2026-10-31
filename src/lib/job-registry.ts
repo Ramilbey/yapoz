@@ -1,6 +1,7 @@
 import type { JobHandler } from "./jobs";
 
 const registry: Record<string, () => Promise<JobHandler>> = {
+  "calendar.sync": async () => (await import("./google-calendar")).syncBookingJob,
   "inbound.process": async () => (await import("@/agent/pipeline")).processInboundJob,
   "telegram.update": async () => (await import("@/channels/telegram/handle")).handleTelegramUpdateJob,
   "whatsapp.webhook": async () => (await import("@/channels/whatsapp")).handleWhatsAppJob,
