@@ -28,9 +28,12 @@ We built Yapoz to help Malaysian micro and small businesses turn customer conver
 | Customer simulator | [Ring the bell](https://yapoz.vercel.app/#ring) |
 | Demo video (full pitch and demonstration) | [Watch on YouTube](https://youtu.be/9oFCyjG2bRc) |
 | RunPod endpoint | Not used (see [How We Use RunPod](#how-we-use-runpod)) |
-| Slide deck | [Yapoz-Pitch Slide Deck.pdf](submission/Yapoz-Pitch%20Slide%20Deck.pdf) |
+| Pitch slides (Final) | [Pitch slides on Google Drive](https://drive.google.com/drive/folders/1JVvEamFFgHteVy2LUkIj9ocRPA2Yt4Kl) |
+| Backup demo video | [Backup demo on Google Drive](https://drive.google.com/drive/folders/1JVvEamFFgHteVy2LUkIj9ocRPA2Yt4Kl) |
+| Final Project & Prototype Report | [SDC2026_Yaponomics_Final.pdf](submission/SDC2026_Yaponomics_Final.pdf) |
 | Preliminary submission | [Project proposal](submission/SDC2026_Yaponomics_Preliminary_Submission.pdf) |
-| Technical & Tools Declaration | [Tools declaration](submission/SDC2026_Yaponomics_Technical%20Tools%20Declaration.pdf) |
+| Preliminary slide deck | [Yapoz-Pitch Slide Deck.pdf](submission/Yapoz-Pitch%20Slide%20Deck.pdf) |
+| Technical & Tools Declaration (Preliminary) | [Tools declaration](submission/SDC2026_Yaponomics_Technical%20Tools%20Declaration.pdf) |
 
 ## Overview
 
@@ -338,13 +341,14 @@ Dependencies appear in `package.json` and `package-lock.json`. Third-party libra
 
 ## Submission Documents
 
-Our submission comprises the source repository, live prototype, slide deck, preliminary proposal, Technical & Tools Declaration and complete YouTube pitch with demonstration. The document links appear at the top of this README.
+Our submission comprises the source repository, live prototype, final report, pitch slides, backup demo video, Technical & Tools Declaration and complete YouTube pitch with demonstration. The links appear at the top of this README. The Final pitch slides and the backup demo video are on [Google Drive](https://drive.google.com/drive/folders/1JVvEamFFgHteVy2LUkIj9ocRPA2Yt4Kl).
 
 | File in `submission/` | Purpose |
 | --- | --- |
+| [`SDC2026_Yaponomics_Final.pdf`](submission/SDC2026_Yaponomics_Final.pdf) | Final Project & Prototype Report |
 | `SDC2026_Yaponomics_Preliminary_Submission.pdf` | Official preliminary proposal |
-| `SDC2026_Yaponomics_Technical Tools Declaration.pdf` | Technical stack, APIs, tools and resource declarations |
-| `Yapoz-Pitch Slide Deck.pdf` | Presentation slides |
+| `SDC2026_Yaponomics_Technical Tools Declaration.pdf` | Preliminary technical stack, APIs, tools and resource declarations |
+| `Yapoz-Pitch Slide Deck.pdf` | Presentation slides from the preliminary round |
 | `Replit Usage Proof.pdf` | Replit proof of use |
 
 ## Submission Checklist
@@ -356,7 +360,8 @@ Our submission comprises the source repository, live prototype, slide deck, prel
 - [x] RunPod not used, and explained in [How We Use RunPod](#how-we-use-runpod)
 - [x] Preliminary submission completed (`SDC2026_Yaponomics_Preliminary_Submission.pdf`)
 - [ ] Technical & Tools Declaration updated for the Final
-- [ ] Final report added to `submission/`
+- [x] Final report added to `submission/`
+- [x] Final pitch slides and backup demo video linked (Google Drive)
 - [ ] "How to Run" steps verified on a clean machine
 - [x] No API keys or secrets committed to the repository (tracked files scanned; `.env` is git-ignored)
 
