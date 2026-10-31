@@ -10,7 +10,7 @@ import { knowledge } from "../src/agent/knowledge";
 import { runTool, type ToolContext } from "../src/agent/tools";
 import { transitionOrder, orderMessage, loadOrders, placeOrder } from "../src/lib/orders";
 import { ingest, respond } from "../src/agent/pipeline";
-import { acknowledgement } from "../src/agent/acknowledge";
+import { acknowledgement, holdingReply } from "../src/agent/acknowledge";
 
 const OWNER = "00000000-0000-4000-8000-000000000001";
 
@@ -353,6 +353,46 @@ test("if the AI dies before saving anything, the holding reply and the staff car
   assert.equal(out.outcome, "error");
   assert.equal(escalations.length, 1);
   assert.match(escalations[0].summary, /^The customer got the holding reply because no AI could answer \(/);
+});
+
+test("a complaint mixed with an order: the customer keeps the reference code and a person still gets the complaint", async () => {
+  process.env.GROQ_API_KEY = "test-groq";
+  delete process.env.GEMINI_API_KEY;
+  delete process.env.ANTHROPIC_API_KEY;
+  const realFetch = globalThis.fetch;
+  const json = (message: unknown, finish: string) => new Response(JSON.stringify({ id: "x", object: "chat.completion", created: 0, model: "m", choices: [{ index: 0, finish_reason: finish, message }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } }), { status: 200, headers: { "content-type": "application/json" } });
+  const call = (name: string, a: unknown) => ({ role: "assistant", content: null, tool_calls: [{ id: `call_${name}`, type: "function", function: { name, arguments: JSON.stringify(a) } }] });
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.endsWith("/models")) return new Response("no", { status: 503 });
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (body.tool_choice?.function?.name === "classify") return json(call("classify", { intent: "complaint", topic: "cold pizza", language: "en", sentiment: "negative", confidence: 0.95, must_escalate: true, escalate_category: "complaint", summary: "Last pizza arrived cold; also ordering again", holding_reply: "I'm sorry about that. Someone from our team will reply here shortly." }), "tool_calls");
+    if (body.messages.at(-1).role === "tool") return json({ role: "assistant", content: "Your order is all sorted, enjoy!" }, "stop");
+    return json(call("create_order", { items: [{ product: "margherita", size: "large", quantity: 1 }], fulfilment: "pickup", customer_name: "Hana" }), "tool_calls");
+  }) as typeof fetch;
+  try {
+    const sid = `mixed${Math.random().toString(36).slice(2, 10)}`;
+    const r = await ingest({ workspaceId: "FORNO7", channel: "simulator", externalThreadId: `sim:${sid}`, customer: { externalId: sid, displayName: "Hana" }, text: "My last pizza came cold! Anyway, one large margherita for pickup please", attachments: [], receivedAt: new Date() });
+    const out = await respond(r.thread.id, r.messageId);
+    const [order] = await db.select().from(t.orders).where(eq(t.orders.threadId, r.thread.id));
+    assert.equal(order.status, "pending", "the order is saved and still waits for staff");
+    assert.ok((out.reply ?? "").includes(order.refCode), "the customer sees the reference code");
+    assert.match(out.reply ?? "", /Someone from our team will reply here shortly\.$/);
+    assert.ok(!/all sorted/.test(out.reply ?? ""), "the agent's unchecked reply is still dropped");
+    assert.equal(out.outcome, "escalated");
+    assert.equal(out.order?.refCode, order.refCode);
+    const escalations = await db.select().from(t.escalations).where(eq(t.escalations.threadId, r.thread.id));
+    assert.deepEqual(escalations.map((e) => [e.category, e.priority]), [["complaint", "high"]]);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("holdingReply(): a booking keeps its reference code, and nothing saved leaves the holding reply alone", () => {
+  const log = (name: string, output: unknown, ok = true) => ({ name, input: {}, output, ms: 1, ok, label: "" });
+  const booked = holdingReply("Someone will reply here.", [log("book_appointment", { refCode: "APT-AAAA", service: "Haircut", label: "Mon 2 Nov, 10:00am", with: "Aina", price: "RM 60" })]);
+  assert.equal(booked, "Got it! Your booking request APT-AAAA is in: Haircut, Mon 2 Nov, 10:00am, with Aina.\nPrice RM 60. The team will confirm it shortly.\n\nSomeone will reply here.");
+  assert.equal(holdingReply("Someone will reply here.", [log("book_appointment", { ok: false }, false)]), "Someone will reply here.");
 });
 
 test("acknowledgement(): delivery orders say 'plus delivery', failed tool calls are ignored, nothing saved means null", () => {

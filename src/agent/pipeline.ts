@@ -3,7 +3,7 @@ import { db, t } from "@/db";
 import { and, desc, eq, gt, lte, ne, sql } from "drizzle-orm";
 import { claude, addUsage, textOf, type Usage } from "./claude";
 import { explainAiError } from "./ai-router";
-import { acknowledgement } from "./acknowledge";
+import { acknowledgement, holdingReply } from "./acknowledge";
 import { receiptIntake, orderAwaitingReceipt } from "@/lib/receipts";
 import { expireDueOrders } from "@/lib/stock";
 import { sendDueReminders, teamLines } from "@/lib/appointments";
@@ -239,7 +239,8 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
       const threshold = ws.settings.confidenceThreshold ?? 0.55;
       if (cls && !ctx.escalations.length && cls.must_escalate && cls.escalate_category) {
         toolLog.push(await runTool(ctx, "escalate", { category: cls.escalate_category, priority: ["complaint", "refund", "legal", "allergy", "medical", "abuse"].includes(cls.escalate_category) ? "high" : "normal", reason: `Auto: ${cls.escalate_category}`, summary: cls.summary }, latest));
-        reply = cls.holding_reply || DEFAULT_HOLD;
+        // The agent's reply is dropped, but anything it saved is still acknowledged: the customer needs that reference code.
+        reply = holdingReply(cls.holding_reply || DEFAULT_HOLD, toolLog);
       } else if (!reply && acknowledgement(toolLog)) {
         reply = acknowledgement(toolLog)!;
       } else if (!reply) {
@@ -254,7 +255,7 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
       console.error("[agent] failed", e);
       const ack = ctx.escalations.length ? null : acknowledgement(toolLog);
       acked = Boolean(ack);
-      reply = ack ?? DEFAULT_HOLD;
+      reply = ack ?? holdingReply(DEFAULT_HOLD, toolLog);
       // The reason goes to staff only (Needs you, Inbox); the customer gets the holding reply above.
       // An acknowledged order is already in the team's queue, so it doesn't need a second card.
       if (!ack && !ctx.escalations.length) toolLog.push(await runTool(ctx, "escalate", { category: "ai_failure", priority: "high", reason: "Every AI provider failed", summary: `The customer got the holding reply because no AI could answer (${explainAiError(e)}). They wrote: “${latest.slice(0, 60)}”` }, latest));
