@@ -110,7 +110,8 @@ Do not enable `prepare: true` when running against Supabase port 6543, as PgBoun
 5. `drizzle/0005_stock.sql`: the stock tables, columns and `expired` order status. **An existing database needs this run once** (same as 0002). It is safe to run twice, and it is also appended to `supabase_setup.sql`.
 6. `drizzle/0006_appointments.sql`: the `staff` and `appointments` tables, `kb_items.in_person` and `orders.kind`, with live-update triggers and row-level security. **An existing database needs this run once** (same as 0002), after 0005. It is safe to run twice, and it is also appended to `supabase_setup.sql`.
 7. `drizzle/0007_email_verification.sql`: email verification. **An existing database needs this run once, before the new code is deployed**, or every login fails on the missing column. It marks all existing users as verified and is safe to run twice. It is also appended to `supabase_setup.sql`.
-8. Seeding via terminal:
+8. `drizzle/0008_alerts.sql`: order alerts. **An existing database needs this run once, before the new code is deployed**, or every login fails on the missing column. It is safe to run twice, and is also appended to `supabase_setup.sql`.
+9. Seeding via terminal:
    ```bash
    DATABASE_URL="<Supabase-Pooler-URL>" npm run db:seed
    ```

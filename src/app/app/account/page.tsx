@@ -6,6 +6,7 @@ import { send } from "@/components/app/fetcher";
 import { useToast } from "@/components/app/toast";
 import { Input, Label } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
+import { AlertSettingsForm } from "@/components/app/alert-settings";
 
 export default function AccountPage() {
   const toast = useToast();
@@ -29,7 +30,7 @@ export default function AccountPage() {
   }
   return (
     <div>
-      <PageHeader title="Your account" description="Your name as teammates see it, your password, and where you're signed in." />
+      <PageHeader title="Your account" description="Your name as teammates see it, your password, your alerts, and where you're signed in." />
       <div className="grid max-w-[880px] grid-cols-1 gap-12 md:grid-cols-2">
         <form onSubmit={(e) => { e.preventDefault(); void save("name"); }} className="space-y-3">
           <h2 className="font-display text-[20px] font-bold">Name</h2>
@@ -51,6 +52,7 @@ export default function AccountPage() {
           </div>
           <Button type="submit" loading={busy === "pw"}>Change password</Button>
         </form>
+        <AlertSettingsForm />
         <section className="space-y-3 md:col-span-2">
           <h2 className="font-display text-[20px] font-bold">Signed-in devices</h2>
           <p className="max-w-[60ch] text-[14px] text-muted">Lost a phone, or used a shared computer? Sign out everywhere else. Changing your password does this too.</p>

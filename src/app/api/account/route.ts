@@ -35,6 +35,8 @@ export const PATCH = handle(async (req: Request) => {
   }
   if (!Object.keys(set).length) return ok({ ok: true });
   const [next] = await db.update(t.users).set(set).where(eq(t.users.id, u.id)).returning();
+  // Devices signed out here shouldn't keep showing orders.
+  if (b.newPassword || b.signOutEverywhere) await db.delete(t.pushSubscriptions).where(eq(t.pushSubscriptions.userId, u.id));
   await startSession(next);
   if (b.newPassword) await audit(s, "auth.password_changed");
   if (b.signOutEverywhere) await audit(s, "auth.signed_out_everywhere");

@@ -1,3 +1,4 @@
+import { queueAlert } from "@/lib/alerts";
 import type Anthropic from "@anthropic-ai/sdk";
 import { db, t } from "@/db";
 import { and, eq, gt, sql } from "drizzle-orm";
@@ -545,6 +546,7 @@ export async function runTool(ctx: ToolContext, name: string, input: Record<stri
           .returning();
         await db.update(t.threads).set({ status: "needs_human" }).where(eq(t.threads.id, ctx.threadId));
         await db.insert(t.events).values({ workspaceId: ctx.ws.id, type: "escalation.created", props: { threadId: ctx.threadId, category, priority: row.priority, reason: row.reason, summary: row.summary }, isDemo: Boolean(ctx.isDemo) });
+        if (!ctx.isDemo && row.priority !== "low") await queueAlert("needs", row.id, ctx.ws.id);
         if (category === "knowledge_gap") await recordGap({ workspaceId: ctx.ws.id, key: String(input.gap_key ?? input.reason ?? ""), question: lastQuestion, isDemo: ctx.isDemo });
         ctx.escalations.push({ id: row.id, category, summary: row.summary });
         return done({ ok: true, escalationId: row.id, instruction: "Now send a short holding reply: the team will follow up in this chat. Don't answer the substance." }, `escalated: ${category.replace("_", " ")}`);

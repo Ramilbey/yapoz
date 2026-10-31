@@ -4,6 +4,7 @@
 import { and, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import { db, t } from "@/db";
 import type { ReceiptRequest } from "@/db/schema";
+import { queueAlert } from "./alerts";
 import { shortCode } from "./crypto";
 import { formatMoney } from "./money";
 import { paidSoFar, paymentLines, paymentsOf, receiptRequired, receiptsFor, resolveCards, type ReceiptSummary } from "./receipts";
@@ -128,6 +129,7 @@ export async function placeOrder(ws: Ws, input: OrderInput): Promise<{ ok: true;
       return { order, items, duplicate: false, held: held.holds.map((h) => h.variantId) };
     });
     if (done) {
+      if (!done.duplicate && !done.order.isDemo) await queueAlert("order", done.order.id, ws.id);
       if (done.held?.length) await checkLowStock(ws.id, done.held).catch((e) => console.error("[stock] low-stock check failed", e));
       return { ok: true, order: done.order, items: done.items, duplicate: done.duplicate };
     }

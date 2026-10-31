@@ -4,6 +4,7 @@
 // is genuine, and nothing here confirms an order or marks it paid. Customers are never told what the checks found.
 // When staff turn a receipt down (Ask for another receipt), the order waits for the next one and it is checked against
 // what was asked for: the full total again, or just the difference still owed.
+import { queueAlert } from "./alerts";
 import { createHash } from "node:crypto";
 import { and, desc, eq, getTableColumns, gt, inArray, isNull, ne, sql } from "drizzle-orm";
 import { db, t } from "@/db";
@@ -460,6 +461,7 @@ export async function handOver(workspaceId: string, threadId: string, e: { categ
   const [row] = await db.insert(t.escalations).values({ workspaceId, threadId, dedupeKey: key, category: e.category, priority: e.priority, reason: e.reason, summary: e.summary.slice(0, 300), isDemo: Boolean(e.isDemo) }).returning({ id: t.escalations.id });
   await db.update(t.threads).set({ status: "needs_human" }).where(eq(t.threads.id, threadId));
   await db.insert(t.events).values({ workspaceId, type: "escalation.created", props: { threadId, category: e.category, priority: e.priority, reason: e.reason, summary: e.summary.slice(0, 300) }, isDemo: Boolean(e.isDemo) });
+  if (!e.isDemo && e.priority !== "low") await queueAlert("needs", row.id, workspaceId);
   return row.id;
 }
 

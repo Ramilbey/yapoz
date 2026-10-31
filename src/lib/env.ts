@@ -66,6 +66,10 @@ export const env = {
   get turnstile() {
     return { siteKey: process.env.TURNSTILE_SITE_KEY ?? "", secretKey: process.env.TURNSTILE_SECRET_KEY ?? "" };
   },
+  /** Keys for phone and desktop notifications. Generate a pair with: npx web-push generate-vapid-keys */
+  get push() {
+    return { publicKey: process.env.VAPID_PUBLIC_KEY ?? "", privateKey: process.env.VAPID_PRIVATE_KEY ?? "", subject: process.env.VAPID_SUBJECT || "mailto:hello@yapoz.live" };
+  },
   get cronSecret() {
     return process.env.CRON_SECRET ?? "";
   },

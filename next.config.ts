@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["postgres", "bcryptjs", "unpdf"],
+  serverExternalPackages: ["postgres", "bcryptjs", "unpdf", "web-push"],
   poweredByHeader: false,
   images: { unoptimized: true },
   async headers() {
@@ -18,6 +18,8 @@ const nextConfig: NextConfig = {
           { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
         ],
       },
+      // Browsers must pick up a new service worker straight away.
+      { source: "/sw.js", headers: [{ key: "Cache-Control", value: "no-cache" }] },
       // Signed-in pages and API answers carry business and customer data: never cache them in shared caches.
       { source: "/app/:path*", headers: [{ key: "Cache-Control", value: "private, no-store" }] },
       { source: "/api/:path*", headers: [{ key: "Cache-Control", value: "private, no-store" }] },

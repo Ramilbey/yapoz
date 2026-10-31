@@ -1,9 +1,11 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import useSWR from "swr";
 import { LiveProvider, useLive, useLiveStatus } from "./live";
+import { Alerts, BellToggle } from "./alerts";
+import { turnOffPush } from "./push";
 import { ToastProvider } from "./toast";
 import { getJson } from "./fetcher";
 import { cx } from "../ui/cx";
@@ -68,6 +70,7 @@ function ShellInner({ session, workspace, children }: { session: Session; worksp
   const { data: counts, mutate } = useSWR<{ needs: number; drafts: number; orders: number; gaps: number }>("/api/nav-counts", getJson, { refreshInterval: 60_000, revalidateOnFocus: false });
   // Badges only move on real (non-demo) changes, at most every few seconds.
   useLive(["escalations", "messages", "orders", "knowledge_gaps"], () => mutate(), 1500, (e) => !e.demo);
+  const onNew = useCallback(() => void mutate(), [mutate]);
 
   // The boot script in the app layout has already applied the user's choice (or their system setting); mirror it.
   useEffect(() => setTheme(document.documentElement.dataset.theme === "light" ? "light" : "dark"), []);
@@ -82,6 +85,7 @@ function ShellInner({ session, workspace, children }: { session: Session; worksp
     } catch {}
   }
   async function signOut() {
+    await turnOffPush().catch(() => {});
     await fetch("/api/auth/logout", { method: "POST" });
     router.replace("/login");
   }
@@ -156,9 +160,12 @@ function ShellInner({ session, workspace, children }: { session: Session; worksp
             <span className="a">DARK</span>
             <span className="b">LIGHT</span>
           </button>
-          <button onClick={signOut} className="h-8 rounded-[10px] border border-line-strong px-3 text-[13px] font-medium text-fg hover:bg-raised">
-            Sign out
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={signOut} className="h-8 rounded-[10px] border border-line-strong px-3 text-[13px] font-medium text-fg hover:bg-raised">
+              Sign out
+            </button>
+            <BellToggle />
+          </div>
         </div>
       </div>
     </nav>
@@ -166,6 +173,7 @@ function ShellInner({ session, workspace, children }: { session: Session; worksp
 
   return (
     <div className="min-h-dvh bg-bg text-fg">
+      <Alerts count={(counts?.orders ?? 0) + (counts?.needs ?? 0)} onNew={onNew} />
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-[248px] border-r border-line bg-panel lg:block">{rail}</aside>
       <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-line bg-panel px-4 lg:hidden">
         <span className="font-display text-[20px] font-extrabold">Yapoz</span>
