@@ -16,7 +16,7 @@ import { Input, Textarea, Label } from "@/components/ui/field";
 import { useToast } from "@/components/app/toast";
 import { cx } from "@/components/ui/cx";
 import type { AppointmentView } from "@/lib/appointment-types";
-import type { BenefitRow } from "@/lib/benefit";
+import type { BenefitSet } from "@/lib/benefit";
 
 type Today = {
   today: string;
@@ -207,17 +207,17 @@ function StockCards() {
 
 /** Owner-only: anyone else gets a 403 from the API, so nothing shows. */
 function BenefitPanel({ includeDemo }: { includeDemo: boolean }) {
-  const { data, mutate } = useSWR<{ sets: { demo: boolean; measured: boolean; rows: BenefitRow[] }[] }>(`/api/owner/benefit?demo=${includeDemo ? 1 : 0}`, getJson, { shouldRetryOnError: false });
+  const { data, mutate } = useSWR<{ sets: BenefitSet[] }>(`/api/owner/benefit?demo=${includeDemo ? 1 : 0}`, getJson, { shouldRetryOnError: false });
   useLive(["orders", "order_receipts"], () => mutate(), 2000);
   if (!data) return null;
   return (
     <section className="panel mt-6 p-5" aria-label="Measured benefit">
-      <SectionTitle title="Measured benefit" sub="Worked out from recorded orders and receipts, compared with the Phase 2 targets. Only you can see this." />
+      <SectionTitle title="Measured benefit" sub="How much checking Yapoz saves you on each order, compared with the goals we set. Worked out from your recorded orders and receipts. Only you can see this." />
       <div className="space-y-5">
         {data.sets.map((set) => (
-          <div key={String(set.demo)}>
+          <div key={set.kind}>
             <h3 className="mb-1 flex items-center gap-2 text-[14px] font-medium">
-              {set.demo ? <><Chip tone="brass">Demo data</Chip> Seeded test records, not real customers</> : "Real orders"}
+              {set.kind === "real" ? set.label : <><Chip tone="brass">{set.label}</Chip> {set.note}</>}
             </h3>
             {set.measured ? (
               <div className="overflow-x-auto">
