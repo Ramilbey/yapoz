@@ -116,6 +116,9 @@ function calendar(ws: Workspace, now: Date): string[] {
   });
 }
 
+/** How long after the last staff message an unreleased takeover lapses and the AI resumes. */
+const TAKEOVER_IDLE_MS = 2 * 60 * 60_000;
+
 const DEFAULT_HOLD = "Thanks for your message! I've passed this to our team and someone will reply here shortly.";
 
 /** Run the inbox agent for one inbound message and deliver (or draft) the reply. */
@@ -123,7 +126,19 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
   const started = Date.now();
   const [thread] = await db.select().from(t.threads).where(eq(t.threads.id, threadId));
   if (!thread) throw new Error("thread not found");
-  if (thread.aiPaused) return { skipped: "takeover" };
+  if (thread.aiPaused) {
+    // A takeover nobody released must not silence the customer for good: after a quiet spell the AI answers again.
+    const [lastStaff] = await db
+      .select({ at: t.messages.createdAt })
+      .from(t.messages)
+      .where(and(eq(t.messages.threadId, threadId), eq(t.messages.author, "staff"), eq(t.messages.direction, "out")))
+      .orderBy(desc(t.messages.createdAt))
+      .limit(1);
+    // Taken over without a reply is a deliberate hold: only a staff message starts the quiet-spell clock.
+    if (!lastStaff || Date.now() - lastStaff.at.getTime() < TAKEOVER_IDLE_MS) return { skipped: "takeover" };
+    await db.update(t.threads).set({ aiPaused: false, takenOverBy: null }).where(eq(t.threads.id, threadId));
+    thread.aiPaused = false;
+  }
   const [ws] = await db.select().from(t.workspaces).where(eq(t.workspaces.id, thread.workspaceId));
   // Until the owner presses Go live, real channels only collect messages; the dashboard simulator always answers.
   if (!ws.settings.live && thread.channel !== "simulator") return { skipped: "not_live" };
