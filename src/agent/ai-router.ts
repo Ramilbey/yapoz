@@ -175,7 +175,7 @@ function tierOf(model?: string): Tier {
 }
 
 const MODEL_LIST_TTL = 10 * 60_000;
-const modelLists = new Map<string, { at: number; ids: Promise<string[] | null> }>();
+const modelLists = new Map<string, { at: number; ids: Promise<string[] | null>; known?: string[] }>();
 
 /**
  * A model that answered 404 is set aside for an hour. Google keeps listing models that a key can no longer call
@@ -197,15 +197,28 @@ function availableModels(p: AIProviderConfig): Promise<string[] | null> {
   const hit = modelLists.get(p.name);
   if (hit && Date.now() - hit.at < MODEL_LIST_TTL) return hit.ids;
   const client = new OpenAI({ apiKey: p.apiKey || "dummy", baseURL: p.baseURL, timeout: 8000, maxRetries: 0 });
-  const ids = client.models
+  const fetched = client.models
     .list()
     .then((page) => page.data.map((m) => m.id.replace(/^models\//, "")))
     .catch((e) => {
       console.warn(`[AI Router] Couldn't list ${p.name} models: ${e?.message ?? e}`);
       return null;
     });
-  modelLists.set(p.name, { at: Date.now(), ids });
-  return ids;
+  // An expired list we already have is used as-is while the new one loads, so a customer's reply never waits on this call.
+  if (hit?.known) {
+    const entry = { at: Date.now(), ids: Promise.resolve(hit.known), known: hit.known };
+    modelLists.set(p.name, entry);
+    void fetched.then((ids) => {
+      if (ids && modelLists.get(p.name) === entry) modelLists.set(p.name, { at: Date.now(), ids: Promise.resolve(ids), known: ids });
+    });
+    return entry.ids;
+  }
+  const entry: { at: number; ids: Promise<string[] | null>; known?: string[] } = { at: Date.now(), ids: fetched };
+  modelLists.set(p.name, entry);
+  void fetched.then((ids) => {
+    if (ids) entry.known = ids;
+  });
+  return fetched;
 }
 
 /** The configured model if the provider still serves it, otherwise the best replacement it does serve. */

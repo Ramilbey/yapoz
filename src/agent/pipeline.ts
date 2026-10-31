@@ -163,29 +163,35 @@ async function answer({ ws, thread, customer, inbound, mode, stopTyping, started
   const inboundMessageId = inbound.id;
   const opts = { isDemo };
   // Unpaid orders past their timer are expired before anything reads them (the receipt check, the AI's order list).
-  await expireDueOrders(ws.id).catch((e) => console.error("[stock] expiry failed", e));
-  await sendDueReminders(ws.id).catch((e) => console.error("[appointments] reminders failed", e));
+  // Both start now and overlap with loading the chat; reminders are network sends the reply never waits for (they finish before we return).
+  const expired = expireDueOrders(ws.id).catch((e) => console.error("[stock] expiry failed", e));
+  const reminders = sendDueReminders(ws.id).catch((e) => console.error("[appointments] reminders failed", e));
 
   // A file from a customer whose order is waiting for its payment receipt: read and check it, answer from a fixed template.
   if (inbound.attachments.length) {
+    await expired;
     const receipt = await receiptIntake(ws, thread, inbound, { isDemo: opts.isDemo }).catch((e) => {
       console.error("[receipts] intake failed", e);
       return null;
     });
     if (receipt) {
       stopTyping();
+      await reminders;
       const sent = await deliver(thread, receipt.reply, { author: "ai", status: mode === "copilot" ? "pending_approval" : "sent", isDemo: opts.isDemo });
       await db.insert(t.events).values({ workspaceId: ws.id, type: "message.answered", props: { channel: thread.channel, outcome: "receipt", threadId, status: sent.status }, isDemo: Boolean(opts.isDemo) });
       return { reply: receipt.reply, status: sent.status, outcome: "receipt", latencyMs: Date.now() - started };
     }
   }
 
-  const historyRows = await db
-    .select()
-    .from(t.messages)
-    .where(and(eq(t.messages.threadId, threadId), ne(t.messages.status, "pending_approval"), ne(t.messages.status, "discarded"), lte(t.messages.createdAt, inbound.createdAt)))
-    .orderBy(desc(t.messages.createdAt))
-    .limit(20);
+  const [historyRows, kb] = await Promise.all([
+    db
+      .select()
+      .from(t.messages)
+      .where(and(eq(t.messages.threadId, threadId), ne(t.messages.status, "pending_approval"), ne(t.messages.status, "discarded"), lte(t.messages.createdAt, inbound.createdAt)))
+      .orderBy(desc(t.messages.createdAt))
+      .limit(20),
+    knowledge(ws),
+  ]);
   historyRows.reverse();
   const convo: Anthropic.Messages.MessageParam[] = [];
   for (const m of historyRows) {
@@ -200,7 +206,7 @@ async function answer({ ws, thread, customer, inbound, mode, stopTyping, started
 
   const usage: Usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   const ctx: ToolContext = {
-    ws, catalog: (await knowledge(ws)).catalog, threadId, customerId: customer.id,
+    ws, catalog: kb.catalog, threadId, customerId: customer.id,
     customerName: customer.displayName ?? customer.username ?? "", channel: thread.channel, escalations: [], orders: [], isDemo: opts.isDemo,
   };
   const toolLog: ToolCallLog[] = [];
@@ -222,8 +228,12 @@ async function answer({ ws, thread, customer, inbound, mode, stopTyping, started
     model = "none";
   } else {
     try {
-      const kb = await knowledge(ws);
-      const gaps = await openGapKeys(ws.id);
+      // Orders are read after expiry has run; everything else is independent.
+      const [gaps, orders, team] = await Promise.all([
+        openGapKeys(ws.id),
+        expired.then(() => chatOrders(threadId, ws)),
+        teamLines(ws, ctx.catalog.items.filter((i) => i.kind === "service")),
+      ]);
       const system: Anthropic.Messages.TextBlockParam[] = [
         { type: "text", text: rules(ws), cache_control: { type: "ephemeral" } },
         { type: "text", text: kb.block, cache_control: { type: "ephemeral" } },
@@ -236,8 +246,8 @@ async function answer({ ws, thread, customer, inbound, mode, stopTyping, started
             customerName: ctx.customerName || null,
             gaps,
             mode,
-            orders: await chatOrders(threadId, ws),
-            team: await teamLines(ws, ctx.catalog.items.filter((i) => i.kind === "service")),
+            orders,
+            team,
           }),
         },
       ];
@@ -336,6 +346,7 @@ async function answer({ ws, thread, customer, inbound, mode, stopTyping, started
   if (cls?.language) await db.update(t.customers).set({ language: cls.language }).where(eq(t.customers.id, customer.id));
 
   stopTyping();
+  await reminders;
   if (newer) {
     return { skipped: "superseded", runId: run.id, outcome, latencyMs, model: answeredBy ?? model };
   }
