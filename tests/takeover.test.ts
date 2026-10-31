@@ -51,7 +51,14 @@ test("a takeover quiet for 2 hours hands the chat back and logs the thread and t
 
 test("two messages at once log it once", async () => {
   const { workspaceId, thread, inbound } = await pausedChat(3);
-  await Promise.all([respond(thread.id, inbound.id), respond(thread.id, inbound.id)]);
+  // The lock lets both see the chat as paused, then makes them queue at the update, so they always collide.
+  let both: Promise<unknown> = Promise.resolve();
+  await db.transaction(async (tx) => {
+    await tx.select().from(t.threads).where(eq(t.threads.id, thread.id)).for("update");
+    both = Promise.all([respond(thread.id, inbound.id), respond(thread.id, inbound.id)]);
+    await new Promise((r) => setTimeout(r, 300));
+  });
+  await both;
   assert.equal((await resumed(workspaceId)).length, 1);
 });
 
