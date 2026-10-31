@@ -10,6 +10,7 @@ import { createWorkspace } from "../src/lib/workspace";
 import { editOrder, placeOrder, transitionOrder } from "../src/lib/orders";
 import { measureBenefit, outcomeRows, replyFacts } from "../src/lib/benefit";
 import { orderTimeline, toolLine } from "../src/lib/order-timeline";
+import type { HoursData } from "../src/lib/hours";
 
 const created: string[] = [];
 after(async () => {
@@ -109,7 +110,7 @@ test("an order with no corrections and no rejections isn't counted as needing on
 });
 
 test("first reply, first human reply and after-hours are worked out from one chat's messages", () => {
-  const hours = { weekly: Object.fromEntries(["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((d) => [d, [["09:00", "18:00"]]])), lastOrdersMinutesBeforeClose: 0, exceptions: [] };
+  const hours: HoursData = { weekly: Object.fromEntries(["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((d) => [d, [["09:00", "18:00"] as [string, string]]])), lastOrdersMinutesBeforeClose: 0, exceptions: [] };
   const at = (iso: string) => new Date(iso);
   // 23:00 in Kuala Lumpur is 15:00 UTC.
   const night = [

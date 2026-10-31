@@ -16,6 +16,7 @@
     "telegram:webhook": "tsx scripts/telegram-set-webhook.ts",
     "worker": "tsx scripts/worker.ts",
     "measure": "tsx scripts/measure-benefit.ts",
+    "eval:language": "tsx scripts/eval-language.ts",
     "fonts": "node scripts/fetch-fonts.mjs",
     "places": "node scripts/build-places.mjs",
     "test": "tsx --test tests/*.test.ts"
