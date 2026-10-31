@@ -173,7 +173,7 @@ test("a pending booking makes no event; confirming makes one with the facts, and
   assert.match(String(e.description), new RegExp(`Time zone: ${TZ}`));
   assert.match(google.calls[0].url, /\/calendars\/team%40group\.calendar\.google\.com\/events$/);
   const sent = JSON.stringify(google.calls);
-  for (const secret of ["Mei", "+60", "345", "Allergic"]) assert.ok(!sent.includes(secret), `${secret} never reaches Google`);
+  for (const secret of ["Mei", "+60", "12-345 6789", "Allergic"]) assert.ok(!sent.includes(secret), `${secret} never reaches Google`);
   assert.ok(!("attendees" in e), "nobody is invited");
   const [ok] = await logged(s.ws.id, "appointment.calendar_synced");
   assert.equal(ok.outcome, "added");

@@ -5,7 +5,7 @@ import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { db, t, sql } from "../src/db";
-import { and, eq } from "drizzle-orm";
+import { and, count, eq, or } from "drizzle-orm";
 import { verifyMetaSignature, encryptJson } from "../src/lib/crypto";
 import { normalizeWhatsApp, whatsappAdapter } from "../src/channels/whatsapp";
 import { workspaceForWhatsAppNumber, whatsappCreds, channelStatus } from "../src/channels/connections";
@@ -28,7 +28,16 @@ before(async () => {
   const [wa] = await db.select().from(t.channels).where(and(eq(t.channels.workspaceId, "KASIH1"), eq(t.channels.type, "whatsapp")));
   await db.update(t.channels).set({ credentialsEnc: encryptJson({ token: "salon-wa-token" }), config: { phoneNumberId: "2077", displayPhone: "+60 3-1234 5678" } }).where(eq(t.channels.id, wa.id));
 });
+/** A signed webhook starts its job after the response, so the file must not close the database until that job has finished. */
+async function jobsFinished() {
+  for (let i = 0; i < 200; i++) {
+    const [{ n }] = await db.select({ n: count() }).from(t.jobs).where(or(eq(t.jobs.status, "running"), and(eq(t.jobs.status, "queued"), eq(t.jobs.attempts, 0))));
+    if (!n) return;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
 after(async () => {
+  await jobsFinished();
   await db.update(t.channels).set({ credentialsEnc: null, config: {} }).where(and(eq(t.channels.workspaceId, "KASIH1"), eq(t.channels.type, "whatsapp")));
   await sql.end();
 });

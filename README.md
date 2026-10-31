@@ -72,15 +72,21 @@ Staff can also ask a customer for another receipt with a reason ("pay the remain
 
 We designed Yapoz as a potential customer-order module for Orbyte. Our proposed integration would use business workspace and role information, then share approved order events with relevant connected inventory or accounting services.
 
-**This integration is proposed, not live.** These interfaces are our design assumptions, not verified Orbyte API endpoints. Our prototype demonstrates its own workflow using synthetic data.
+**This integration is proposed, not live.** These interfaces are our design assumptions, not verified Orbyte API endpoints. Our prototype demonstrates its own workflow using synthetic data. The assumed workspace and role data coming in, the approved-order event going out, and the questions we would put to Orbyte are written up in [docs/orbyte-integration.md](docs/orbyte-integration.md); the event payload is built in `src/lib/orbyte.ts` and checked by a test, but nothing is sent anywhere.
 
-A bakery, gift shop or retailer could use the same request, validation, approval and logging process with a different catalogue. We include two fictional sample businesses: **Forno Sette** (`FORNO7`) and **Kasih Hair Studio** (`KASIH1`). Use Forno Sette for the order demonstration.
+A bakery, gift shop or retailer could use the same request, validation, approval and logging process with a different catalogue. We include three fictional sample businesses: **Forno Sette** (`FORNO7`, a pizzeria), **Kasih Hair Studio** (`KASIH1`, a salon) and **Dapur Mak Long Catering** (`CATER1`, built through the normal setup import with no business-specific code; what it could not do is listed in [docs/third-business-gaps.md](docs/third-business-gaps.md)). Use Forno Sette for the order demonstration.
 
 ### Expected Impact and SDG
 
-Our primary **Phase 2 target** is a **30% reduction in staff handling time per completed order**. We plan to compare manual handling and Yapoz across the same 20 synthetic order scenarios, measuring handling time, order-field errors and whether first-time users complete the workflow without assistance.
+**What we measured.** `npm run measure -- --synthetic` places 20 synthetic orders through the real order, receipt and approval code and reports the Phase 1 measures from what the system recorded (full output, method and limits in [docs/phase2-results.md](docs/phase2-results.md)). The same figures are shown to owners on the Today page, computed from their own records.
 
-Our proposal also sets a separate target of reducing five routine manual steps to one approval step—an **80% reduction in step count** for straightforward orders. This is distinct from time saved; exceptions still require staff attention. Both percentages are targets, not measured results. We will establish the manual timing baseline during evaluation.
+| Phase 1 measure | Baseline | Target | Synthetic result |
+| --- | --- | --- | --- |
+| Manual steps per order | 5 | 1 | **1.10** on average (78% fewer); **target not met**, because a short payment needs one extra step |
+| Orders priced and stock-checked | by hand | at least 90% | 20 of 20 |
+| Receipts checked for amount, payee, date and reuse | by hand | 100% | 22 of 22 |
+
+**These are not real-world results.** We chose the mix of orders (16 clean, 2 short payments, 1 wrong payee, 1 reused receipt), the AI was left out of the run, and nobody outside the team took part. Our Phase 1 headline target, a **30% cut in staff handling time per order**, is **still unmeasured**: we did not time a manual baseline, so we make no time-saved claim. The 80% step reduction we aimed for was 78% in this run.
 
 - **SDG 8.2:** improve productivity through technological upgrading and innovation.
 - **SDG 8.3:** support entrepreneurship and the growth of micro and small enterprises.
@@ -117,7 +123,7 @@ The provider router also contains optional adapters for other AI services. Their
 | `src/seed/` | Fictional businesses and synthetic sample records |
 | `scripts/` | Database, worker and channel utilities |
 | `tests/` | Automated tests |
-| `docs/` | Integration documentation |
+| `docs/` | Orbyte assumptions, Phase 2 results, privacy audit, third-business gaps, integration notes |
 | `public/` and `film/` | Public assets and landing-page film sources |
 | `submission/` | Proposal, tools declaration, slides and Replit proof |
 | `.env.example` | Environment-variable reference |
@@ -257,7 +263,7 @@ The repository does not include a `.replit` run configuration. Our current publi
 
 ### Run Tests
 
-We ran **110 automated tests, and all passed**. Our tests cover areas including business tools, order transitions, receipt checks, AI routing and failure handling, onboarding and channel integration logic. Mocked API tests do not replace live channel testing.
+The suite has **264 automated tests** in 34 files (`npm test`). Our tests cover areas including business tools, order transitions and the approval gate, receipt checks, AI routing and failure handling, onboarding, channel logic, tenant isolation, prompt-injection handling, data export and retention, and the Orbyte event payload. Some tests call the configured AI providers, so a provider's rate limit can fail a run; mocked API tests do not replace live channel testing.
 
 Use a dedicated test database with the required schema and sample data:
 
