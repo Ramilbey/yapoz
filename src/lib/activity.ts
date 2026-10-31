@@ -120,7 +120,7 @@ export function describe(type: string, p: P, currency: string, timeZone = "UTC")
     case "auth.password_changed": return { text: "Changed their password (other devices signed out)", level: "warn" };
     case "auth.signed_out_everywhere": return { text: "Signed out on every other device", level: "warn" };
     case "privacy.customer_deleted": return { text: `Erased a customer's data (${str(p.threads)} chat${p.threads === 1 ? "" : "s"}, ${str(p.orders)} order${p.orders === 1 ? "" : "s"} anonymised)`, level: "warn" };
-    case "privacy.retention_purge": return { text: `Retention: deleted ${str(p.threads)} old chat(s) and ${str(p.receipts)} receipt file(s) (older than ${str(p.days)} days)`, level: "info" };
+    case "privacy.retention_purge": return { text: `Retention: deleted ${str(p.threads)} old chat(s), ${str(p.receipts)} receipt file(s) and anonymised ${str(p.orders ?? 0)} finished order(s) (older than ${str(p.days)} days)`, level: "info" };
     default: return { text: type.replace(/[._]/g, " "), level: "info" };
   }
 }

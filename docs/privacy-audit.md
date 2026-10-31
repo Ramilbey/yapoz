@@ -41,12 +41,12 @@ When `KRACKEDDEVS_API_KEY` and `KRACKEDDEVS_FAST_MODEL` are set, customer messag
 
 ## Gaps developers should fix
 
-1. Retention leaves order name/phone/address forever; consider anonymising old orders too.
+1. ~~Retention leaves order name/phone/address forever~~ Fixed: finished orders past the retention period are anonymised (retention.ts). In-progress orders keep their details.
 2. Receipt files on orders still in progress are never purged by retention; chat is purged though.
-3. `events` rows (other than the two types erased on customer delete) and `audit` records are not purged by retention; check what personal data they hold.
+3. Retention now also deletes `message.received` and `order.attempt_failed` events past the period. Other `events` rows and `audit` records are still not purged; check what personal data they hold.
 4. Retention UI allows 30+ days; code accepts >= 7. Harmless, but inconsistent.
 5. Receipt images and messages are not encrypted at the application level (only channel tokens are).
-6. Privacy page has no contact address; add one.
+6. ~~No contact address~~ Set `PRIVACY_CONTACT` and /privacy shows it.
 7. In-app Settings text ("stored for your business only") is consistent but omits "AI provider terms apply"; consider a link to this page.
 8. Customer-erase does not remove copies held by AI providers, Meta or Telegram, nor backups.
 9. Customers have no direct way to request access/deletion; they must ask the shop.

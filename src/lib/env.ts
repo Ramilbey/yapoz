@@ -71,6 +71,10 @@ export const env = {
   get push() {
     return { publicKey: process.env.VAPID_PUBLIC_KEY ?? "", privateKey: process.env.VAPID_PRIVATE_KEY ?? "", subject: process.env.VAPID_SUBJECT || "mailto:hello@yapoz.live" };
   },
+  /** Shown on /privacy as who to write to about data (an email address or postal address). Unset shows that none is given. */
+  get privacyContact() {
+    return process.env.PRIVACY_CONTACT ?? "";
+  },
   get cronSecret() {
     return process.env.CRON_SECRET ?? "";
   },

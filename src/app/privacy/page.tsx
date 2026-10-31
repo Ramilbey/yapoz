@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { env } from "@/lib/env";
 
 export const metadata: Metadata = {
   title: "Privacy · Yapoz",
@@ -71,7 +72,7 @@ const sections: { id?: string; title: string; body: React.ReactNode }[] = [
       <>
         By default, nothing is deleted until the owner deletes it. The owner can set an automatic clean-up of 30, 90, 180 or 365 days in Settings. Once it is on, a daily job deletes
         chats with no new messages inside that time, and receipt photos for orders that are finished or cancelled. The job only runs if this deployment has it scheduled. Orders
-        and their totals stay for the seller&apos;s records, and they can still show the customer&apos;s name, phone and address. Backups kept by the database host may hold deleted data
+        and their totals stay for the seller&apos;s records. Finished orders older than that period lose the customer&apos;s name, phone, address and notes; orders still in progress keep them. Backups kept by the database host may hold deleted data
         for a while. How long depends on how this deployment is set up.
       </>
     ),
@@ -117,7 +118,11 @@ const sections: { id?: string; title: string; body: React.ReactNode }[] = [
   },
   {
     title: "Questions",
-    body: <>Contact the shop you messaged. For anything about Yapoz itself, contact whoever runs this deployment. They have not put a contact address on this page yet.</>,
+    body: env.privacyContact ? (
+      <>Contact the shop you messaged. For anything about Yapoz itself, write to {env.privacyContact}.</>
+    ) : (
+      <>Contact the shop you messaged. For anything about Yapoz itself, contact whoever runs this deployment. They have not put a contact address on this page yet.</>
+    ),
   },
 ];
 

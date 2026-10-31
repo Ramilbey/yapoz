@@ -18,6 +18,7 @@ import { addLocalDays, localDate, zoned, fmt, human } from "@/lib/time";
 import { adapterFor, type ChannelAdapter, type Inbound } from "@/channels";
 import type { Attachment, ToolCallLog } from "@/db/schema";
 import { log } from "@/lib/log";
+import { withPrivacyNotice } from "@/lib/privacy-notice";
 
 export type ChannelType = "telegram" | "whatsapp" | "simulator";
 
@@ -433,6 +434,11 @@ export async function deliver(
   text: string,
   o: { author: "ai" | "staff" | "system"; agentRunId?: string; userId?: string; status?: "sent" | "pending_approval"; isDemo?: boolean; buttons?: { text: string; data: string }[][] },
 ) {
+  // The customer's first answer from the assistant carries the privacy notice (not drafts, not the simulator).
+  if (o.author === "ai" && o.status !== "pending_approval" && thread.channel !== "simulator") {
+    const [prior] = await db.select({ id: t.messages.id }).from(t.messages).where(and(eq(t.messages.threadId, thread.id), eq(t.messages.direction, "out"))).limit(1);
+    text = withPrivacyNotice(text, !prior);
+  }
   const [msg] = await db
     .insert(t.messages)
     .values({
