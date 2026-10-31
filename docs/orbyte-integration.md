@@ -18,12 +18,49 @@ Orbyte describes an AI business operating system for SMEs: one workspace and log
 
 Yapoz doesn't copy Orbyte's HR or admin functions. It is order automation with human approval, not a chatbot: rules price the order and check stock, and a person decides.
 
+## What we saw in the demo workspace
+
+We looked through a committee-provided demo account on 31 October 2026, without changing anything. The committee confirmed we can't connect to Orbyte, so this design is built to fit what is visible. No API, webhook or Connect screen was visible to that account, so everything below stays an assumption.
+
+| Seen in Orbyte | Yapoz design |
+|---|---|
+| Dashboard Pending Actions split into Submit, Review and Approve | A waiting order appears under Approve (`yapoz.order.pending_approval.v1`) |
+| Approval statuses: Pending, Reviewed, Approved, Rejected | Yapoz sends approved and rejected events. The decision is still made in Yapoz |
+| Users with a role plus Approver and Reviewer fields | Role mapping below |
+| Wallet: shared credits with a transaction list | One usage event per completed order |
+| Client records | An approved order could link to a client record, once Orbyte's rules are known |
+| Integrations: activate, sync members, and a sync issues list | Same pattern: activate Yapoz, sync members, list failed deliveries |
+
+## Events Yapoz would send
+
+| Event | Sent when | Orbyte would | Customer details |
+|---|---|---|---|
+| `yapoz.order.pending_approval.v1` | An order is waiting | Add it to Approve | None |
+| `yapoz.order.approved.v1` | A person confirms | Close the item and record the order | Included, subject to agreement |
+| `yapoz.order.rejected.v1` | A person rejects | Close the item | None |
+| `yapoz.usage.order_completed.v1` | An order is completed | Record one unit of usage | None |
+
+All four are built and tested in `src/lib/orbyte.ts`. Nothing sends them.
+
+## How delivery would work
+
+1. **After the commit:** an event is saved with the order change, in an outbox table, so a crash can't lose it or send one for a change that didn't happen.
+2. **Sending:** Yapoz's existing job queue posts it to Orbyte over HTTPS. If Orbyte is down, the order still goes ahead.
+3. **Retries:** failures retry with growing delays, then appear in a failed-deliveries list that a person can retry.
+4. **Repeats:** `eventId` never changes, so a receiver ignores one it has already processed.
+5. **Proof of origin:** `signEvent()` signs the timestamp and exact body with HMAC-SHA256 and a shared secret per business. The receiver rejects a bad signature or an old timestamp.
+6. **Order:** a late event must not undo a newer one, so a receiver keeps the latest `occurredAt` for each order.
+7. **Versions:** the `.v1` suffix lets a changed format run beside the old one.
+8. **Limits:** one business can't read another's events, because every event carries `workspaceId` and each business has its own secret.
+
+The outbox and sender aren't built, because there is nowhere real to send to yet.
+
 ## Status
 
 | Direction | What it carries | State in the code |
 |---|---|---|
 | Into Yapoz | Workspaces and their people | Assumed only. Nothing receives this yet. |
-| Out of Yapoz | Approved orders | Payload built by `src/lib/orbyte.ts`. Nothing sends it. |
+| Out of Yapoz | Pending, approved and rejected orders, and usage | Payloads built by `src/lib/orbyte.ts`. Nothing sends them. |
 
 ## Coming in: workspace and role data
 
@@ -39,8 +76,8 @@ We assume Orbyte is the source of truth for businesses and their staff, and send
     "currency": "MYR"
   },
   "members": [
-    { "externalId": "orbyte-user-1", "name": "Sample Owner", "email": "owner@example.com", "role": "admin" },
-    { "externalId": "orbyte-user-2", "name": "Sample Staff", "email": "staff@example.com", "role": "cashier" }
+    { "externalId": "orbyte-user-1", "name": "Sample Owner", "email": "owner@example.com", "role": "Company Admin" },
+    { "externalId": "orbyte-user-2", "name": "Sample Staff", "email": "staff@example.com", "role": "Approver" }
   ]
 }
 ```
@@ -49,14 +86,14 @@ Yapoz has two roles, and both can approve or reject orders on the backend. Only 
 
 | Assumed Orbyte role | Yapoz role |
 |---|---|
-| `admin` | `owner` |
-| `cashier`, or any other staff role | `service` |
+| `Company Admin` (seen in the demo workspace) | `owner` |
+| A person set as Approver (the field seen in the demo workspace; the exact staff role is unknown) | `service` |
 
 A role Yapoz doesn't recognise should get no access until someone maps it, not the highest role.
 
 ## Going out: approved order events
 
-When a person with the right role confirms an order, Orbyte would receive one event. Rejected, expired and still-pending orders never produce one. `approvedOrderEvent()` throws for them, and a later cancellation of a confirmed order would need its own event, which we haven't defined.
+When a person with the right role confirms an order, Orbyte would receive one approved event. Rejected, expired and still-pending orders never produce one. `approvedOrderEvent()` throws for them, and a later cancellation of a confirmed order would need its own event, which we haven't defined.
 
 The example below is checked by `tests/orbyte.test.ts`, so it can't drift from the code.
 

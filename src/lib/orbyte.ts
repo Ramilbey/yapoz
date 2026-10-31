@@ -1,5 +1,6 @@
 // An approved order as the event Orbyte would receive. The format is our assumption, not a real Orbyte API (see
 // docs/orbyte-integration.md), and nothing here sends it: this only reads, and approval itself stays in transitionOrder.
+import { createHmac } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { db, t } from "@/db";
 import { lineTotal, noun, type OrderItemRow, type OrderRow } from "./orders";
@@ -35,6 +36,56 @@ export function approvedOrderEvent(order: OrderRow, items: OrderItemRow[], appro
       lines: items.map((i) => ({ variantId: i.variantId, name: i.name, quantity: i.quantity, unitPriceMinor: i.unitPriceMinor, lineTotalMinor: lineTotal(i), note: i.note })),
     },
   };
+}
+
+const summary = (order: OrderRow) => ({ id: order.id, refCode: order.refCode, type: noun(order), currency: order.currency, totalMinor: order.totalMinor });
+
+/** A waiting order, for Orbyte's Approve queue. No customer details: the person decides inside Yapoz. */
+export function pendingApprovalEvent(order: OrderRow) {
+  if (order.status !== "pending") throw new NotApproved(`Order ${order.refCode} isn't waiting for approval.`);
+  return {
+    event: "yapoz.order.pending_approval.v1",
+    eventId: `${order.id}:pending`,
+    occurredAt: order.createdAt.toISOString(),
+    workspaceId: order.workspaceId,
+    testData: order.isDemo,
+    action: { queue: "approve", title: `Approve ${noun(order)} ${order.refCode}`, path: "/app/orders" },
+    order: summary(order),
+  };
+}
+
+/** A rejection closes the queue item. It never gives Orbyte anything to act on. */
+export function rejectedOrderEvent(order: OrderRow, rejectedBy: string) {
+  if (order.status !== "cancelled" || order.confirmedAt || !order.cancelledAt) throw new NotApproved(`Order ${order.refCode} wasn't rejected.`);
+  return {
+    event: "yapoz.order.rejected.v1",
+    eventId: `${order.id}:rejected`,
+    occurredAt: order.cancelledAt.toISOString(),
+    workspaceId: order.workspaceId,
+    rejectedBy: { userId: rejectedBy },
+    reason: order.cancelReason,
+    testData: order.isDemo,
+    order: summary(order),
+  };
+}
+
+/** One completed order as one unit of usage. What a unit costs in credits would be Orbyte's setting. */
+export function orderUsageEvent(order: OrderRow) {
+  if (order.status !== "completed" || !order.completedAt) throw new NotApproved(`Order ${order.refCode} isn't completed.`);
+  return {
+    event: "yapoz.usage.order_completed.v1",
+    eventId: `${order.id}:usage`,
+    occurredAt: order.completedAt.toISOString(),
+    workspaceId: order.workspaceId,
+    testData: order.isDemo,
+    usage: { unit: "completed_order", quantity: 1 },
+    order: { id: order.id, refCode: order.refCode },
+  };
+}
+
+/** How a receiver would know an event is from Yapoz and is recent: an HMAC over the timestamp and the exact body. */
+export function signEvent(body: string, secret: string, timestampMs: number) {
+  return { "x-yapoz-timestamp": String(timestampMs), "x-yapoz-signature": `sha256=${createHmac("sha256", secret).update(`${timestampMs}.${body}`).digest("hex")}` };
 }
 
 /** The event for one order in one business, with the person who confirmed it from the activity log. */

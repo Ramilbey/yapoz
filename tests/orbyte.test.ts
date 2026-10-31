@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { eq } from "drizzle-orm";
 import { db, t, sql } from "../src/db";
-import { approvedOrderEvent, loadApprovedOrderEvent, NotApproved } from "../src/lib/orbyte";
+import { approvedOrderEvent, loadApprovedOrderEvent, NotApproved, orderUsageEvent, pendingApprovalEvent, rejectedOrderEvent, signEvent } from "../src/lib/orbyte";
 import { expireDueOrders } from "../src/lib/stock";
 import { placeOrder, transitionOrder, type OrderItemRow, type OrderRow } from "../src/lib/orders";
 import { createWorkspace } from "../src/lib/workspace";
@@ -36,6 +36,38 @@ test("no event for an order nobody approved, or one that was cancelled afterward
   assert.throws(() => approvedOrderEvent(order({ status: "cancelled", confirmedAt: null }), ITEMS, USER), /isn't approved/);
   assert.throws(() => approvedOrderEvent(order({ status: "expired", confirmedAt: null }), ITEMS, USER), /isn't approved/);
   assert.throws(() => approvedOrderEvent(order({ status: "cancelled" }), ITEMS, USER), /isn't approved/);
+});
+
+test("a waiting order goes to the Approve queue with no customer details", () => {
+  const event = pendingApprovalEvent(order({ status: "pending", confirmedAt: null, createdAt: new Date("2026-11-02T04:00:00.000Z"), customerName: "Sample Customer", phone: "+60 12-000 0000" }));
+  assert.equal(event.action.queue, "approve");
+  assert.equal(event.eventId, `${ORDER}:pending`);
+  assert.doesNotMatch(JSON.stringify(event), /Sample Customer|\+60/);
+  assert.throws(() => pendingApprovalEvent(order()), NotApproved);
+});
+
+test("a rejection closes the item with who and why, and only a rejected order makes one", () => {
+  const rejected = order({ status: "cancelled", confirmedAt: null, cancelledAt: new Date("2026-11-02T04:10:00.000Z"), cancelReason: "Receipt didn't match" });
+  const event = rejectedOrderEvent(rejected, USER);
+  assert.equal(event.rejectedBy.userId, USER);
+  assert.equal(event.reason, "Receipt didn't match");
+  assert.throws(() => rejectedOrderEvent(order({ status: "cancelled", cancelledAt: new Date() }), USER), NotApproved, "cancelled after confirming isn't a rejection");
+  assert.throws(() => rejectedOrderEvent(order(), USER), NotApproved);
+});
+
+test("usage is one unit per completed order, with an id that makes a repeat harmless", () => {
+  const event = orderUsageEvent(order({ status: "completed", completedAt: new Date("2026-11-02T06:00:00.000Z") }));
+  assert.deepEqual(event.usage, { unit: "completed_order", quantity: 1 });
+  assert.equal(event.eventId, `${ORDER}:usage`);
+  assert.throws(() => orderUsageEvent(order()), NotApproved);
+});
+
+test("the signature changes with the body, the secret and the time", () => {
+  const base = signEvent("{}", "secret", 1000)["x-yapoz-signature"];
+  assert.match(base, /^sha256=[0-9a-f]{64}$/);
+  assert.notEqual(signEvent("{ }", "secret", 1000)["x-yapoz-signature"], base);
+  assert.notEqual(signEvent("{}", "other", 1000)["x-yapoz-signature"], base);
+  assert.notEqual(signEvent("{}", "secret", 1001)["x-yapoz-signature"], base);
 });
 
 test("a booking is labelled as one, and a ready order is still approved", () => {
