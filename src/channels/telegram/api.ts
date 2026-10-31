@@ -4,7 +4,7 @@ import { db, t } from "@/db";
 import { eq } from "drizzle-orm";
 import { decryptJson } from "@/lib/crypto";
 
-/** "platform" = the shared Jawab bot (TELEGRAM_BOT_TOKEN). Any other ref is the id of a business's own-bot channel. */
+/** "platform" = the shared Yapoz bot (TELEGRAM_BOT_TOKEN). Any other ref is the id of a business's own-bot channel. */
 export const PLATFORM = "platform";
 
 type Entry = { api: Api; token: string; username?: string };
@@ -46,7 +46,7 @@ export function tg(): Api {
 }
 
 /** Test hook: replace a bot's API client (e.g. with one that records calls). */
-export function setTelegramApi(api: Api, ref: string = PLATFORM, username = "jawab_test_bot") {
+export function setTelegramApi(api: Api, ref: string = PLATFORM, username = "yapoz_test_bot") {
   apis.set(ref, { api, token: "test", username });
 }
 

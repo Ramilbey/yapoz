@@ -1,4 +1,4 @@
-// Telegram end to end against recording Bot API clients (no network): the shared Jawab bot (link codes for
+// Telegram end to end against recording Bot API clients (no network): the shared Yapoz bot (link codes for
 // Business Mode, deep links per business, unknown chats), a business's own bot, and connecting an own bot.
 import "../scripts/env";
 import { test, after, before } from "node:test";
@@ -50,7 +50,7 @@ async function cleanup() {
 
 before(async () => {
   await cleanup();
-  setTelegramApi(recorder("platform"), "platform", "jawab_test_bot");
+  setTelegramApi(recorder("platform"), "platform", "yapoz_test_bot");
   const [ch] = await db.select().from(t.channels).where(and(eq(t.channels.workspaceId, "KASIH1"), eq(t.channels.type, "telegram")));
   await db.update(t.channels).set({ credentialsEnc: encryptJson({ token: "999:OWN", secret: "s" }), config: { mode: "own", botUsername: "kasih_test_bot" } }).where(eq(t.channels.id, ch.id));
   ownChannelId = ch.id;

@@ -81,7 +81,7 @@ function ShellInner({ session, workspace, children }: { session: Session; worksp
     setTheme(next);
     document.documentElement.dataset.theme = next;
     try {
-      localStorage.setItem("jawab-theme", next);
+      localStorage.setItem("yapoz-theme", next);
     } catch {}
   }
   async function signOut() {

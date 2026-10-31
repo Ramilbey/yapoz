@@ -43,7 +43,7 @@ export const stockModeEnum = pgEnum("stock_mode", ["none", "daily", "tracked"]);
 /** held = reserved by an order (may expire); firm = paid or kept by staff; consumed = the order was confirmed; released = given back. */
 export const holdStatusEnum = pgEnum("hold_status", ["held", "firm", "consumed", "released"]);
 export const fulfilmentEnum = pgEnum("fulfilment", ["pickup", "delivery"]);
-/** What Jawab makes of a payment receipt next to its order. It is advice for the owner: Jawab can't see the bank. */
+/** What Yapoz makes of a payment receipt next to its order. It is advice for the owner: Yapoz can't see the bank. */
 export const receiptVerdictEnum = pgEnum("receipt_verdict", ["consistent", "review", "mismatch", "unreadable"]);
 export const jobStatusEnum = pgEnum("job_status", ["queued", "running", "done", "failed"]);
 
@@ -394,7 +394,7 @@ export const orders = pgTable(
     wanted: text("wanted"),
     notes: text("notes"),
     status: orderStatusEnum("status").notNull().default("pending"),
-    /** Set by staff after they check the payment; Jawab never takes payments. */
+    /** Set by staff after they check the payment; Yapoz never takes payments. */
     paid: boolean("paid").notNull().default(false),
     /** Items only, in minor units. The delivery fee is agreed by the team. */
     totalMinor: integer("total_minor").notNull(),

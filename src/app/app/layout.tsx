@@ -8,7 +8,7 @@ import { Martian_Mono } from "next/font/google";
 export const dynamic = "force-dynamic";
 
 // The user picks dark or light. First visit follows the system setting; the choice is remembered.
-const THEME_BOOT = `try{var t=localStorage.getItem('jawab-theme');if(t!=='dark'&&t!=='light')t=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';document.documentElement.dataset.theme=t}catch(e){document.documentElement.dataset.theme='dark'}`;
+const THEME_BOOT = `try{var t=localStorage.getItem('yapoz-theme')||localStorage.getItem('jawab-theme');if(t!=='dark'&&t!=='light')t=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';document.documentElement.dataset.theme=t}catch(e){document.documentElement.dataset.theme='dark'}`;
 
 // Martian Mono for numbers, codes and times inside the app (the landing page already loads it).
 const martian = Martian_Mono({ subsets: ["latin"], axes: ["wdth"], variable: "--font-martian", display: "swap" });

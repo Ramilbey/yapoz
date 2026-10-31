@@ -1,5 +1,5 @@
 // Connecting Telegram from Settings → Channels. Two ways:
-// 1. The shared Jawab bot: the owner taps a one-time link (proves which business they are), then adds the bot
+// 1. The shared Yapoz bot: the owner taps a one-time link (proves which business they are), then adds the bot
 //    under Telegram Business → Chatbots so replies come from their own account. Customers can also use
 //    t.me/<shared bot>?start=<WORKSPACE>.
 // 2. The business's own bot: paste a token from @BotFather; it gets its own webhook URL and secret.

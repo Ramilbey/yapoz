@@ -1,4 +1,4 @@
-// Creating a business on Jawab: a short readable workspace ID, sensible defaults, the channel rows and the owner's staff row.
+// Creating a business on Yapoz: a short readable workspace ID, sensible defaults, the channel rows and the owner's staff row.
 import { randomInt } from "node:crypto";
 import { db, t } from "@/db";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";

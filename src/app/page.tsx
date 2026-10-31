@@ -1,5 +1,6 @@
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
+import { unstable_cache } from "next/cache";
 import { env } from "@/lib/env";
 import { sampleWorkspaces } from "@/lib/samples";
 import { Anybody, Familjen_Grotesk, Martian_Mono } from "next/font/google";
@@ -13,7 +14,7 @@ const martian = Martian_Mono({ subsets: ["latin"], axes: ["wdth"], variable: "--
 export const dynamic = "force-dynamic";
 
 /** Live answer counts from the sample businesses, so the landing page shows real numbers. */
-async function stats(): Promise<SiteStats> {
+async function loadStats(): Promise<SiteStats> {
   const days = 7;
   const base = { days, botUsername: env.telegramBotUsername || null, demoWorkspaceId: env.demoWorkspaceId };
   try {
@@ -32,6 +33,9 @@ async function stats(): Promise<SiteStats> {
     return { ...base, samples: [], channels: [], demoShare: 0 };
   }
 }
+
+/** The numbers move slowly, so a visit does not wait on the database: the answer is reused for a minute. */
+const stats = unstable_cache(loadStats, ["landing-stats"], { revalidate: 60 });
 
 export default async function Home() {
   return (

@@ -1,4 +1,4 @@
-// Local development without a public URL: long-polls Telegram for the shared Jawab bot and every business's
+// Local development without a public URL: long-polls Telegram for the shared Yapoz bot and every business's
 // own bot, and runs the same handler as the webhooks. Usage: npm run telegram:poll
 // (stop it before setting webhooks again; polling removes a bot's webhook).
 import "./env";
@@ -16,7 +16,7 @@ async function poll(ref: string, token: string) {
   const api = new Api(token);
   await api.deleteWebhook({ drop_pending_updates: false });
   const me = await api.getMe();
-  console.log(`Polling @${me.username} (${ref === "platform" ? "shared Jawab bot" : `own bot, channel ${ref}`})`);
+  console.log(`Polling @${me.username} (${ref === "platform" ? "shared Yapoz bot" : `own bot, channel ${ref}`})`);
   let offset = 0;
   while (polling.get(ref)) {
     try {

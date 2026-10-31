@@ -152,7 +152,7 @@ export function getProviders(): AIProviderConfig[] {
       name: "Anthropic",
       type: "anthropic",
       apiKey: process.env.ANTHROPIC_API_KEY,
-      baseURL: process.env.JAWAB_ANTHROPIC_BASE_URL || "https://api.anthropic.com",
+      baseURL: process.env.YAPOZ_ANTHROPIC_BASE_URL || process.env.JAWAB_ANTHROPIC_BASE_URL || "https://api.anthropic.com",
       fastModel: process.env.CLAUDE_FAST_MODEL || "claude-haiku-5-5",
       smartModel: process.env.CLAUDE_SMART_MODEL || "claude-sonnet-5-5",
       vision: true,

@@ -1,5 +1,5 @@
 // Telegram updates for every business. Two kinds of bot:
-// - the shared Jawab bot ("platform"): one bot for everyone. Businesses connect it to their Telegram Business
+// - the shared Yapoz bot ("platform"): one bot for everyone. Businesses connect it to their Telegram Business
 //   account after proving ownership with a link code; customers reach a business through t.me/<bot>?start=<WORKSPACE>.
 // - a business's own bot (ref = channel id): every update belongs to that business.
 import type { Update, Message, CallbackQuery, BusinessConnection } from "grammy/types";

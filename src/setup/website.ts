@@ -29,7 +29,7 @@ async function get(u: URL): Promise<string | null> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 10_000);
   try {
-    const res = await fetch(u, { signal: ctrl.signal, redirect: "manual", headers: { "user-agent": "JawabSetup/1.0 (+https://jawab.app)", accept: "text/html,text/plain" } });
+    const res = await fetch(u, { signal: ctrl.signal, redirect: "manual", headers: { "user-agent": "YapozSetup/1.0 (+https://yapoz.vercel.app)", accept: "text/html,text/plain" } });
     if (res.status >= 300 && res.status < 400 && res.headers.get("location")) {
       const next = new URL(res.headers.get("location")!, u);
       await assertPublic(next);

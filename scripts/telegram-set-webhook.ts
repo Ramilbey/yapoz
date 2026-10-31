@@ -1,4 +1,4 @@
-// Points the shared Jawab bot at APP_URL/api/webhooks/telegram with the secret token, and registers the bot commands.
+// Points the shared Yapoz bot at APP_URL/api/webhooks/telegram with the secret token, and registers the bot commands.
 import "./env";
 import { tg } from "@/channels/telegram/api";
 import { env } from "@/lib/env";
