@@ -552,7 +552,7 @@ END $$;
 
 -- ---- 0002_orders: orders taken in chat (idempotent) ----
 -- Orders: a customer's order taken in chat, waiting for the owner's approval.
--- Safe to run more than once, so it can also be pasted into the Supabase SQL editor on a database that already has Jawab.
+-- Safe to run more than once, so it can also be pasted into the Supabase SQL editor on a database that already has Yapoz.
 DO $$ BEGIN CREATE TYPE "public"."fulfilment" AS ENUM('pickup', 'delivery'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;--> statement-breakpoint
 DO $$ BEGIN CREATE TYPE "public"."order_status" AS ENUM('pending', 'confirmed', 'ready', 'completed', 'cancelled'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;--> statement-breakpoint
 ALTER TYPE "public"."run_outcome" ADD VALUE IF NOT EXISTS 'ordered' BEFORE 'escalated';--> statement-breakpoint

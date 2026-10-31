@@ -1,4 +1,4 @@
-# BUILD PROMPT — JAWAB (working name)
+# BUILD PROMPT — YAPOZ
 **AI front desk for businesses on Telegram and WhatsApp, with a hiring agent and role-based dashboards.**
 
 > Paste this whole file into Claude Code (or keep it in the repo root as `PROMPT.md`). Fill in the `{{placeholders}}` in section 0 first.
@@ -21,7 +21,7 @@ When something can't be done the way this prompt describes, tell me and propose 
 ---
 
 ## 2. The product in one paragraph
-Jawab answers a business's customer messages on Telegram and WhatsApp using **only that business's own information**: products, sizes, colors, stock, prices, services, hours, booking slots and policies. It books appointments, escalates anything sensitive to a human, and reports what customers ask. A second agent handles **hiring**: HR describes the role in plain language, Jawab ranks candidates from the business's own candidate sources, drafts the outreach and books the interview. **Every outbound hiring step waits for a human "Approve".**
+Yapoz answers a business's customer messages on Telegram and WhatsApp using **only that business's own information**: products, sizes, colors, stock, prices, services, hours, booking slots and policies. It books appointments, escalates anything sensitive to a human, and reports what customers ask. A second agent handles **hiring**: HR describes the role in plain language, Yapoz ranks candidates from the business's own candidate sources, drafts the outreach and books the interview. **Every outbound hiring step waits for a human "Approve".**
 
 ---
 
@@ -119,7 +119,7 @@ All numbers come from real logged events. Add an owner-only **"Demo traffic"** s
 ## 9. Design: NOT generic, NOT "AI template"
 
 ### 9.1 Concept: "The bell on the counter"
-Every shop has a service bell on the counter: someone rings it, someone answers. Jawab is the hand that always answers. The hero object is a **3D brass service bell** on a dark stone counter, not an orb, brain or robot. Messages are physical objects: rounded, slightly translucent capsules with real text that fall, collide, get caught and get answered.
+Every shop has a service bell on the counter: someone rings it, someone answers. Yapoz is the hand that always answers. The hero object is a **3D brass service bell** on a dark stone counter, not an orb, brain or robot. Messages are physical objects: rounded, slightly translucent capsules with real text that fall, collide, get caught and get answered.
 
 ### 9.2 Palette (tokens only, nothing outside this)
 | Token | Hex | Use |
@@ -153,7 +153,7 @@ Purple/blue gradients · glowing AI orbs, brains or robots · sparkle icons for 
 
 ### 9.6 Scroll story (pinned sections)
 - **00 Preloader**: mono counter `000 → 100` labeled "messages answered", ends on a bell *ding* (sound off by default, toggle in the corner).
-- **01 Hero**: the brass bell under a single warm light; message capsules drop in and strike it, each strike sends an answer capsule flying off-screen. Headline: "Every question, *answered*." Sub: "Jawab replies to your customers on Telegram and WhatsApp, from your own menu, stock and calendar." CTAs: **Ring the bell** (scrolls to the live simulator) and **Open dashboard**.
+- **01 Hero**: the brass bell under a single warm light; message capsules drop in and strike it, each strike sends an answer capsule flying off-screen. Headline: "Every question, *answered*." Sub: "Yapoz replies to your customers on Telegram and WhatsApp, from your own menu, stock and calendar." CTAs: **Ring the bell** (scrolls to the live simulator) and **Open dashboard**.
 - **02 The pile-up**: pinned phone fills with unread badges while a mono counter climbs. "Your customers don't wait. Your staff can't keep up."
 - **03 Teach it once**: horizontal scroll; menu cards, size and color swatches, hours and policies fly into the bell and become its memory.
 - **04 Answered everywhere**: two lanes (Telegram / WhatsApp); capsules route into lanes; counters tick.

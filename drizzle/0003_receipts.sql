@@ -1,5 +1,5 @@
--- Payment receipts: what a customer sent to pay for an order, and what Jawab made of it (advice for the owner).
--- Safe to run more than once, so it can also be pasted into the Supabase SQL editor on a database that already has Jawab.
+-- Payment receipts: what a customer sent to pay for an order, and what Yapoz made of it (advice for the owner).
+-- Safe to run more than once, so it can also be pasted into the Supabase SQL editor on a database that already has Yapoz.
 -- Needs jawab_notify() from 0002_orders.sql.
 DO $$ BEGIN CREATE TYPE "public"."receipt_verdict" AS ENUM('consistent', 'review', 'mismatch', 'unreadable'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;--> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "order_receipts" (

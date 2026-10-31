@@ -1,6 +1,6 @@
 -- First-time email verification for self-serve sign-ups.
--- Safe to run more than once, so it can also be pasted into the Supabase SQL editor on a database that already has Jawab.
--- The column default marks every existing user as verified, so nobody already on Jawab gets locked out.
+-- Safe to run more than once, so it can also be pasted into the Supabase SQL editor on a database that already has Yapoz.
+-- The column default marks every existing user as verified, so nobody already on Yapoz gets locked out.
 ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "email_verified_at" timestamp with time zone DEFAULT now();--> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "email_verifications" (
 	"user_id" uuid PRIMARY KEY NOT NULL,

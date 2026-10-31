@@ -87,5 +87,5 @@ below are only used by the shared Telegram bot, Yapoz's own Meta app, and as a f
 - Prompt caching: two `cache_control: { type: "ephemeral" }` breakpoints, on the rules block and on the knowledge block
   (order: tools → rules → knowledge, then the uncached context block with the date and calendar). Minimum cacheable
   length for Haiku 5.5 / Sonnet 5.5 is 512 tokens. Cache reads/writes are logged per message in `agent_runs`.
-- The SDK client gets `baseURL` explicitly (`https://api.anthropic.com` unless `JAWAB_ANTHROPIC_BASE_URL` is set) so a
+- The SDK client gets `baseURL` explicitly (`https://api.anthropic.com` unless `YAPOZ_ANTHROPIC_BASE_URL` is set; the old `JAWAB_ANTHROPIC_BASE_URL` still works) so a
   stray `ANTHROPIC_BASE_URL` in a shell never reroutes traffic.
