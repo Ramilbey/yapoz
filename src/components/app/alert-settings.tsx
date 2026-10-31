@@ -76,7 +76,7 @@ export function AlertSettingsForm() {
           push === "on" || push === "off" ? (data.pushKey ? "Reaches you when Yapoz is closed, with your device's own alert sound." : "Not set up on Yapoz yet.") : push ? PUSH_NOTE[push] : "",
           <Switch checked={push === "on"} disabled={busy || !data.pushKey || (push !== "on" && push !== "off")} onCheckedChange={togglePush} label="Notifications on this device" />,
         )}
-        {row("Email backup", "If no device got the notification. Up to 20 a day for each business.", <Switch checked={p.email} onCheckedChange={(v) => save({ email: v })} label="Email backup" />)}
+        {row("Email backup", "If no device got the notification. Up to 1,000 a day for each business.", <Switch checked={p.email} onCheckedChange={(v) => save({ email: v })} label="Email backup" />)}
         {p.email ? (
           <form
             className="py-3"

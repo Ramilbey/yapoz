@@ -16,8 +16,8 @@ type Escalation = typeof t.escalations.$inferSelect;
 export type AlertKind = "order" | "needs";
 export type Alert = { id: string; kind: AlertKind; title: string; body: string; url: string; at: string };
 
-// Resend's free plan is shared with sign-up codes, so one busy business can't use it all up.
-const EMAILS_PER_DAY = 20;
+// A ceiling for one business, so a runaway loop or a flood of orders can't send without end.
+const EMAILS_PER_DAY = 1000;
 const FEED_LIMIT = 20;
 
 export const orderAlert = (o: Pick<Order, "id" | "kind" | "totalMinor" | "currency" | "customerName" | "refCode" | "createdAt">): Alert => ({
