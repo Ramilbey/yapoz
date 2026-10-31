@@ -2,6 +2,22 @@
 
 > **These are our assumptions, not real Orbyte APIs.** We have no Orbyte API documentation or access. Every field, name and flow below is a proposal for how Yapoz could fit inside Orbyte, written so the fit can be discussed and replaced once the real interfaces are known. Yapoz doesn't call Orbyte today.
 
+## Where Yapoz fits in Orbyte
+
+Based on the public homepage at [orbyte.my](https://www.orbyte.my/), read on 31 October 2026. Orbyte hasn't confirmed anything here, and Yapoz isn't an Orbyte partner or integration.
+
+Orbyte describes an AI business operating system for SMEs: one workspace and login, with People, Work, eSign, Hiring and Connect modules, and a single credit wallet where businesses pay when work happens. Its homepage shows WhatsApp among the tools it aims to bring together, and an open ecosystem and marketplace as a direction that hasn't shipped.
+
+| Orbyte today | Yapoz would add or reuse |
+|---|---|
+| People, Work, eSign and Hiring cover the inside of a business | A distinct capability: customer chats become orders that staff approve |
+| WhatsApp is shown as a tool to bring together | Handles WhatsApp orders, with Telegram alongside |
+| Connect brings services under one sign-in, with roles, access control and approvals | Would reuse that sign-in and those roles: `owner` and `service` map to Orbyte roles, and the approval stays with a person |
+| Credit wallet: pay when work happens | Usage charge per completed order instead of per seat (our proposal; Orbyte's rates aren't public) |
+| Open ecosystem and marketplace planned | Could be an early add-on, if Orbyte opens that route |
+
+Yapoz doesn't copy Orbyte's HR or admin functions. It is order automation with human approval, not a chatbot: rules price the order and check stock, and a person decides.
+
 ## Status
 
 | Direction | What it carries | State in the code |
@@ -88,3 +104,4 @@ The event is built after approval and has no way to approve anything. An order i
 2. Whether approved orders go out by webhook or queue, and how they're signed.
 3. Which customer fields Orbyte may receive.
 4. How cancellations and refunds after approval should be reported.
+5. Whether a module like this would sign in through Connect, and how its usage would be charged to the credit wallet.

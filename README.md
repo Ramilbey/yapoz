@@ -70,7 +70,9 @@ Staff can also ask a customer for another receipt with a reason ("pay the remain
 
 ### Orbyte Fit and Reuse
 
-We designed Yapoz as a potential customer-order module for Orbyte. Our proposed integration would use business workspace and role information, then share approved order events with relevant connected inventory or accounting services.
+We designed Yapoz as a potential customer-order module for Orbyte. Orbyte's homepage shows modules for the inside of a business (People, Work, eSign, Hiring and Connect); Yapoz would add the customer side: WhatsApp and Telegram orders that staff approve. It doesn't copy Orbyte's HR or admin functions, and it's order automation with human approval, not a chatbot.
+
+Our proposed integration would use business workspace and role information through Connect, then share approved order events with relevant connected services. A usage charge per completed order would suit Orbyte's pay-when-work-happens credit wallet. This comes from Orbyte's public homepage and hasn't been confirmed by Orbyte. Yapoz isn't an Orbyte partner.
 
 **This integration is proposed, not live.** These interfaces are our design assumptions, not verified Orbyte API endpoints. Our prototype demonstrates its own workflow using synthetic data. The assumed workspace and role data coming in, the approved-order event going out, and the questions we would put to Orbyte are written up in [docs/orbyte-integration.md](docs/orbyte-integration.md); the event payload is built in `src/lib/orbyte.ts` and checked by a test, but nothing is sent anywhere.
 
@@ -91,7 +93,7 @@ A bakery, gift shop or retailer could use the same request, validation, approval
 - **SDG 8.2:** improve productivity through technological upgrading and innovation.
 - **SDG 8.3:** support entrepreneurship and the growth of micro and small enterprises.
 
-Our proposed commercial model is a free entry tier with usage-based charges for completed workflows. Pricing and business impact remain to be validated.
+Our proposed commercial model is a free entry tier with a usage charge per completed order, not per seat, paid through credits if offered through Orbyte. Pricing and business impact remain to be validated.
 
 ### Tech Stack
 
