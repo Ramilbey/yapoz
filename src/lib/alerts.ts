@@ -1,10 +1,11 @@
 // Tells staff that something needs them: the bell in an open dashboard reads recentAlerts(), and a job sends a phone
 // notification (or, without one, an email) to anyone who isn't looking. Only new orders and customers waiting on a person
 // count; demo data and low-priority cards stay quiet, so the bell keeps meaning something.
+import { randomUUID } from "node:crypto";
 import { and, desc, eq, gt, inArray, isNotNull, ne } from "drizzle-orm";
 import { db, t } from "@/db";
 import { alertPrefs, inQuietHours, type AlertPrefs } from "./alert-prefs";
-import { sendEmail } from "./email";
+import { canSendEmail, sendEmail } from "./email";
 import { env } from "./env";
 import { enqueue, type JobHandler } from "./jobs";
 import { formatMoney } from "./money";
@@ -117,6 +118,38 @@ export async function deliverAlert(kind: AlertKind, id: string, workspaceId: str
     }
   }
   return { pushed, emailed };
+}
+
+type Tester = { id: string; email: string; prefs: AlertPrefs };
+
+/** Only for the panel in Your account: it says it's a test, and it never touches an order. */
+export const testAlert = (): Alert => ({ id: `test:${randomUUID()}`, kind: "order", title: "Test from Yapoz", body: "This is only a test. No order was placed.", url: "/app/account", at: new Date().toISOString() });
+
+const myDevices = (userId: string) => db.select().from(t.pushSubscriptions).where(eq(t.pushSubscriptions.userId, userId));
+
+export async function testAlertStatus(u: Tester) {
+  const { publicKey, privateKey } = env.push;
+  return { devices: (await myDevices(u.id)).length, pushReady: Boolean(publicKey && privateKey), emailReady: canSendEmail(), emailTo: u.prefs.emailTo ?? u.email };
+}
+
+/** Goes only to this person's own devices or alert address. Ignores quiet hours, because they asked for it just now. */
+export async function sendTestAlert(u: Tester, channel: "push" | "email"): Promise<{ ok: boolean; message: string }> {
+  const alert = testAlert();
+  if (channel === "email") {
+    const to = u.prefs.emailTo ?? u.email;
+    try {
+      await sendAlertEmail(to, "your business", alert);
+      return { ok: true, message: `Test email sent to ${to}.` };
+    } catch (e) {
+      console.error("[alerts] test email failed", e);
+      return { ok: false, message: "That email didn't go through. Check the address, or try again later." };
+    }
+  }
+  const subs = await myDevices(u.id);
+  if (!subs.length) return { ok: false, message: "No devices yet. Turn on Notifications on this device first." };
+  const sent = (await Promise.all(subs.map((sub) => sendPush(sub, alert)))).filter(Boolean).length;
+  if (!sent) return { ok: false, message: "No device got it. Turn notifications off and on again on this device." };
+  return { ok: true, message: `${subs.length === 1 ? "Sent to your device" : `Sent to ${sent} of your ${subs.length} devices`}. It should arrive in a few seconds.` };
 }
 
 export const sendAlertJob: JobHandler = async (p) => {
