@@ -2,8 +2,6 @@ import type { AppointmentSettings, WorkspaceSettings } from "@/db/schema";
 
 export type Mode = "autopilot" | "copilot";
 export type ChannelStatus = {
-  /** The business's own Meta app, for a manually connected WhatsApp number. The secret never leaves the server. */
-  metaApp: { connected: boolean; appId: string | null; appName: string | null; source: "workspace" | "env" | null };
   telegram: {
     mode: Mode;
     sharedBot: string | null;
@@ -16,21 +14,18 @@ export type ChannelStatus = {
     mode: Mode;
     connected: boolean;
     method: "embedded" | "manual" | "env" | null;
+    /** Yapoz's Meta app is set up on the server, so a number can be connected. */
+    available: boolean;
     embedded: { appId: string; configId: string; graphVersion: string } | null;
     registerIssue: string | null;
     source: "workspace" | "env" | null;
     displayPhone: string | null;
     verifiedName: string | null;
-    webhookUrl: string | null;
-    verifyToken: string | null;
     wabaId: string | null;
     tokenExpiresAt: string | null;
     tokenChecked: boolean;
     wabaChecked: boolean;
-    needsMetaApp: boolean;
     lastWebhookAt: string | null;
-    lastWebhookIssue: "signature" | null;
-    lastWebhookTest: boolean;
     lastSendError: { at: string; message: string } | null;
   };
   simulator: { mode: Mode; connected: boolean };

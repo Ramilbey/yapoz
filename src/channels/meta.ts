@@ -1,15 +1,10 @@
-// A business's Meta app (App ID + App secret) and the checks Yapoz makes with Meta before it trusts a WhatsApp number.
-// A number is connected one of two ways: Embedded Signup through Yapoz's own Meta app (env), or manually with the
-// business's own Meta app, saved once per business, separately from the number:
-//   Meta app       App ID  → integrations(meta_app).meta.appId      App secret → integrations(meta_app).dataEnc (encrypted)
-//   WhatsApp number  Phone number ID, Business Account ID → channels(whatsapp).config      Access token → channels(whatsapp).credentialsEnc
-// The demo workspace falls back to META_APP_ID / META_APP_SECRET / WHATSAPP_* env vars.
-import { and, eq } from "drizzle-orm";
-import { db, t } from "@/db";
+// Yapoz's one Meta app (META_APP_ID, META_APP_SECRET, WHATSAPP_VERIFY_TOKEN, META_EMBEDDED_SIGNUP_CONFIG_ID) and the checks it makes
+// with Meta before it trusts a WhatsApp number. A number is connected one of two ways: Embedded Signup, or manually with
+// its own details: Phone number ID, Business Account ID → channels(whatsapp).config   Access token → channels(whatsapp).credentialsEnc
+// Both ways arrive at the one webhook /api/webhooks/whatsapp, signed with the app secret.
 import { env } from "@/lib/env";
-import { decryptJson, encryptJson } from "@/lib/crypto";
 
-export type MetaField = "appId" | "appSecret" | "phoneNumberId" | "wabaId" | "accessToken";
+export type MetaField = "phoneNumberId" | "wabaId" | "accessToken";
 
 /** Something the owner can fix, in words that name the Meta setting. `status` is the HTTP status the API answers with. */
 export class MetaError extends Error {
@@ -40,20 +35,9 @@ async function graph<T>(path: string, query: Record<string, string>, opts: { met
   return j;
 }
 
-/** Meta checks the App ID and App secret together: an app access token is "<app id>|<app secret>". */
-export async function verifyMetaApp(appId: string, appSecret: string): Promise<{ name: string | null }> {
-  try {
-    const j = await graph<{ id?: string; name?: string }>(appId, { fields: "name", access_token: `${appId}|${appSecret}` });
-    if (j.id && j.id !== appId) throw new MetaError("appId", `Meta answered for a different app (${j.id}). Check the App ID.`);
-    return { name: j.name ?? null };
-  } catch (e) {
-    if (e instanceof GraphError) throw new MetaError("appSecret", `Meta didn't accept this App ID and App secret together (${e.message}). Copy both from App settings → Basic in the same app.`);
-    throw e;
-  }
-}
-
 /** Is the token valid, made by this app, allowed to use WhatsApp, and when does it stop working? */
-export async function inspectAccessToken(appId: string, appSecret: string, token: string): Promise<{ expiresAt: string | null; scopes: string[] }> {
+export async function inspectAccessToken(token: string): Promise<{ expiresAt: string | null; scopes: string[] }> {
+  const { appId, appSecret } = env.whatsapp;
   let d: { app_id?: string; is_valid?: boolean; expires_at?: number; scopes?: string[]; error?: { message?: string } };
   try {
     d = (await graph<{ data?: typeof d }>("debug_token", { input_token: token, access_token: `${appId}|${appSecret}` })).data ?? {};
@@ -62,7 +46,7 @@ export async function inspectAccessToken(appId: string, appSecret: string, token
     throw e;
   }
   if (!d.is_valid) throw new MetaError("accessToken", `Meta says this access token isn't valid${d.error?.message ? ` (${d.error.message})` : ""}. It may have expired: make a new System User token.`);
-  if (d.app_id && d.app_id !== appId) throw new MetaError("accessToken", `This access token was made by a different Meta app (${d.app_id}), not ${appId}. Generate it in the same app.`);
+  if (d.app_id && d.app_id !== appId) throw new MetaError("accessToken", `This access token was made by a different Meta app (${d.app_id}), not the one Yapoz runs on (${appId}). Generate it in Yapoz's Meta app.`);
   if (d.scopes) {
     const missing = REQUIRED_SCOPES.filter((s) => !d.scopes!.includes(s));
     if (missing.length) throw new MetaError("accessToken", `This access token is missing the ${missing.join(" and ")} permission${missing.length > 1 ? "s" : ""}. Generate a new System User token with both.`);
@@ -128,39 +112,11 @@ export async function subscribeWaba(wabaId: string, token: string) {
   }
 }
 
-export type MetaApp = { appId: string; appName: string | null; appSecret: string; source: "workspace" | "env" };
+/** Connecting a number needs Yapoz's Meta app: its secret checks the access token and signs the webhooks. */
+export const metaAppReady = () => Boolean(env.whatsapp.appId && env.whatsapp.appSecret);
 
-export async function metaAppOf(workspaceId: string): Promise<MetaApp | null> {
-  const [row] = await db.select().from(t.integrations).where(and(eq(t.integrations.workspaceId, workspaceId), eq(t.integrations.provider, "meta_app")));
-  if (row) return { appId: row.meta.appId ?? "", appName: row.meta.appName || null, appSecret: decryptJson<{ appSecret: string }>(row.dataEnc).appSecret, source: "workspace" };
-  const w = env.whatsapp;
-  if (workspaceId === env.demoWorkspaceId && w.appSecret) return { appId: w.appId, appName: null, appSecret: w.appSecret, source: "env" };
-  return null;
-}
-
-/** Checks the pair with Meta, then saves it. The secret is encrypted and never sent back to the browser. */
-export async function saveMetaApp(workspaceId: string, userId: string | null, appId: string, appSecret: string): Promise<{ appName: string | null }> {
-  const { name } = await verifyMetaApp(appId, appSecret);
-  const values = { workspaceId, userId, provider: "meta_app", dataEnc: encryptJson({ appSecret }), meta: { appId, appName: name ?? "", verifiedAt: new Date().toISOString() } };
-  await db
-    .insert(t.integrations)
-    .values(values)
-    .onConflictDoUpdate({ target: [t.integrations.workspaceId, t.integrations.provider], set: { userId, dataEnc: values.dataEnc, meta: values.meta } });
-  await db.insert(t.events).values({ workspaceId, type: "channel.meta_app_saved", props: { appId } });
-  return { appName: name };
-}
-
-export async function removeMetaApp(workspaceId: string) {
-  await db.delete(t.integrations).where(and(eq(t.integrations.workspaceId, workspaceId), eq(t.integrations.provider, "meta_app")));
-}
-
-/** The secret Meta signs this business's webhooks with: its saved Meta app, else the one stored with an older WhatsApp connection. */
-export async function webhookAppSecret(workspaceId: string, legacySecret?: string | null): Promise<string> {
-  return (await metaAppOf(workspaceId))?.appSecret ?? legacySecret ?? "";
-}
-
-/** Yapoz's own app can run Embedded Signup only when its ID, secret and Login-for-Business configuration are all set. */
-export const embeddedSignupReady = () => Boolean(env.whatsapp.appId && env.whatsapp.appSecret && env.whatsapp.embeddedConfigId);
+/** Embedded Signup also needs the app's Login-for-Business configuration (optional: without it only manual credentials work). */
+export const embeddedSignupReady = () => Boolean(metaAppReady() && env.whatsapp.embeddedConfigId);
 
 /** Embedded Signup hands the browser a short-lived code; only the server, with the app secret, can turn it into the business's token. */
 export async function exchangeSignupCode(code: string): Promise<string> {

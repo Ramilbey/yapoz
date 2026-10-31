@@ -202,21 +202,11 @@ function WhatsAppHealth({ s }: { s: ChannelStatus["whatsapp"] }) {
           <p className="text-fg-2">Nothing has arrived from Meta yet. If you&apos;ve sent a message and nothing shows here:</p>
           <Steps
             items={[
-              <>In WhatsApp → Configuration → Webhook fields, press Subscribe next to <span className="num">messages</span>, then press Test: this line should change.</>,
-              <>While the Meta app is unpublished, Meta only delivers its Test button&apos;s sample, not real messages. Publish the app (App settings → Basic needs a privacy policy URL: <span className="num">{(s.webhookUrl ?? "").split("/api/")[0]}/privacy</span>).</>,
-              <>Message your test number from a phone on its list (WhatsApp → API Setup → To).</>,
+              <>Message your number from a phone. If it&apos;s Meta&apos;s test number, the phone has to be on its list (WhatsApp → API Setup → To).</>,
+              <>Still nothing: ask whoever runs Yapoz to check that the Meta app&apos;s webhook is subscribed to <span className="num">messages</span> and that the app is live.</>,
             ]}
           />
         </>
-      ) : s.lastWebhookIssue === "signature" ? (
-        <p className="text-signal-ink">
-          Meta reached Yapoz on {when(s.lastWebhookAt)}, but the delivery was rejected: its signature doesn&apos;t match the App secret saved in the Meta app box above. Copy the App secret from App settings → Basic of the
-          app that owns this WhatsApp number, and save it there again. No need to reconnect the number.
-        </p>
-      ) : s.lastWebhookTest ? (
-        <p className="text-fg-2">
-          Meta&apos;s test webhook arrived on {when(s.lastWebhookAt)}, so the connection works. Real messages appear in Inbox once the app is published and a customer writes to your number.
-        </p>
       ) : (
         <p className="text-fg-2">Last message from WhatsApp: {when(s.lastWebhookAt)}.</p>
       )}
@@ -230,124 +220,14 @@ function WhatsAppHealth({ s }: { s: ChannelStatus["whatsapp"] }) {
   );
 }
 
-/** A settings box without the Autopilot/Copilot switch, for things that aren't a channel. */
-function Plain({ title, status, children }: { title: string; status: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <div className="rounded-xl border border-line p-4">
-      <div className="flex flex-wrap items-center gap-2.5">
-        <h4 className="text-[15px] font-semibold">{title}</h4>
-        {status}
-      </div>
-      <div className="mt-2">{children}</div>
-    </div>
-  );
-}
-
 const soon = (iso: string) => new Date(iso).getTime() - Date.now() < 3 * 24 * 60 * 60 * 1000;
 
-/**
- * The business's own Meta app, for connecting WhatsApp manually: Meta App ID + App secret.
- * Yapoz asks Meta whether the two belong together before saving, and later uses the secret to check that
- * webhooks really come from Meta.
- */
-function MetaApp({ s, needsMetaApp, patch }: { s: ChannelStatus["metaApp"]; needsMetaApp: boolean; patch: Patch }) {
-  const [f, setF] = useState({ appId: "", appSecret: "" });
-  const [editing, setEditing] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [help, setHelp] = useState(false);
-  const own = s.source === "workspace";
-  const showForm = !s.connected || editing;
-  return (
-    <Plain title="1. Your Meta app" status={s.connected ? <Chip tone="answered">{s.appName ?? `App ${s.appId ?? ""}`}</Chip> : <Chip>Not set</Chip>}>
-      <p className="max-w-[72ch] text-[13.5px] text-fg-2">
-        Yapoz checks the App ID and secret with Meta before saving, stores the secret encrypted, and uses it to confirm that messages really come from Meta.
-      </p>
-      {needsMetaApp && !s.connected ? (
-        <p className="mt-2 max-w-[72ch] text-[13px] text-signal-ink">
-          Your WhatsApp number was connected before this box existed, with an App secret that Meta isn&apos;t accepting. Save your Meta app here to replace it. No need to reconnect the number.
-        </p>
-      ) : null}
-      {s.connected && !editing ? (
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13.5px]">
-          <span>
-            <span className="text-muted">App ID</span> <span className="num">{s.appId || "not set"}</span>
-          </span>
-          <span className="text-muted">{own ? "Checked with Meta" : "Using this server's Meta app"}</span>
-          {own ? (
-            <>
-              <button className={linkBtn} onClick={() => setEditing(true)}>
-                Replace
-              </button>
-              <button className={linkBtn} onClick={() => window.confirm("Remove the Meta app?") && patch("/api/channels/meta", "DELETE", undefined, "Meta app removed.")}>
-                Remove
-              </button>
-            </>
-          ) : null}
-        </div>
-      ) : (
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            setBusy(true);
-            try {
-              await patch("/api/channels/meta", "POST", f, "Meta confirmed the App ID and secret. They're saved.");
-              setF({ appId: "", appSecret: "" });
-              setEditing(false);
-            } catch {
-              // shown by patch()
-            } finally {
-              setBusy(false);
-            }
-          }}
-          className="mt-2 max-w-[720px]"
-        >
-          <button type="button" onClick={() => setHelp((v) => !v)} className="text-[13px] font-medium underline decoration-brass underline-offset-4" aria-expanded={help}>
-            {help ? "Hide the steps" : "Where do I find these?"}
-          </button>
-          {help ? (
-            <Steps
-              items={[
-                <>
-                  At developers.facebook.com open <b>My apps</b> and choose your app (create one of type Business if you don&apos;t have it yet, and add the WhatsApp product).
-                </>,
-                <>
-                  <b>App settings → Basic</b> shows the <b>App ID</b> at the top and the <b>App secret</b> (press Show). Both come from the same app.
-                </>,
-              ]}
-            />
-          ) : null}
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <div>
-              <Label htmlFor="meta-id">Meta App ID</Label>
-              <Input id="meta-id" inputMode="numeric" autoComplete="off" value={f.appId} onChange={(e) => setF({ ...f, appId: e.target.value.trim() })} placeholder="e.g. 1234567890123456" required />
-            </div>
-            <div>
-              <Label htmlFor="meta-secret">App secret</Label>
-              <Input id="meta-secret" type="password" autoComplete="off" value={f.appSecret} onChange={(e) => setF({ ...f, appSecret: e.target.value.trim() })} placeholder="32 characters" required />
-            </div>
-          </div>
-          <div className="mt-3 flex items-center gap-3">
-            <Button type="submit" variant="brass" loading={busy}>
-              Check with Meta and save
-            </Button>
-            {editing ? (
-              <button type="button" className={linkBtn} onClick={() => setEditing(false)}>
-                Cancel
-              </button>
-            ) : null}
-          </div>
-        </form>
-      )}
-    </Plain>
-  );
-}
-
-function WhatsApp({ s, meta, patch }: { s: ChannelStatus["whatsapp"]; meta: ChannelStatus["metaApp"]; patch: Patch }) {
+function WhatsApp({ s, patch }: { s: ChannelStatus["whatsapp"]; patch: Patch }) {
   const [how, setHow] = useState<"embedded" | "manual">(s.embedded ? "embedded" : "manual");
   return (
     <Card title="WhatsApp" type="whatsapp" mode={s.mode} patch={patch} status={s.connected ? <Chip tone="answered">{s.displayPhone ?? "Connected"}</Chip> : <Chip>Not connected</Chip>}>
       {s.connected ? (
-        <WhatsAppConnected s={s} meta={meta} patch={patch} />
+        <WhatsAppConnected s={s} patch={patch} />
       ) : (
         <div className="max-w-[760px]">
           <div className="flex rounded-lg border border-line p-0.5 text-[13px]" role="tablist" aria-label="How to connect WhatsApp">
@@ -367,12 +247,7 @@ function WhatsApp({ s, meta, patch }: { s: ChannelStatus["whatsapp"]; meta: Chan
             {how === "embedded" ? (
               <EmbeddedSignup cfg={s.embedded} patch={patch} />
             ) : (
-              <div className="space-y-3">
-                <MetaApp s={meta} needsMetaApp={s.needsMetaApp} patch={patch} />
-                <Plain title="2. Your WhatsApp number" status={null}>
-                  <ManualNumber meta={meta} patch={patch} />
-                </Plain>
-              </div>
+              <ManualNumber available={s.available} patch={patch} />
             )}
           </div>
         </div>
@@ -491,19 +366,21 @@ function EmbeddedSignup({ cfg, patch }: { cfg: ChannelStatus["whatsapp"]["embedd
   );
 }
 
-function ManualNumber({ meta, patch }: { meta: ChannelStatus["metaApp"]; patch: Patch }) {
+function ManualNumber({ available, patch }: { available: boolean; patch: Patch }) {
   const [f, setF] = useState({ phoneNumberId: "", wabaId: "", accessToken: "" });
   const [busy, setBusy] = useState(false);
   const [help, setHelp] = useState(false);
-  return !meta.connected ? (
-    <p className="max-w-[72ch] text-[13.5px] text-fg-2">Save your Meta app above first. WhatsApp needs it so Yapoz can check your access token with Meta and trust the messages that arrive.</p>
+  return !available ? (
+    <p className="max-w-[72ch] text-[13.5px] text-fg-2">
+      WhatsApp isn&apos;t set up on this server yet: it needs <span className="num">META_APP_ID</span> and <span className="num">META_APP_SECRET</span> in its environment.
+    </p>
   ) : (
         <form
           onSubmit={async (e) => {
             e.preventDefault();
             setBusy(true);
             try {
-              await patch("/api/channels/whatsapp", "POST", f, "Meta confirmed the number. Now set the webhook below.");
+              await patch("/api/channels/whatsapp", "POST", f, "WhatsApp connected. Customers can message your number now.");
             } catch {
               // shown by patch()
             } finally {
@@ -513,7 +390,7 @@ function ManualNumber({ meta, patch }: { meta: ChannelStatus["metaApp"]; patch: 
           className="max-w-[720px]"
         >
           <p className="text-[13.5px] text-fg-2">
-            The number you want customers to message, on Meta app <span className="num">{meta.appId}</span>. Yapoz asks Meta whether the token belongs to that app, may use WhatsApp, and whether the number is on that Business Account, before saving anything.
+            The number you want customers to message. Yapoz asks Meta whether the token may use WhatsApp through Yapoz&apos;s Meta app and whether the number is on that Business Account, before saving anything.
           </p>
           <button type="button" onClick={() => setHelp((v) => !v)} className="mt-1 text-[13px] font-medium underline decoration-brass underline-offset-4" aria-expanded={help}>
             {help ? "Hide the steps" : "Where do I find these?"}
@@ -525,7 +402,7 @@ function ManualNumber({ meta, patch }: { meta: ChannelStatus["metaApp"]; patch: 
                   WhatsApp → API Setup shows the <b>Phone number ID</b> and the <b>WhatsApp Business Account ID</b> next to the number. Neither is the phone number itself.
                 </>,
                 <>
-                  Business Settings → <b>System users</b>: create one, assign it your app and WhatsApp account, and generate a token with <span className="num">whatsapp_business_messaging</span> and <span className="num">whatsapp_business_management</span>. Choose <b>Never</b> for expiry. That&apos;s the <b>access token</b>.
+                  Business Settings → <b>System users</b>: create one, assign it Yapoz&apos;s Meta app and your WhatsApp account, and generate a token for Yapoz's Meta app with <span className="num">whatsapp_business_messaging</span> and <span className="num">whatsapp_business_management</span>. Choose <b>Never</b> for expiry. That&apos;s the <b>access token</b>.
                 </>,
                 <>
                   The temporary token on the API Setup page stops working after 24 hours. Yapoz accepts it but tells you when it will expire.
@@ -554,7 +431,7 @@ function ManualNumber({ meta, patch }: { meta: ChannelStatus["metaApp"]; patch: 
   );
 }
 
-function WhatsAppConnected({ s, meta, patch }: { s: ChannelStatus["whatsapp"]; meta: ChannelStatus["metaApp"]; patch: Patch }) {
+function WhatsAppConnected({ s, patch }: { s: ChannelStatus["whatsapp"]; patch: Patch }) {
   return (
         <div className="space-y-3">
           <p className="text-[13.5px] text-fg-2">
@@ -566,13 +443,7 @@ function WhatsAppConnected({ s, meta, patch }: { s: ChannelStatus["whatsapp"]; m
           {s.source === "workspace" ? (
             <dl className="grid max-w-[640px] grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[13.5px]">
               <dt className="text-muted">Connected</dt>
-              <dd>{s.method === "embedded" ? "with Facebook (Embedded Signup)" : "manually, with your own Meta app"}</dd>
-              {s.method === "manual" ? (
-                <>
-                  <dt className="text-muted">Meta app</dt>
-                  <dd className="num">{meta.connected ? meta.appId : <span className="text-signal-ink">not saved: disconnect, save your Meta app, and connect again</span>}</dd>
-                </>
-              ) : null}
+              <dd>{s.method === "embedded" ? "with Facebook (Embedded Signup)" : "manually, with your own credentials"}</dd>
               <dt className="text-muted">Business Account</dt>
               <dd>
                 {s.wabaId ? <span className="num">{s.wabaId}</span> : <span className="text-signal-ink">not saved: disconnect and connect again</span>}
@@ -588,24 +459,11 @@ function WhatsAppConnected({ s, meta, patch }: { s: ChannelStatus["whatsapp"]; m
               </dd>
             </dl>
           ) : null}
-          {s.method === "embedded" ? (
-            <div className="max-w-[640px]">
-              <WhatsAppHealth s={s} />
-            </div>
-          ) : null}
-          {s.webhookUrl && s.method === "manual" ? (
-            <div className="max-w-[640px] space-y-2">
-              <p className="text-[13px] text-muted">
-                Last step: in your Meta app → WhatsApp → Configuration, paste this callback URL and verify token, then subscribe to <span className="num">messages</span>.
-              </p>
-              <CopyField value={s.webhookUrl} label="Callback URL" />
-              {s.verifyToken ? <CopyField value={s.verifyToken} label="Verify token" /> : null}
-              <p className="text-[12.5px] text-muted">The verify token stays the same if you disconnect and connect again, so Meta&apos;s webhook settings keep working.</p>
-              <WhatsAppHealth s={s} />
-            </div>
-          ) : null}
+          <div className="max-w-[640px]">
+            <WhatsAppHealth s={s} />
+          </div>
           {s.source === "workspace" ? (
-            <button className={linkBtn} onClick={() => window.confirm("Disconnect WhatsApp? Customer messages stop being answered. The verify token is kept for when you connect again.") && patch("/api/channels/whatsapp", "DELETE", undefined, "WhatsApp disconnected.")}>
+            <button className={linkBtn} onClick={() => window.confirm("Disconnect WhatsApp? Customer messages stop being answered.") && patch("/api/channels/whatsapp", "DELETE", undefined, "WhatsApp disconnected.")}>
               Disconnect
             </button>
           ) : null}
@@ -620,7 +478,7 @@ export function Channels({ channels, patch, workspaceId }: { channels: ChannelSt
       <p className="mt-1 max-w-[70ch] text-[14px] text-muted">Where customers reach you. Autopilot sends replies on its own; Copilot drafts them for your team to approve in the inbox.</p>
       <ul className="mt-2 divide-y divide-line border-y border-line">
         <Telegram s={channels.telegram} patch={patch} workspaceId={workspaceId} />
-        <WhatsApp s={channels.whatsapp} meta={channels.metaApp} patch={patch} />
+        <WhatsApp s={channels.whatsapp} patch={patch} />
         <Card title="Website simulator" type="simulator" mode={channels.simulator.mode} patch={patch} status={<Chip tone="answered">Always on</Chip>}>
           <p className="text-[13.5px] text-fg-2">A phone on screen that talks to the same assistant. Test answers before going live, or use it as the fallback on stage.</p>
         </Card>

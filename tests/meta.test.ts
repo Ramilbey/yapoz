@@ -13,6 +13,9 @@ import { workspaceForWhatsAppNumber, whatsappCreds, channelStatus } from "../src
 // The demo workspace (FORNO7) falls back to env credentials; any other business uses its own.
 process.env.WHATSAPP_TOKEN = "wa-token";
 process.env.WHATSAPP_PHONE_NUMBER_ID = "1065";
+// Yapoz's one Meta app: its secret signs every webhook and its verify token answers Meta's handshake.
+process.env.META_APP_SECRET = "a".repeat(32);
+process.env.WHATSAPP_VERIFY_TOKEN = "salon-verify";
 
 const requests: { url: string; auth: string; body: Record<string, unknown> }[] = [];
 globalThis.fetch = (async (url: string, init?: RequestInit) => {
@@ -21,11 +24,9 @@ globalThis.fetch = (async (url: string, init?: RequestInit) => {
   return new Response(JSON.stringify({ messages: [{ id: "wamid.X" }], message_id: "mid.Y", recipient_id: "r" }), { status: 200, headers: { "content-type": "application/json" } });
 }) as typeof fetch;
 
-let salonWaChannel = "";
 before(async () => {
   const [wa] = await db.select().from(t.channels).where(and(eq(t.channels.workspaceId, "KASIH1"), eq(t.channels.type, "whatsapp")));
-  await db.update(t.channels).set({ credentialsEnc: encryptJson({ token: "salon-wa-token", appSecret: "a".repeat(32), verifyToken: "salon-verify" }), config: { phoneNumberId: "2077", displayPhone: "+60 3-1234 5678" } }).where(eq(t.channels.id, wa.id));
-  salonWaChannel = wa.id;
+  await db.update(t.channels).set({ credentialsEnc: encryptJson({ token: "salon-wa-token" }), config: { phoneNumberId: "2077", displayPhone: "+60 3-1234 5678" } }).where(eq(t.channels.id, wa.id));
 });
 after(async () => {
   await db.update(t.channels).set({ credentialsEnc: null, config: {} }).where(and(eq(t.channels.workspaceId, "KASIH1"), eq(t.channels.type, "whatsapp")));
@@ -91,37 +92,29 @@ test("WhatsApp: 'typing…' is shown on the customer's message with the business
   assert.equal(requests.length, before + 1);
 });
 
-test("WhatsApp: a business's own webhook URL checks its verify token and app secret", async () => {
-  const { GET, POST } = await import("../src/app/api/webhooks/whatsapp/[channelId]/route");
-  const params = { params: Promise.resolve({ channelId: salonWaChannel }) };
-  const ok = await GET(new Request(`http://x/api/webhooks/whatsapp/${salonWaChannel}?hub.mode=subscribe&hub.verify_token=salon-verify&hub.challenge=42`), params);
+test("WhatsApp: the one webhook checks the verify token and the app secret, and routes by phone number", async () => {
+  const { GET, POST } = await import("../src/app/api/webhooks/whatsapp/route");
+  const ok = await GET(new Request("http://x/api/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=salon-verify&hub.challenge=42"));
   assert.equal(await ok.text(), "42");
-  const bad = await GET(new Request(`http://x/api/webhooks/whatsapp/${salonWaChannel}?hub.mode=subscribe&hub.verify_token=nope&hub.challenge=42`), params);
+  const bad = await GET(new Request("http://x/api/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=nope&hub.challenge=42"));
   assert.equal(bad.status, 403);
-  const raw = JSON.stringify({ entry: [{ changes: [{ value: { statuses: [{ id: "s" }] } }] }] });
-  const unsigned = await POST(new Request("http://x", { method: "POST", body: raw }), params);
-  assert.equal(unsigned.status, 401);
-  const sig = "sha256=" + createHmac("sha256", "a".repeat(32)).update(raw).digest("hex");
-  const signed = await POST(new Request("http://x", { method: "POST", body: raw, headers: { "x-hub-signature-256": sig } }), params);
-  assert.equal(signed.status, 200);
-  // A forged message with no signature is refused, and the owner is told the app secret didn't match.
-  const forged = JSON.stringify({ entry: [{ changes: [{ field: "messages", value: { metadata: { phone_number_id: "2077" }, messages: [{ from: "60111", id: "wamid.F", timestamp: "1760950000", type: "text", text: { body: "free pizza?" } }] } }] }] });
-  assert.equal((await POST(new Request("http://x", { method: "POST", body: forged }), params)).status, 401);
-  assert.equal((await channelStatus("KASIH1")).whatsapp.lastWebhookIssue, "signature");
+  const sign = (raw: string) => "sha256=" + createHmac("sha256", "a".repeat(32)).update(raw).digest("hex");
+  const msg = (id: string, phone: string) => JSON.stringify({ entry: [{ changes: [{ field: "messages", value: { metadata: { phone_number_id: phone }, messages: [{ from: "60111", id, timestamp: "1760950000", type: "text", text: { body: "free pizza?" } }] } }] }] });
+  // A forged message with no signature is refused.
+  assert.equal((await POST(new Request("http://x", { method: "POST", body: msg("wamid.F", "2077") }))).status, 401);
+  // A signed one for the salon's number is accepted and noted, so Settings can show the webhook works.
+  const real = msg("wamid.R", "2077");
+  assert.equal((await POST(new Request("http://x", { method: "POST", body: real, headers: { "x-hub-signature-256": sign(real) } }))).status, 200);
+  assert.ok((await channelStatus("KASIH1")).whatsapp.lastWebhookAt);
 });
 
-test("WhatsApp: Meta's Test button sample is recorded as proof the webhook works, but not answered", async () => {
-  const { POST } = await import("../src/app/api/webhooks/whatsapp/[channelId]/route");
-  const params = { params: Promise.resolve({ channelId: salonWaChannel }) };
+test("WhatsApp: Meta's Test button sample, for a made-up number, is acknowledged but not answered", async () => {
+  const { POST } = await import("../src/app/api/webhooks/whatsapp/route");
   const sample = JSON.stringify({ object: "whatsapp_business_account", entry: [{ id: "0", changes: [{ field: "messages", value: { metadata: { phone_number_id: "123456123" }, messages: [{ from: "16315551181", id: "ABGGFlA5Fpa", timestamp: "1504902988", type: "text", text: { body: "this is a text message" } }] } }] }] });
   const sig = "sha256=" + createHmac("sha256", "a".repeat(32)).update(sample).digest("hex");
   const before = await db.select({ id: t.customers.id }).from(t.customers).where(eq(t.customers.externalId, "16315551181"));
-  const res = await POST(new Request("http://x", { method: "POST", body: sample, headers: { "x-hub-signature-256": sig } }), params);
+  const res = await POST(new Request("http://x", { method: "POST", body: sample, headers: { "x-hub-signature-256": sig } }));
   assert.equal(res.status, 200);
-  const st = (await channelStatus("KASIH1")).whatsapp;
-  assert.equal(st.lastWebhookTest, true);
-  assert.equal(st.lastWebhookIssue, null);
-  assert.ok(st.lastWebhookAt);
   const afterRows = await db.select({ id: t.customers.id }).from(t.customers).where(eq(t.customers.externalId, "16315551181"));
   assert.equal(afterRows.length, before.length, "the sample isn't ingested");
 });
