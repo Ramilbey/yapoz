@@ -1,7 +1,7 @@
 // The Phase 2 measures, read from what the system recorded: orders, their items and stock holds, receipts and their
 // checks, staff actions in the activity log, and staff messages. Only BASELINE_STEPS and the targets are fixed numbers;
 // a measure with nothing to measure is null, never a zero or a hundred.
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, or } from "drizzle-orm";
 import { db, t } from "@/db";
 import type { ReceiptCheck } from "@/db/schema";
 import { modeOf } from "./stock";
@@ -45,12 +45,16 @@ export function summarise(orders: OrderFacts[], receipts: { checks: Pick<Receipt
 
 export type Benefit = ReturnType<typeof summarise>;
 
-/** One business's chat orders (bookings are a separate flow). `demo` picks the labelled test records instead of the real ones. */
-export async function measureBenefit(workspaceId: string, o: { demo?: boolean } = {}): Promise<Benefit> {
+/**
+ * One business's chat orders (bookings are a separate flow). `demo` picks the labelled test records instead of the others.
+ * Simulator orders aren't flagged as demo, so `from` separates them from orders that came in on a real channel.
+ */
+export async function measureBenefit(workspaceId: string, o: { demo?: boolean; from?: "customers" | "simulator" } = {}): Promise<Benefit> {
   const isDemo = Boolean(o.demo);
   const [ws] = await db.select().from(t.workspaces).where(eq(t.workspaces.id, workspaceId));
   if (!ws) throw new Error(`No business with the id ${workspaceId}.`);
-  const orders = await db.select().from(t.orders).where(and(eq(t.orders.workspaceId, workspaceId), eq(t.orders.kind, "order"), eq(t.orders.isDemo, isDemo)));
+  const from = o.from === "simulator" ? eq(t.orders.channel, "simulator") : o.from === "customers" ? or(isNull(t.orders.channel), ne(t.orders.channel, "simulator")) : undefined;
+  const orders = await db.select().from(t.orders).where(and(eq(t.orders.workspaceId, workspaceId), eq(t.orders.kind, "order"), eq(t.orders.isDemo, isDemo), from));
   const ids = orders.map((r) => r.id);
   const receipts = ids.length ? await db.select({ checks: t.orderReceipts.checks }).from(t.orderReceipts).where(inArray(t.orderReceipts.orderId, ids)) : [];
   if (!ids.length) return summarise([], receipts);
@@ -93,6 +97,23 @@ export function benefitRows(b: Benefit): BenefitRow[] {
     { label: "Orders priced and stock-checked", baseline: null, target: `${pct(TARGET.pricedShare)} or more`, measured: b.orders.share === null ? null : pct(b.orders.share), counted: `${b.orders.pricedAndChecked} of ${b.orders.total} ${b.orders.total === 1 ? "order" : "orders"}`, met: b.orders.met },
     { label: "Receipts checked for amount, payee, date and reuse", baseline: null, target: pct(TARGET.receiptShare), measured: b.receipts.share === null ? null : pct(b.receipts.share), counted: `${b.receipts.fullyChecked} of ${b.receipts.total} ${b.receipts.total === 1 ? "receipt" : "receipts"}`, met: b.receipts.met },
   ];
+}
+
+export type BenefitSet = { kind: "real" | "test" | "demo"; label: string; note: string | null; measured: boolean; rows: BenefitRow[] };
+
+/**
+ * What the Today panel shows, each kind of record measured on its own and never added together. Only orders from a real
+ * channel on a real business count as customers: everything on a sample business, and the simulator anywhere, is a test.
+ */
+export async function benefitSets(ws: { id: string; settings: { sample?: boolean } }, includeDemo: boolean): Promise<BenefitSet[]> {
+  const set = async (kind: BenefitSet["kind"], label: string, note: string | null, o: Parameters<typeof measureBenefit>[1]) => {
+    const b = await measureBenefit(ws.id, o);
+    return { kind, label, note, measured: b.orders.total + b.receipts.total > 0, rows: benefitRows(b) };
+  };
+  const own = ws.settings.sample
+    ? [await set("test", "Test orders", "From trying out this sample business, not real customers", {})]
+    : [await set("real", "Customer orders", null, { from: "customers" }), await set("test", "Test orders", "From your simulator, not real customers", { from: "simulator" })].filter((s) => s.kind === "real" || s.measured);
+  return includeDemo ? [...own, await set("demo", "Demo data", "Seeded test records, not real customers", { demo: true })] : own;
 }
 
 export function benefitReport(b: Benefit): string {
