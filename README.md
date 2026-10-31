@@ -59,6 +59,8 @@ AI interprets the request and calls defined business tools. Backend rules valida
 - **Stock modes:** items can be "Made to order", "Daily quantity" (a fresh count each business day, with future days set on Today) or "Count stock" (on-hand count). Defaults live in Settings → Stock; items can override them in Knowledge.
 - **Stock holds:** a pending order holds its stock. With payments on, the hold lasts 20 minutes unless a receipt passes checks. The AI only says "in stock", "sold out" or "at most N", with N read from the database.
 - **Receipt review:** compare extracted receipt information with the order and configured account details, highlighting inconsistencies and possible duplicates.
+- **Answers from taught FAQs:** the AI searches the owner's FAQs before it escalates. Matching FAQs are handed to it up front, and an escalation the customer may still answer is held instead of sent straight to staff.
+- **No false receipts:** a file that was not saved is flagged in the chat, the prompt forbids the AI from saying it received it, and a reply that does is replaced with an honest one.
 - **Traceable outcomes:** display order status, handling information and timestamps, with backend events recording actions.
 - **Reusable workspaces:** configure different catalogues, product options and policies without rebuilding the workflow.
 - **Appointments:** customers book services in chat; the AI only offers free times (opening hours ∩ each staff member's hours, minus other bookings), staff approve bookings like orders, online services get a meeting link, reminders go out before the start, and staff mark attendance on the Calendar.
@@ -74,7 +76,11 @@ We designed Yapoz as a potential customer-order module for Orbyte. Orbyte's home
 
 Our proposed integration would use business workspace and role information through Connect, then share approved order events with relevant connected services. A usage charge per completed order would suit Orbyte's pay-when-work-happens credit wallet. This comes from Orbyte's public homepage and hasn't been confirmed by Orbyte. Yapoz isn't an Orbyte partner.
 
-**This integration is proposed, not live.** These interfaces are our design assumptions, not verified Orbyte API endpoints. Our prototype demonstrates its own workflow using synthetic data. The assumed workspace and role data coming in, the approved-order event going out, and the questions we would put to Orbyte are written up in [docs/orbyte-integration.md](docs/orbyte-integration.md); the event payload is built in `src/lib/orbyte.ts` and checked by a test, but nothing is sent anywhere.
+**This integration is proposed, not live.** These interfaces are our design assumptions, not verified Orbyte API endpoints. Our prototype demonstrates its own workflow using synthetic data. The assumed workspace and role data coming in, the order events going out, and the questions we would put to Orbyte are written up in [docs/orbyte-integration.md](docs/orbyte-integration.md).
+
+**Events we would send.** `src/lib/orbyte.ts` builds four events, each checked by a test: order waiting for approval (`yapoz.order.pending_approval.v1`), approved, rejected and order completed (a usage event for the credit wallet). A rejection must carry a reason code, plus a written reason when the code is "Other": the server refuses one without it, and the reason travels in the event. Events are signed with HMAC-SHA256 using a per-business secret. Staff can see every event an order has reached under **Details → Orbyte events** on its card, and a read-only route (`/api/orders/[id]/orbyte`) returns the same preview. **Nothing is sent anywhere**: there is no outbox or sender yet, because we have no Orbyte endpoint to send to.
+
+**What we saw in Orbyte.** In the committee's demo workspace we looked through the dashboard without changing anything. Its Pending Actions queue is split into Submit, Review and Approve, users carry Approver and Reviewer flags, the Wallet holds shared credits, and the Integrations tab activates Documenso and lists failed sync jobs. Projects can already come from Azure DevOps through a source column and a Sync all button, so a Yapoz source would follow a pattern Orbyte already has. No screen for registering an outside app, and no webhook or API page, was visible to that account. We therefore map our events to those screens and treat the connection itself as an assumption.
 
 A bakery, gift shop or retailer could use the same request, validation, approval and logging process with a different catalogue. We include three fictional sample businesses: **Forno Sette** (`FORNO7`, a pizzeria), **Kasih Hair Studio** (`KASIH1`, a salon) and **Dapur Mak Long Catering** (`CATER1`, built through the normal setup import with no business-specific code; what it could not do is listed in [docs/third-business-gaps.md](docs/third-business-gaps.md)). Use Forno Sette for the order demonstration.
 
@@ -119,6 +125,7 @@ The provider router also contains optional adapters for other AI services. Their
 | `src/agent/` | AI routing, shared conversation pipeline and tools |
 | `src/channels/` | Messaging adapters and connection handling |
 | `src/lib/orders.ts` | Order transitions, stock handling and events |
+| `src/lib/orbyte.ts` | Builds and signs the four Orbyte event payloads; nothing is sent |
 | `src/lib/stock.ts` | Stock modes, holds, availability, expiry and low-stock alerts |
 | `src/lib/receipts.ts` | Receipt extraction and consistency checks |
 | `src/db/` and `drizzle/` | Database schema, access and migrations |
@@ -265,7 +272,7 @@ The repository does not include a `.replit` run configuration. Our current publi
 
 ### Run Tests
 
-The suite has **264 automated tests** in 34 files (`npm test`). Our tests cover areas including business tools, order transitions and the approval gate, receipt checks, AI routing and failure handling, onboarding, channel logic, tenant isolation, prompt-injection handling, data export and retention, and the Orbyte event payload. Some tests call the configured AI providers, so a provider's rate limit can fail a run; mocked API tests do not replace live channel testing.
+The suite has over 250 automated tests in 36 files (`npm test`). Our tests cover areas including business tools, order transitions and the approval gate, receipt checks, FAQ matching, unsaved-file handling, AI routing and failure handling, onboarding, channel logic, tenant isolation, prompt-injection handling, data export and retention, and the Orbyte event payloads. Some tests call the configured AI providers, so a provider's rate limit can fail a run; mocked API tests do not replace live channel testing.
 
 Use a dedicated test database with the required schema and sample data:
 
@@ -315,7 +322,7 @@ Dependencies appear in `package.json` and `package-lock.json`. Third-party libra
 - Validate the workflow with SME owners and first-time users.
 - Measure handling time and error rates across the same 20 synthetic scenarios.
 - Add a clearly labelled synthetic receipt-upload path to the website simulator.
-- Implement and test the proposed Orbyte integration once its interfaces are confirmed.
+- Build the outbox and sender for the Orbyte events (retries, and a failed-delivery list), and test them against Orbyte once its interfaces are confirmed.
 - Improve response latency, provider resilience and error explanations.
 - Complete relevant platform approvals and broaden independent channel testing.
 - Validate usage-based pricing and production data-handling controls.
