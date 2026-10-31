@@ -6,6 +6,7 @@
 import { and, asc, eq, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { db, t } from "@/db";
 import type { StockMode, StockSettings } from "@/db/schema";
+import { queueBookingSync } from "./google-calendar";
 import { addLocalDays, fmt, human, localDate, minutesOf, zoned } from "./time";
 import { hoursForDate, type HoursData } from "./hours";
 import { lockStaff, slotTaken, when } from "./schedule";
@@ -321,6 +322,8 @@ export async function expireDueOrders(workspaceId?: string): Promise<number> {
   const wss = await db.select().from(t.workspaces).where(inArray(t.workspaces.id, [...new Set(claimed.map((o) => o.workspaceId))]));
   for (const o of claimed) {
     const ws = wss.find((w) => w.id === o.workspaceId);
+    // A confirmed booking that was moved and then asked for a new receipt can expire with its calendar event still there.
+    await queueBookingSync(o);
     // A receipt card still warning that this order "expires unless you act" would be stale now: say what happened instead.
     await db
       .update(t.escalations)

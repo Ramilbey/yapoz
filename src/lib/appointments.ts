@@ -6,6 +6,7 @@ import { and, asc, eq, gte, inArray, isNull, lt, ne, sql } from "drizzle-orm";
 import { db, t } from "@/db";
 import type { Attendance } from "@/db/schema";
 import type { AppointmentView, StaffView } from "./appointment-types";
+import { queueBookingSync } from "./google-calendar";
 import { formatMoney } from "./money";
 import { placeLine, placeOrder, recentBooking, StockProblem, type OrderItemRow, type OrderRow } from "./orders";
 import { handOver, resolveCards } from "./receipts";
@@ -145,6 +146,7 @@ export async function changeAppointment(ws: Ws, o: { threadId: string; orderId: 
       return done;
     });
     if (!r) return no("That booking isn't active any more.");
+    await queueBookingSync(r);
     await resolveCards(ws.id, { orderId: r.id }, null);
     const paid = await hasPayment(r);
     if (paid) await handOver(ws.id, o.threadId, { category: "refund", priority: "normal", reason: "Paid booking cancelled by the customer", summary: `${r.customerName} cancelled booking ${r.refCode} (${when(ws, found.a.startsAt)}), which was paid (${formatMoney(r.totalMinor, r.currency)}). Arrange the refund or a credit with them.`, isDemo: o.isDemo });
@@ -185,6 +187,7 @@ export async function changeAppointment(ws: Ws, o: { threadId: string; orderId: 
   });
   if (moved === "gone") return no("That booking isn't active any more.");
   if (moved === "taken") return no("That time was just taken by another booking.");
+  await queueBookingSync(moved.order);
   const [facts] = await bookingFacts(db, [moved.order.id]);
   return { ok: true, action: "rescheduled", order: moved.order, facts, from: found.a.startsAt, reconfirm: moved.reconfirm };
 }
