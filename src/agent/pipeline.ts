@@ -133,6 +133,20 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
   const [inbound] = await db.select().from(t.messages).where(eq(t.messages.id, inboundMessageId));
   // "Typing…" while the AI works. Autopilot only: a Copilot reply waits for staff, so the customer would see typing, then nothing.
   const stopTyping = mode === "autopilot" ? keepTyping(adapterFor(thread.channel), thread, { externalMessageId: inbound.externalMessageId }) : () => {};
+  // Whatever happens below, the indicator stops with the run.
+  try {
+    return await answer({ ws, thread, customer, inbound, mode, stopTyping, started, isDemo: opts.isDemo });
+  } finally {
+    stopTyping();
+  }
+}
+
+type Run = { ws: Workspace; thread: ThreadRow; customer: typeof t.customers.$inferSelect; inbound: typeof t.messages.$inferSelect; mode: "autopilot" | "copilot"; stopTyping: () => void; started: number; isDemo?: boolean };
+
+async function answer({ ws, thread, customer, inbound, mode, stopTyping, started, isDemo }: Run): Promise<RespondResult> {
+  const threadId = thread.id;
+  const inboundMessageId = inbound.id;
+  const opts = { isDemo };
   // Unpaid orders past their timer are expired before anything reads them (the receipt check, the AI's order list).
   await expireDueOrders(ws.id).catch((e) => console.error("[stock] expiry failed", e));
   await sendDueReminders(ws.id).catch((e) => console.error("[appointments] reminders failed", e));
@@ -144,6 +158,7 @@ export async function respond(threadId: string, inboundMessageId: string, opts: 
       return null;
     });
     if (receipt) {
+      stopTyping();
       const sent = await deliver(thread, receipt.reply, { author: "ai", status: mode === "copilot" ? "pending_approval" : "sent", isDemo: opts.isDemo });
       await db.insert(t.events).values({ workspaceId: ws.id, type: "message.answered", props: { channel: thread.channel, outcome: "receipt", threadId, status: sent.status }, isDemo: Boolean(opts.isDemo) });
       return { reply: receipt.reply, status: sent.status, outcome: "receipt", latencyMs: Date.now() - started };
