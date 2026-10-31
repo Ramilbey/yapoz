@@ -1,3 +1,4 @@
+import { log } from "./log";
 // Transactional email through Resend's REST API. Without a key, dev prints the message to the server console.
 
 export const canSendEmail = () => Boolean(process.env.RESEND_API_KEY) || process.env.NODE_ENV !== "production";
@@ -5,7 +6,7 @@ export const canSendEmail = () => Boolean(process.env.RESEND_API_KEY) || process
 export async function sendEmail(m: { to: string; subject: string; text: string; html: string }) {
   const key = process.env.RESEND_API_KEY;
   if (!key) {
-    console.log(`[email] to ${m.to}: ${m.subject}\n${m.text}`);
+    log.info("email.dev_print", { to: m.to, subject: m.subject, text: m.text });
     return;
   }
   const res = await fetch("https://api.resend.com/emails", {

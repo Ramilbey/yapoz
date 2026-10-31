@@ -6,6 +6,7 @@ import { db, t } from "@/db";
 import { and, eq, sql } from "drizzle-orm";
 import { ingest, respond } from "@/agent/pipeline";
 import type { Attachment } from "@/db/schema";
+import { log } from "@/lib/log";
 
 const WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -33,7 +34,7 @@ async function noteSend(workspaceId: string, error: string | null) {
   const q = error
     ? db.update(t.channels).set({ config: sql`${t.channels.config} || ${JSON.stringify({ lastSendError: error, lastSendErrorAt: new Date().toISOString() })}::jsonb` }).where(where)
     : db.update(t.channels).set({ config: sql`${t.channels.config} - 'lastSendError' - 'lastSendErrorAt'` }).where(and(where, sql`${t.channels.config} ? 'lastSendError'`));
-  await q.catch((e) => console.error("[whatsapp] couldn't record send status", e));
+  await q.catch((e) => log.error("whatsapp.send_status_failed", { workspaceId, err: e }));
 }
 
 export const digits = (s: string) => s.replace(/\D/g, "");
@@ -78,7 +79,7 @@ export async function sendWhatsAppTyping(workspaceId: string, messageId: string)
   });
   if (!res.ok) {
     const j = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
-    console.warn(`[whatsapp] typing indicator refused (${res.status}): ${j.error?.message ?? "unknown error"}`);
+    log.warn("whatsapp.typing_refused", { status: res.status, reason: j.error?.message ?? "unknown error" });
   }
 }
 

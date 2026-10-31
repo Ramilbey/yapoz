@@ -12,6 +12,7 @@ import { availability, availKey, businessDate, checkLowStock, consumeForOrder, f
 import { bookingFacts, lockStaff, SlotTaken, slotTaken, when, type BookingFacts } from "./schedule";
 import { human } from "./time";
 import type { OrderAppointment } from "./appointment-types";
+import { log } from "./log";
 
 type Ws = typeof t.workspaces.$inferSelect;
 export type OrderRow = typeof t.orders.$inferSelect;
@@ -129,7 +130,7 @@ export async function placeOrder(ws: Ws, input: OrderInput): Promise<{ ok: true;
       return { order, items, duplicate: false, held: held.holds.map((h) => h.variantId) };
     });
     if (done) {
-      if (done.held?.length) await checkLowStock(ws.id, done.held).catch((e) => console.error("[stock] low-stock check failed", e));
+      if (done.held?.length) await checkLowStock(ws.id, done.held).catch((e) => log.error("stock.low_stock_check_failed", { workspaceId: ws.id, err: e }));
       return { ok: true, order: done.order, items: done.items, duplicate: done.duplicate };
     }
   }
@@ -262,7 +263,7 @@ export async function transitionOrder(o: { workspaceId: string; orderId: string;
     await queueBookingSync(r.order);
     // Decided: a receipt card about this order (its expiry warning included) has nothing left to ask.
     await resolveCards(o.workspaceId, { orderId: o.orderId }, o.userId);
-    await checkLowStock(o.workspaceId, r.items.map((i) => i.variantId).filter((x): x is string => Boolean(x))).catch((e) => console.error("[stock] low-stock check failed", e));
+    await checkLowStock(o.workspaceId, r.items.map((i) => i.variantId).filter((x): x is string => Boolean(x))).catch((e) => log.error("stock.low_stock_check_failed", { workspaceId: o.workspaceId, orderId: o.orderId, err: e }));
   }
   return r;
 }

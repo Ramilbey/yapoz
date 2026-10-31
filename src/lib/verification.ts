@@ -8,6 +8,7 @@ import { safeEqual } from "./crypto";
 import { sendEmail } from "./email";
 import { hit } from "./ratelimit";
 import { authSecret } from "./session";
+import { log } from "./log";
 
 type User = typeof t.users.$inferSelect;
 
@@ -61,7 +62,7 @@ export async function sendCode(user: User): Promise<"sent" | "throttled" | "fail
     });
     return "sent";
   } catch (e) {
-    console.error("Verification email failed:", e);
+    log.error("verification.email_failed", { err: e });
     return "failed";
   }
 }

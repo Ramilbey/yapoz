@@ -7,6 +7,7 @@ import { db, t } from "@/db";
 import { audit } from "./audit";
 import { enqueue, MAX_ATTEMPTS, type JobHandler } from "./jobs";
 import { bookingFacts, type BookingFacts } from "./schedule";
+import { log } from "./log";
 
 const API = "https://www.googleapis.com/calendar/v3";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -118,7 +119,7 @@ export async function queueBookingSync(order: Pick<Order, "id" | "workspaceId" |
   try {
     if (await settingsFor(order.workspaceId)) await enqueue("calendar.sync", { orderId: order.id }, { workspaceId: order.workspaceId });
   } catch (e) {
-    console.error("[calendar] couldn't queue the sync", e);
+    log.error("calendar.queue_sync_failed", { workspaceId: order.workspaceId, orderId: order.id, err: e });
   }
 }
 

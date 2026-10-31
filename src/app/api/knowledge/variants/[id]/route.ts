@@ -5,6 +5,7 @@ import { apiSession, handle, HttpError } from "@/lib/auth";
 import { body, ok } from "@/lib/api";
 import { audit } from "@/lib/audit";
 import { checkLowStock } from "@/lib/stock";
+import { log } from "@/lib/log";
 
 const Patch = z.object({
   stock: z.number().int().min(0).nullable().optional(),
@@ -38,7 +39,7 @@ export const PATCH = handle(async (req: Request, ctx: { params: Promise<{ id: st
   }
   await audit(s, "kb.variant_updated", props);
   if (before && v.stock !== null && (before.stock ?? 0) < v.stock) await audit(s, "stock.restocked", { itemId: v.itemId, itemTitle: props.itemTitle, variant: props.variant, from: before.stock, to: v.stock });
-  if (before && (before.stock !== v.stock || before.lowStockAt !== v.lowStockAt)) await checkLowStock(s.workspaceId, [v.id]).catch((e) => console.error("[stock] low-stock check failed", e));
+  if (before && (before.stock !== v.stock || before.lowStockAt !== v.lowStockAt)) await checkLowStock(s.workspaceId, [v.id]).catch((e) => log.error("stock.low_stock_check_failed", { workspaceId: s.workspaceId, err: e }));
   return ok({ variant: v });
 });
 

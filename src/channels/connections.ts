@@ -6,6 +6,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { env } from "@/lib/env";
 import { decryptJson, encryptJson } from "@/lib/crypto";
 import { MetaError, checkNumber, embeddedSignupReady, exchangeSignupCode, inspectAccessToken, metaAppReady, registerNumber, subscribeWaba, unsubscribeWaba } from "./meta";
+import { log } from "@/lib/log";
 
 export type ChannelType = "telegram" | "whatsapp" | "simulator";
 type ChannelRow = typeof t.channels.$inferSelect;
@@ -127,7 +128,7 @@ export async function noteWhatsAppWebhook(workspaceId: string) {
     .update(t.channels)
     .set({ config: sql`${t.channels.config} || ${JSON.stringify({ lastWebhookAt: new Date().toISOString() })}::jsonb` })
     .where(and(eq(t.channels.workspaceId, workspaceId), eq(t.channels.type, "whatsapp")))
-    .catch((e) => console.error("[whatsapp:webhook] couldn't record status", e));
+    .catch((e) => log.error("whatsapp.webhook_status_failed", { workspaceId, err: e }));
 }
 
 /** Which business a WhatsApp phone number id belongs to. */

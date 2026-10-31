@@ -1,6 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { claude, addUsage, type Usage } from "./claude";
 import { env } from "@/lib/env";
+import { log } from "@/lib/log";
 
 export type Classification = {
   intent: string;
@@ -53,7 +54,7 @@ export async function classify(businessName: string, businessType: string, recen
     c.confidence = Math.max(0, Math.min(1, Number(c.confidence ?? 0.5)));
     return c;
   } catch (e) {
-    console.error("[classify] failed", e);
+    log.error("classify.failed", { err: e });
     return null;
   }
 }
