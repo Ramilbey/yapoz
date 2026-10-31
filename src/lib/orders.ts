@@ -5,6 +5,7 @@ import { and, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import { db, t } from "@/db";
 import type { ReceiptRequest } from "@/db/schema";
 import { shortCode } from "./crypto";
+import { queueBookingSync } from "./google-calendar";
 import { formatMoney } from "./money";
 import { paidSoFar, paymentLines, paymentsOf, receiptRequired, receiptsFor, resolveCards, type ReceiptSummary } from "./receipts";
 import { availability, availKey, businessDate, checkLowStock, consumeForOrder, firmHolds, holdActive, holdForOrder, releaseForOrder, restartHold, stockSettings, type Avail } from "./stock";
@@ -258,6 +259,7 @@ export async function transitionOrder(o: { workspaceId: string; orderId: string;
     return { ok: true, order: updated, items, notify };
   });
   if (r.ok && (o.action === "confirm" || o.action === "cancel" || o.action === "reject")) {
+    await queueBookingSync(r.order);
     // Decided: a receipt card about this order (its expiry warning included) has nothing left to ask.
     await resolveCards(o.workspaceId, { orderId: o.orderId }, o.userId);
     await checkLowStock(o.workspaceId, r.items.map((i) => i.variantId).filter((x): x is string => Boolean(x))).catch((e) => console.error("[stock] low-stock check failed", e));
