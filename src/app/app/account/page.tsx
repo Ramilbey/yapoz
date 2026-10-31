@@ -7,6 +7,7 @@ import { useToast } from "@/components/app/toast";
 import { Input, Label } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
 import { AlertSettingsForm } from "@/components/app/alert-settings";
+import { BellTestPanel } from "@/components/app/bell-test";
 
 export default function AccountPage() {
   const toast = useToast();
@@ -53,6 +54,7 @@ export default function AccountPage() {
           <Button type="submit" loading={busy === "pw"}>Change password</Button>
         </form>
         <AlertSettingsForm />
+        <BellTestPanel />
         <section className="space-y-3 md:col-span-2">
           <h2 className="font-display text-[20px] font-bold">Signed-in devices</h2>
           <p className="max-w-[60ch] text-[14px] text-muted">Lost a phone, or used a shared computer? Sign out everywhere else. Changing your password does this too.</p>

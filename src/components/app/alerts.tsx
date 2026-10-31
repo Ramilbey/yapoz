@@ -37,6 +37,11 @@ async function claim(ids: string[]) {
   return navigator.locks ? navigator.locks.request("yapoz-bell", take) : take();
 }
 
+const TEST_EVENT = "yapoz:test-alert";
+
+/** The test panel's pop-up, shown by the real alert stack below. */
+export const showTestPopup = () => window.dispatchEvent(new Event(TEST_EVENT));
+
 export function Alerts({ count, onNew }: { count: number; onNew: () => void }) {
   const pathname = usePathname();
   const [shown, setShown] = useState<Alert[]>([]);
@@ -81,6 +86,16 @@ export function Alerts({ count, onNew }: { count: number; onNew: () => void }) {
       window.removeEventListener("pointerdown", unlock);
     };
   }, [check]);
+
+  useEffect(() => {
+    const test = () => {
+      const id = `test:${Date.now()}`;
+      setShown((x) => [...x, { id, kind: "order" as const, title: "Test from Yapoz", body: "This is only a test. No order was placed.", url: "/app/account", at: new Date().toISOString() }].slice(-3));
+      setTimeout(() => hide(id), SHOW_MS);
+    };
+    window.addEventListener(TEST_EVENT, test);
+    return () => window.removeEventListener(TEST_EVENT, test);
+  }, [hide]);
 
   useEffect(() => {
     const base = document.title.replace(/^\(\d+\) /, "");
