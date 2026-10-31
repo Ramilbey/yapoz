@@ -38,6 +38,15 @@ test("no event for an order nobody approved, or one that was cancelled afterward
   assert.throws(() => approvedOrderEvent(order({ status: "cancelled" }), ITEMS, USER), /isn't approved/);
 });
 
+test("a rejection carries the chosen reason, in words even when staff typed none", () => {
+  const rejected = order({ status: "cancelled", confirmedAt: null, cancelledAt: new Date("2026-11-02T04:10:00.000Z"), cancelReason: null });
+  const coded = rejectedOrderEvent(rejected, USER, "out_of_stock");
+  assert.equal(coded.reasonCode, "out_of_stock");
+  assert.equal(coded.reason, "Out of stock");
+  const typed = rejectedOrderEvent({ ...rejected, cancelReason: "Oven is broken" }, USER, "other");
+  assert.equal(typed.reason, "Oven is broken");
+});
+
 test("a waiting order goes to the Approve queue with no customer details", () => {
   const event = pendingApprovalEvent(order({ status: "pending", confirmedAt: null, createdAt: new Date("2026-11-02T04:00:00.000Z"), customerName: "Sample Customer", phone: "+60 12-000 0000" }));
   assert.equal(event.action.queue, "approve");

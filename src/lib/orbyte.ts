@@ -3,6 +3,7 @@
 import { createHmac } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import { db, t } from "@/db";
+import { isReasonCode, REASON_LABELS } from "./order-reasons";
 import { lineTotal, noun, type OrderItemRow, type OrderRow } from "./orders";
 
 export const APPROVED_ORDER_EVENT = "yapoz.order.approved.v1";
@@ -54,7 +55,7 @@ export function pendingApprovalEvent(order: OrderRow) {
 }
 
 /** A rejection closes the queue item. It never gives Orbyte anything to act on. */
-export function rejectedOrderEvent(order: OrderRow, rejectedBy: string) {
+export function rejectedOrderEvent(order: OrderRow, rejectedBy: string, reasonCode?: string | null) {
   if (order.status !== "cancelled" || order.confirmedAt || !order.cancelledAt) throw new NotApproved(`Order ${order.refCode} wasn't rejected.`);
   return {
     event: "yapoz.order.rejected.v1",
@@ -62,7 +63,8 @@ export function rejectedOrderEvent(order: OrderRow, rejectedBy: string) {
     occurredAt: order.cancelledAt.toISOString(),
     workspaceId: order.workspaceId,
     rejectedBy: { userId: rejectedBy },
-    reason: order.cancelReason,
+    reasonCode: reasonCode ?? null,
+    reason: order.cancelReason ?? (isReasonCode(reasonCode) ? REASON_LABELS[reasonCode] : null),
     testData: order.isDemo,
     order: summary(order),
   };
@@ -93,12 +95,13 @@ export async function loadOrderEvents(workspaceId: string, orderId: string) {
   if (!order) return null;
   const items = await db.select().from(t.orderItems).where(eq(t.orderItems.orderId, order.id));
   const logged = await db.select({ type: t.events.type, props: t.events.props }).from(t.events).where(and(eq(t.events.workspaceId, workspaceId), inArray(t.events.type, ["order.confirmed", "order.rejected"])));
-  const decider = (type: string) => logged.map((e) => ({ type: e.type, ...(e.props as { orderId?: string; by?: string }) })).find((e) => e.type === type && e.orderId === order.id)?.by;
-  const approver = decider("order.confirmed");
-  const rejecter = decider("order.rejected");
+  const decision = (type: string) => logged.map((e) => ({ type: e.type, ...(e.props as { orderId?: string; by?: string; reasonCode?: string }) })).find((e) => e.type === type && e.orderId === order.id);
+  const approver = decision("order.confirmed")?.by;
+  const rejection = decision("order.rejected");
+  const rejecter = rejection?.by;
   const events: { stage: string; event: unknown }[] = [{ stage: "Waiting for approval", event: pendingApprovalEvent(order) }];
   if (approver && order.confirmedAt && ["confirmed", "ready", "completed"].includes(order.status)) events.push({ stage: "Approved", event: approvedOrderEvent(order, items, approver) });
-  if (rejecter && order.status === "cancelled" && !order.confirmedAt && order.cancelledAt) events.push({ stage: "Rejected", event: rejectedOrderEvent(order, rejecter) });
+  if (rejecter && order.status === "cancelled" && !order.confirmedAt && order.cancelledAt) events.push({ stage: "Rejected", event: rejectedOrderEvent(order, rejecter, rejection?.reasonCode) });
   if (order.status === "completed" && order.completedAt) events.push({ stage: "Completed: one unit of usage", event: orderUsageEvent(order) });
   return events;
 }

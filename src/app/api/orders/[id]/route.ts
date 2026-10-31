@@ -28,6 +28,7 @@ export const PATCH = handle(async (req: Request, ctx: { params: Promise<{ id: st
   const { id } = await ctx.params;
   if (!/^[0-9a-f-]{36}$/.test(id)) throw new HttpError(404, "Order not found.");
   const b = await body(req, Patch);
+  if (b.action === "reject" && (!b.reasonCode || (b.reasonCode === "other" && !b.reason))) throw new HttpError(400, "Say why you're rejecting this order.");
   const r = await transitionOrder({ workspaceId: s.workspaceId, orderId: id, action: b.action, userId: s.userId, reason: b.reason, reasonCode: b.reasonCode });
   if (!r.ok) throw new HttpError(r.status, r.error);
   let notified = null;

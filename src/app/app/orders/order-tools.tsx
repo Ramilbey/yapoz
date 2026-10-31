@@ -28,10 +28,10 @@ export function StopDialog({ order, action, onClose, onDone }: { order: Target |
             </button>
           ))}
         </div>
-        <Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={200} placeholder="Optional: what the customer should read" aria-label="Message to the customer" />
+        <Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={200} placeholder={code === "other" ? "Say why: the customer reads this" : "Optional: what the customer should read"} aria-label="Message to the customer" />
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>Back</Button>
-          <Button variant="danger" disabled={!code} onClick={() => code && onDone(code, reason)}>{action === "reject" ? "Reject" : "Cancel"}</Button>
+          <Button variant="danger" disabled={!code || (action === "reject" && code === "other" && !reason.trim())} onClick={() => code && onDone(code, reason)}>{action === "reject" ? "Reject" : "Cancel"}</Button>
         </div>
       </div>
     </Dialog>
